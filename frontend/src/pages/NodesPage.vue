@@ -1,93 +1,111 @@
 <template>
-  <div class="page-nodes">
-    <!-- Toolbar -->
-    <div class="nodes-toolbar">
-      <div class="search-wrap">
-        <IconField iconPosition="left">
-          <InputIcon class="pi pi-search" />
-          <InputText v-model="filter" placeholder="Поиск по имени, IP, DC, состоянию…" class="search-input" />
-        </IconField>
-        <Button v-if="filter" icon="pi pi-times" text size="small" @click="filter = ''" />
-        <span class="search-count">{{ filteredNodes.length }} / {{ cluster.nodes.length }}</span>
+  <div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Ноды кластера</h1>
+        <p class="page-subtitle">Детальные wsrep-метрики по каждому узлу</p>
       </div>
-      <Button
-        :icon="notifEnabled ? 'pi pi-bell-slash' : 'pi pi-bell'"
-        :label="notifEnabled ? 'Уведомления вкл' : 'Уведомления'"
-        size="small" :outlined="!notifEnabled" @click="toggleNotifications" />
+      <div style="display:flex;align-items:center;gap:var(--space-2)">
+        <label class="notif-toggle" title="Уведомления браузера при деградации кластера">
+          <input type="checkbox" v-model="notifEnabled" @change="toggleNotifications">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          Уведомления
+        </label>
+        <button class="btn btn-ghost btn-sm" @click="cluster.fetchStatus()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-.02-8.49"/>
+          </svg>
+          Обновить
+        </button>
+      </div>
     </div>
 
-    <!-- Node grid -->
-    <div class="nodes-grid mt-3">
-      <NodeCard v-for="node in filteredNodes" :key="node.id"
-        :node="node" :sparkline="cluster.sparklines[node.id]" />
+    <!-- Search -->
+    <div class="node-search-wrap">
+      <input
+        type="text"
+        class="node-search-input"
+        v-model="searchQuery"
+        placeholder="Поиск по имени, IP, DC, состоянию..."
+      />
+      <span class="node-search-count">{{ filteredNodes.length }} из {{ cluster.nodes.length }}</span>
+      <button
+        v-if="searchQuery"
+        class="btn btn-ghost btn-sm"
+        @click="searchQuery = ''"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
     </div>
 
-    <div v-if="filteredNodes.length === 0" class="no-results">
-      <i class="pi pi-search" style="font-size:2rem;color:var(--color-text-muted)" />
-      <p>Нода не найдена по запросу «{{ filter }}»</p>
+    <div v-if="cluster.loading && !cluster.nodes.length" style="text-align:center;padding:var(--space-10);color:var(--text-muted)">
+      <span class="spin-dot" style="margin-right:8px"></span>
+      Загрузка данных…
+    </div>
+
+    <div v-else-if="!filteredNodes.length && searchQuery" style="text-align:center;padding:var(--space-10);color:var(--text-muted)">
+      Ничего не найдено по запросу «{{ searchQuery }}»
+    </div>
+
+    <div class="nodes-grid">
+      <NodeCard
+        v-for="node in filteredNodes"
+        :key="node.id"
+        :node="node"
+        @action="handleNodeAction"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { useWebNotification } from '@vueuse/core'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
-import Button from 'primevue/button'
+import { ref, computed } from 'vue'
+import { useToast } from 'primevue/usetoast'
 import NodeCard from '@/components/nodes/NodeCard.vue'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster.js'
 
-const cluster = useClusterStore()
-const filter = ref('')
-const notifEnabled = ref(false)
+const cluster        = useClusterStore()
+const toast          = useToast()
+const searchQuery    = ref('')
+const notifEnabled   = ref(false)
 
 const filteredNodes = computed(() => {
-  const q = filter.value.toLowerCase()
+  const q = searchQuery.value.toLowerCase().trim()
   if (!q) return cluster.nodes
-  return cluster.nodes.filter(n =>
-    (n.name || n.id || '').toLowerCase().includes(q) ||
-    (n.host || '').toLowerCase().includes(q) ||
-    (n.dc || '').toLowerCase().includes(q) ||
-    (n.wsrep_local_state_comment || '').toLowerCase().includes(q) ||
-    (n.wsrep_cluster_status || '').toLowerCase().includes(q)
-  )
+  return cluster.nodes.filter(n => {
+    const haystack = [
+      n.name, n.id, n.host, n.dc,
+      n.state, n.wsrep_local_state_comment,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(q)
+  })
 })
 
-// ── useWebNotification ───────────────────────────────────────────
-const { isSupported, permissionGranted, requestPermission, show } = useWebNotification({
-  title: 'Galera Orchestrator',
-  icon: '/favicon.svg',
-})
-
-async function toggleNotifications() {
-  if (notifEnabled.value) { notifEnabled.value = false; return }
-  if (!isSupported.value) { alert('Браузерные уведомления не поддерживаются'); return }
-  await requestPermission()
-  if (permissionGranted.value) notifEnabled.value = true
+function toggleNotifications(e) {
+  if (e.target.checked) {
+    Notification.requestPermission().then(p => {
+      if (p !== 'granted') {
+        notifEnabled.value = false
+        toast.add({ severity: 'warn', summary: 'Уведомления', detail: 'Разрешение не выдано', life: 3000 })
+      }
+    })
+  }
 }
 
-// Watch for triggers
-watch(() => cluster.nodes, (nodes) => {
-  if (!notifEnabled.value) return
-  nodes.forEach(n => {
-    if (n.wsrep_cluster_status && n.wsrep_cluster_status !== 'Primary')
-      show({ title: 'Galera Orchestrator', body: `${n.name}: non-Primary!` })
-    if (parseFloat(n.wsrep_flow_control_paused) > 0.1)
-      show({ title: 'Flow Control', body: `${n.name}: fc_paused = ${n.wsrep_flow_control_paused}` })
-    if (n.online === false)
-      show({ title: 'Нода Offline', body: `${n.name}: OFFLINE` })
-  })
-}, { deep: true })
+async function handleNodeAction({ nodeId, action }) {
+  try {
+    await cluster.nodeAction(nodeId, action)
+    toast.add({ severity: 'success', summary: 'Готово', detail: `${action} → ${nodeId}`, life: 3000 })
+    await cluster.fetchStatus()
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: String(e.message), life: 5000 })
+  }
+}
 </script>
-
-<style scoped>
-.page-nodes { display: flex; flex-direction: column; }
-.nodes-toolbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.search-wrap { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 200px; }
-.search-input { width: 100%; }
-.search-count { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
-.mt-3 { margin-top: 1rem; }
-.no-results { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 3rem 1rem; color: var(--color-text-muted); text-align: center; }
-</style>

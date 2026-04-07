@@ -1,150 +1,146 @@
 <template>
-  <aside class="app-sidebar">
-    <!-- Logo -->
-    <div class="sidebar-logo">
-      <svg viewBox="0 0 36 36" width="32" height="32" fill="none" aria-label="Galera Orchestrator">
-        <circle cx="18" cy="18" r="17" stroke="#3b82f6" stroke-width="2"/>
-        <circle cx="10" cy="18" r="4" fill="#22c55e"/>
-        <circle cx="26" cy="18" r="4" fill="#22c55e"/>
-        <circle cx="18" cy="10" r="4" fill="#3b82f6"/>
-        <line x1="14" y1="18" x2="22" y2="18" stroke="#3b82f6" stroke-width="1.5"/>
-        <line x1="18" y1="10" x2="10" y2="18" stroke="#3b82f6" stroke-width="1.5"/>
-        <line x1="18" y1="10" x2="26" y2="18" stroke="#3b82f6" stroke-width="1.5"/>
+  <nav class="app-sidebar">
+    <!-- МОНИТОРИНГ -->
+    <div class="nav-section-label">Мониторинг</div>
+    <router-link to="/overview" class="nav-item" :class="{ active: $route.name === 'overview' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/>
+        <rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/>
       </svg>
-      <div class="logo-text">
-        <span class="logo-name">Galera</span>
-        <span class="logo-sub">Orchestrator v2</span>
-      </div>
-    </div>
+      Обзор
+    </router-link>
+    <router-link to="/nodes" class="nav-item" :class="{ active: $route.name === 'nodes' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="2" width="20" height="8" rx="2"/>
+        <rect x="2" y="14" width="20" height="8" rx="2"/>
+        <line x1="6" y1="6" x2="6.01" y2="6"/>
+        <line x1="6" y1="18" x2="6.01" y2="18"/>
+      </svg>
+      Ноды
+    </router-link>
+    <router-link to="/topology" class="nav-item" :class="{ active: $route.name === 'topology' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="5" r="3"/>
+        <circle cx="5" cy="19" r="3"/>
+        <circle cx="19" cy="19" r="3"/>
+        <line x1="12" y1="8" x2="5" y2="16"/>
+        <line x1="12" y1="8" x2="19" y2="16"/>
+      </svg>
+      Топология
+    </router-link>
 
-    <!-- Cluster status indicator -->
-    <div class="sidebar-status">
-      <div class="status-dot" :class="cluster.clusterHealth" />
-      <div class="status-info">
-        <div class="status-name">{{ cluster.clusterName }}</div>
-        <div class="status-detail">
-          <span :class="`status-text-${cluster.clusterHealth}`">
-            {{ statusText }}
-          </span>
-          <span class="status-count" v-if="cluster.status">
-            {{ cluster.status.nodes_synced }}/{{ cluster.status.nodes_total }} Synced
-          </span>
+    <!-- УПРАВЛЕНИЕ -->
+    <div class="nav-section-label">Управление</div>
+    <router-link to="/recovery" class="nav-item" :class="{ active: $route.name === 'recovery' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      Recovery
+    </router-link>
+    <router-link to="/maintenance" class="nav-item" :class="{ active: $route.name === 'maintenance' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+      </svg>
+      Обслуживание
+    </router-link>
+    <router-link to="/diagnostics" class="nav-item" :class="{ active: $route.name === 'diagnostics' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <line x1="11" y1="8" x2="11" y2="14"/>
+        <line x1="8" y1="11" x2="14" y2="11"/>
+      </svg>
+      Диагностика
+    </router-link>
+    <router-link to="/settings" class="nav-item" :class="{ active: $route.name === 'settings' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+      </svg>
+      Настройки
+    </router-link>
+
+    <!-- СПРАВКА -->
+    <div class="nav-section-label">Справка</div>
+    <router-link to="/docs" class="nav-item" :class="{ active: $route.name === 'docs' }">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      Документация
+    </router-link>
+
+    <!-- Spacer -->
+    <div style="flex:1"></div>
+
+    <!-- Sidebar Footer -->
+    <div class="sidebar-footer">
+      <!-- Cluster status -->
+      <div class="sidebar-cluster-status" title="Статус кластера">
+        <span class="sidebar-status-pulse" :class="statusPulseClass"></span>
+        <div class="sidebar-status-info">
+          <div class="sidebar-status-label" :class="statusPulseClass">{{ statusLabel }}</div>
+          <div class="sidebar-status-sub">{{ statusSub }}</div>
         </div>
       </div>
-    </div>
-
-    <!-- Nav -->
-    <nav class="sidebar-nav">
-      <router-link v-for="item in navItems" :key="item.path"
-        :to="item.path" class="nav-item"
-        :class="{ active: $route.path === item.path }">
-        <i :class="`pi ${item.icon}`" />
-        <span>{{ item.label }}</span>
-      </router-link>
-    </nav>
-
-    <!-- Footer -->
-    <div class="sidebar-footer">
-      <div class="footer-row">
-        <span class="badge" :class="cluster.isMock ? 'badge-mock' : 'badge-real'">
-          {{ cluster.isMock ? 'MOCK' : 'REAL' }}
-        </span>
-        <span class="ws-indicator" :class="{ connected: cluster.wsConnected }" title="WebSocket">
-          <i class="pi pi-circle-fill" />
-        </span>
-      </div>
-      <div class="footer-version" v-if="cluster.version">
-        <a :href="cluster.version.release_url || 'https://github.com/Leg1onary/galera_orchestrator_v2'"
-           target="_blank" rel="noopener" class="version-link">
-          {{ cluster.version.local || 'v2.0.0' }}
+      <!-- Version + mode -->
+      <div class="sidebar-version-row">
+        <span class="sidebar-mode-badge" :class="cluster.dataMode">{{ cluster.dataMode.toUpperCase() }}</span>
+        <span style="flex:1"></span>
+        <span class="sidebar-version-sha">{{ cluster.gitSha }}</span>
+        <a
+          href="https://github.com/Leg1onary/galera_orchestrator"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="GitHub"
+          style="color:var(--text-faint);line-height:0;transition:color var(--transition)"
+          onmouseover="this.style.color='var(--text)'"
+          onmouseout="this.style.color='var(--text-faint)'"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
         </a>
-        <span v-if="cluster.version.update_available" class="update-badge">UPDATE</span>
       </div>
     </div>
-  </aside>
+  </nav>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster.js'
 
 const cluster = useClusterStore()
 
-const statusText = computed(() => {
-  const h = cluster.clusterHealth
-  if (h === 'ok') return 'Primary'
-  if (h === 'warn') return 'Degraded'
-  if (h === 'error') return 'Critical'
-  return 'Unknown'
+const statusPulseClass = computed(() => {
+  const s = cluster.clusterState
+  if (s === 'healthy')  return 'ok'
+  if (s === 'degraded') return 'warn'
+  if (s === 'critical' || s === 'error') return 'error'
+  return cluster.status ? 'ok' : 'unknown'
 })
 
-const navItems = [
-  { path: '/',            icon: 'pi-th-large',   label: 'Обзор' },
-  { path: '/nodes',       icon: 'pi-server',     label: 'Ноды' },
-  { path: '/topology',    icon: 'pi-sitemap',    label: 'Топология' },
-  { path: '/recovery',    icon: 'pi-refresh',    label: 'Recovery' },
-  { path: '/maintenance', icon: 'pi-wrench',     label: 'Обслуживание' },
-  { path: '/diagnostics', icon: 'pi-chart-line', label: 'Диагностика' },
-  { path: '/settings',    icon: 'pi-cog',        label: 'Настройки' },
-  { path: '/docs',        icon: 'pi-book',       label: 'Документация' },
-]
+const statusLabel = computed(() => {
+  if (!cluster.status) return 'Инициализация…'
+  const ws = cluster.status?.nodes?.[0]?.wsrep_cluster_status || 'Primary'
+  const s  = cluster.clusterState
+  if (s === 'healthy')  return `${ws} · OK`
+  if (s === 'degraded') return `${ws} · Degraded`
+  if (s === 'critical' || s === 'error') return `${ws} · Critical`
+  return ws
+})
+
+const statusSub = computed(() => {
+  if (!cluster.status) return 'ожидание данных'
+  const total  = cluster.nodes.length
+  const synced = cluster.nodesSynced
+  return `${synced} Synced из ${total}`
+})
 </script>
-
-<style scoped>
-.app-sidebar { display: flex; flex-direction: column; height: 100%; }
-
-.sidebar-logo {
-  display: flex; align-items: center; gap: 0.625rem;
-  padding: 1rem 1rem 0.875rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.logo-text { display: flex; flex-direction: column; }
-.logo-name  { font-size: 14px; font-weight: 700; color: var(--color-text-primary); line-height: 1.2; }
-.logo-sub   { font-size: 10px; color: var(--color-text-muted); }
-
-.sidebar-status {
-  display: flex; align-items: center; gap: 0.625rem;
-  padding: 0.75rem 1rem;
-  background: var(--color-bg-elevated);
-  border-bottom: 1px solid var(--color-border);
-  margin: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
-}
-.status-info { display: flex; flex-direction: column; min-width: 0; }
-.status-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status-detail { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.status-count  { font-size: 11px; color: var(--color-text-muted); }
-.status-text-ok    { font-size: 11px; color: var(--color-status-ok); }
-.status-text-warn  { font-size: 11px; color: var(--color-status-warn); }
-.status-text-error { font-size: 11px; color: var(--color-status-error); }
-.status-text-unknown { font-size: 11px; color: var(--color-status-unknown); }
-
-.sidebar-nav { flex: 1; overflow-y: auto; padding: 0.5rem 0.5rem; display: flex; flex-direction: column; gap: 2px; }
-.nav-item {
-  display: flex; align-items: center; gap: 0.625rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.nav-item:hover { background: var(--color-bg-elevated); color: var(--color-text-primary); }
-.nav-item.active { background: var(--color-accent-light); color: var(--color-accent-primary); }
-.nav-item i { width: 16px; text-align: center; font-size: 14px; }
-
-.sidebar-footer {
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--color-border);
-  display: flex; flex-direction: column; gap: 0.375rem;
-}
-.footer-row { display: flex; align-items: center; gap: 0.5rem; }
-.ws-indicator { font-size: 8px; }
-.ws-indicator i { color: var(--color-status-unknown); }
-.ws-indicator.connected i { color: var(--color-status-ok); }
-.footer-version { display: flex; align-items: center; gap: 0.5rem; }
-.version-link { font-size: 11px; color: var(--color-text-muted); text-decoration: none; }
-.version-link:hover { color: var(--color-accent-primary); }
-.update-badge { font-size: 9px; font-weight: 700; background: rgba(245,158,11,.2); color: #fbbf24; border: 1px solid rgba(245,158,11,.4); border-radius: 3px; padding: 1px 4px; }
-</style>

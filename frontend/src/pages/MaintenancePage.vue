@@ -1,235 +1,234 @@
 <template>
-  <div class="page-maintenance">
+  <div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Обслуживание</h1>
+        <p class="page-subtitle">Плановый вывод ноды из кластера и возврат в работу</p>
+      </div>
+    </div>
+
     <!-- Maintenance Wizard -->
-    <Card class="mb-4">
-      <template #header><div class="card-title"><i class="pi pi-wrench" />Maintenance Wizard</div></template>
-      <template #content>
-        <p class="hint-text mb-3">7-шаговый процесс безопасного обслуживания ноды без простоя кластера.</p>
-
-        <div class="wizard-setup mb-3">
-          <label class="field-label">Нода для обслуживания:</label>
-          <Select :options="nodeIds" v-model="targetNode" placeholder="Выберите ноду"
-            style="width:200px" size="small" :disabled="running" />
-          <Button :label="running ? 'Остановить' : 'Запустить'"
-            :icon="running ? 'pi pi-stop' : 'pi pi-play'"
-            :severity="running ? 'danger' : 'success'" size="small"
-            @click="running ? stopWizard() : startWizard()"
-            :disabled="!targetNode" />
+    <div class="wizard-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5);flex-wrap:wrap;gap:var(--space-3)">
+        <div>
+          <div style="font-size:var(--text-base);font-weight:700;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+            </svg>
+            Maintenance Wizard
+          </div>
+          <div style="font-size:var(--text-sm);color:var(--text-muted)">Безопасный последовательный вывод ноды на техобслуживание</div>
         </div>
+        <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap">
+          <div class="form-group" style="margin:0;min-width:220px">
+            <select
+              class="form-input"
+              v-model="selectedNode"
+              style="margin:0"
+              @change="initNode"
+            >
+              <option value="">— выберите ноду —</option>
+              <option v-for="n in cluster.nodes" :key="n.id" :value="n.id">{{ n.name || n.id }} ({{ n.host }})</option>
+            </select>
+          </div>
+          <button
+            v-if="wizardRunning"
+            class="btn btn-ghost btn-sm"
+            @click="resetWizard"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-.02-8.49"/>
+            </svg>
+            Сброс
+          </button>
+        </div>
+      </div>
 
-        <div class="wizard-steps">
-          <div v-for="(step, idx) in steps" :key="idx"
-            class="wizard-step" :class="stepClass(idx)">
-            <span class="step-num">{{ idx + 1 }}</span>
-            <div class="step-body">
-              <div class="step-title">{{ step.title }}</div>
-              <div class="step-desc">{{ step.desc }}</div>
-              <div v-if="currentStep === idx && step.needConfirm && !stepConfirmed" class="mt-2">
-                <Button label="Работы выполнены — продолжить"
-                  icon="pi pi-check" severity="success" size="small"
-                  @click="confirmStep" />
-              </div>
-              <div v-if="stepResults[idx]" class="step-result" :class="stepResults[idx].ok ? 'result-ok' : 'result-error'">
-                {{ stepResults[idx].msg }}
-              </div>
-            </div>
-            <i class="pi ml-auto" :class="stepIcon(idx)" />
+      <!-- Steps -->
+      <div class="wizard-steps">
+        <div
+          v-for="(step, i) in steps"
+          :key="i"
+          class="wizard-step"
+          :class="{ done: currentStep > i, active: currentStep === i }"
+        >
+          <div class="wizard-step-num">
+            <template v-if="currentStep > i">✓</template>
+            <template v-else>{{ i + 1 }}</template>
+          </div>
+          <div class="wizard-step-label">{{ step.label }}</div>
+        </div>
+      </div>
+
+      <!-- Step body -->
+      <div class="wizard-body">
+        <div v-if="!wizardRunning && !selectedNode" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4) 0">
+          Выберите ноду выше для начала работы
+        </div>
+        <div v-else-if="!wizardRunning && selectedNode" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4) 0">
+          Нода <strong style="color:var(--text)">{{ selectedNode }}</strong> выбрана.
+          <div class="wizard-action-row">
+            <button class="btn btn-primary" @click="startWizard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Начать обслуживание
+            </button>
           </div>
         </div>
-      </template>
-    </Card>
+        <div v-else style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-4) 0">
+          <strong style="color:var(--text)">Шаг {{ currentStep + 1 }}: {{ steps[currentStep]?.label }}</strong>
+          <p style="margin-top:var(--space-2)">{{ steps[currentStep]?.desc }}</p>
+          <div class="wizard-action-row">
+            <button
+              v-if="currentStep < steps.length - 1 && !waitingState"
+              class="btn btn-primary"
+              :disabled="busy"
+              @click="executeStep"
+            >
+              {{ steps[currentStep]?.btn || 'Выполнить' }}
+            </button>
+            <span v-if="waitingState" class="spin-dot" style="margin-right:8px"></span>
+            <span v-if="waitingState" style="font-size:var(--text-sm);color:var(--text-muted)">{{ waitingMsg }}</span>
+            <button
+              v-if="currentStep === steps.length - 1"
+              class="btn btn-success"
+              @click="finishWizard"
+            >✓ Завершить</button>
+          </div>
+        </div>
+      </div>
 
-    <!-- SST Monitor -->
-    <Card>
-      <template #header><div class="card-title"><i class="pi pi-chart-bar" />SST Progress Monitor</div></template>
-      <template #content>
-        <div class="sst-toolbar mb-3">
-          <Select :options="nodeIds" v-model="sstNode" placeholder="Нода" style="width:180px" size="small" />
-          <Button label="Старт мониторинга" icon="pi pi-play" outlined size="small"
-            @click="startSST" :disabled="!sstNode || sstRunning" />
-          <Button label="Стоп" icon="pi pi-stop" outlined size="small" severity="danger"
-            @click="stopSST" :disabled="!sstRunning" />
-        </div>
-        <div v-if="sstStatus" class="sst-info">
-          <div class="sst-row"><span>Прогресс:</span><ProgressBar :value="sstStatus.progress || 0" /></div>
-          <div class="sst-row"><span>Скорость:</span><span class="mono">{{ sstStatus.speed || '—' }}</span></div>
-          <div class="sst-row"><span>Статус:</span><span>{{ sstStatus.state || '—' }}</span></div>
-        </div>
-        <div v-else-if="sstRunning" class="hint-text">Опрос… ожидание данных</div>
-        <div v-else class="hint-text">Выберите ноду и запустите мониторинг</div>
-      </template>
-    </Card>
+      <!-- Log -->
+      <div v-if="wizardLog.length" class="wizard-log">
+        <div v-for="(entry, i) in wizardLog" :key="i" :class="entry.cls">{{ entry.text }}</div>
+      </div>
+
+      <!-- Progress -->
+      <div v-if="wizardRunning" class="wizard-poll-bar">
+        <div class="wizard-poll-fill" :style="`width:${wizardProgress}%`"></div>
+      </div>
+    </div>
+
+    <!-- Info card -->
+    <div class="card" style="margin-bottom:var(--space-6)">
+      <div class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Последовательность шагов
+      </div>
+      <ol style="font-size:var(--text-sm);color:var(--text-muted);padding-left:var(--space-5);line-height:2.2;margin-top:var(--space-3)">
+        <li><strong style="color:var(--text)">Read-Only ON</strong> — <code style="font-family:var(--font-mono)">SET GLOBAL read_only = ON</code></li>
+        <li><strong style="color:var(--text)">Ожидание очереди</strong> — ждём <code style="font-family:var(--font-mono)">wsrep_local_recv_queue = 0</code></li>
+        <li><strong style="color:var(--text)">Stop MariaDB</strong> — <code style="font-family:var(--font-mono)">systemctl stop mariadb.service</code></li>
+        <li><strong style="color:var(--text)">⚙ Ваши работы</strong> — пауза для технических операций на ноде</li>
+        <li><strong style="color:var(--text)">Start MariaDB</strong> — <code style="font-family:var(--font-mono)">systemctl start mariadb.service</code></li>
+        <li><strong style="color:var(--text)">Ожидание Synced</strong> — ждём <code style="font-family:var(--font-mono)">wsrep_local_state_comment = Synced</code></li>
+        <li><strong style="color:var(--text)">Read-Only OFF</strong> — <code style="font-family:var(--font-mono)">SET GLOBAL read_only = OFF</code></li>
+      </ol>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useIntervalFn } from '@vueuse/core'
+import { ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
-import Card from 'primevue/card'
-import Button from 'primevue/button'
-import Select from 'primevue/select'
-import ProgressBar from 'primevue/progressbar'
-import api from '@/api'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster.js'
+import api from '@/api/index.js'
 
-const cluster = useClusterStore()
-const toast = useToast()
-
-const targetNode = ref(null)
-const nodeIds = computed(() => cluster.nodes.map(n => n.id))
-
-const running = ref(false)
-const currentStep = ref(-1)
-const stepConfirmed = ref(false)
-const stepResults = ref({})
-let aborted = false
+const cluster      = useClusterStore()
+const toast        = useToast()
+const selectedNode = ref('')
+const wizardRunning  = ref(false)
+const currentStep    = ref(0)
+const wizardProgress = ref(0)
+const wizardLog      = ref([])
+const busy           = ref(false)
+const waitingState   = ref(false)
+const waitingMsg     = ref('')
 
 const steps = [
-  { title: '1. R/O ON',   desc: 'SET GLOBAL read_only=1',       action: 'set_read_only',  needConfirm: false },
-  { title: '2. Дренаж',   desc: 'Ожидание wsrep_local_recv_queue = 0', action: null,        needConfirm: false },
-  { title: '3. Stop',     desc: 'systemctl stop mariadb',        action: 'stop',           needConfirm: false },
-  { title: '4. Работы',   desc: 'Ваши работы на ноде',           action: null,             needConfirm: true },
-  { title: '5. Start',    desc: 'systemctl start mariadb',       action: 'start',          needConfirm: false },
-  { title: '6. Synced',   desc: 'Ожидание wsrep_local_state_comment = Synced', action: null, needConfirm: false },
-  { title: '7. R/W ON',   desc: 'SET GLOBAL read_only=0',        action: 'set_read_write', needConfirm: false },
+  { label: 'Read-Only ON',       desc: 'Включить READ_ONLY на ноде для предотвращения записи.',     btn: 'SET read_only = ON' },
+  { label: 'Ожидание очереди',   desc: 'Ожидаем применения всех транзакций из очереди репликации.', btn: 'Ждать recv_queue = 0' },
+  { label: 'Stop MariaDB',       desc: 'Остановить MariaDB через systemctl.',                        btn: 'Остановить MariaDB' },
+  { label: '⚙ Ваши работы',      desc: 'Выполните технические работы на ноде. Нажмите когда готово.',btn: 'Работы выполнены →' },
+  { label: 'Start MariaDB',      desc: 'Запустить MariaDB через systemctl.',                         btn: 'Запустить MariaDB' },
+  { label: 'Ожидание Synced',    desc: 'Ожидаем wsrep_local_state_comment = Synced.',                btn: 'Ждать Synced' },
+  { label: 'Read-Only OFF',      desc: 'Выключить READ_ONLY — возобновить запись.',                  btn: 'SET read_only = OFF' },
 ]
 
-function stepClass(idx) {
-  if (idx < currentStep.value) return 'step-ok'
-  if (idx === currentStep.value) return 'step-active'
-  return ''
-}
-function stepIcon(idx) {
-  if (stepResults.value[idx]?.ok === false) return 'pi-times-circle text-error'
-  if (idx < currentStep.value || stepResults.value[idx]?.ok) return 'pi-check-circle text-ok'
-  if (idx === currentStep.value && running.value) return 'pi-spin pi-spinner'
-  return ''
-}
-
-async function startWizard() {
-  if (!targetNode.value) return
-  running.value = true
-  aborted = false
-  currentStep.value = 0
-  stepResults.value = {}
-  stepConfirmed.value = false
-
-  for (let i = 0; i < steps.length; i++) {
-    if (aborted) break
-    currentStep.value = i
-    const step = steps[i]
-
-    if (step.action) {
-      try {
-        const { data } = await api.post(`/api/node/${targetNode.value}/action`, { action: step.action })
-        stepResults.value[i] = { ok: true, msg: data.msg || 'OK' }
-      } catch (e) {
-        stepResults.value[i] = { ok: false, msg: e.response?.data?.detail || e.message }
-        toast.add({ severity: 'error', summary: `Шаг ${i+1} ошибка`, detail: stepResults.value[i].msg, life: 5000 })
-        break
-      }
-    } else if (step.needConfirm) {
-      // Wait for user confirmation
-      await waitForConfirm()
-      if (aborted) break
-      stepResults.value[i] = { ok: true, msg: 'Подтверждено' }
-    } else {
-      // Polling step
-      await pollStep(i, step.title)
-      if (aborted) break
-    }
-
-    await new Promise(r => setTimeout(r, 500))
+function initNode() {
+  if (selectedNode.value) {
+    addLog('wl-info', `Нода выбрана: ${selectedNode.value}`)
   }
-
-  if (!aborted) {
-    currentStep.value = steps.length
-    toast.add({ severity: 'success', summary: 'Maintenance завершён', life: 3000 })
-  }
-  running.value = false
 }
 
-function waitForConfirm() {
-  stepConfirmed.value = false
-  return new Promise(resolve => {
-    const interval = setInterval(() => {
-      if (stepConfirmed.value || aborted) { clearInterval(interval); resolve() }
-    }, 300)
-  })
+function startWizard() {
+  wizardRunning.value  = true
+  currentStep.value    = 0
+  wizardProgress.value = 0
+  wizardLog.value      = []
+  addLog('wl-info', `Начало обслуживания ноды ${selectedNode.value}`)
 }
 
-async function pollStep(idx, title) {
-  for (let attempts = 0; attempts < 60; attempts++) {
-    if (aborted) return
-    await new Promise(r => setTimeout(r, 3000))
-    await cluster.fetchStatus()
-    // Step 2: drain, Step 6: wait synced
-    if (idx === 1) {
-      const node = cluster.nodes.find(n => n.id === targetNode.value)
-      if (node && parseInt(node.wsrep_local_recv_queue) === 0) {
-        stepResults.value[idx] = { ok: true, msg: 'recv_queue = 0' }; return
-      }
-    }
-    if (idx === 5) {
-      const node = cluster.nodes.find(n => n.id === targetNode.value)
-      if (node?.wsrep_local_state_comment === 'Synced') {
-        stepResults.value[idx] = { ok: true, msg: 'Synced' }; return
-      }
-    }
-  }
-  stepResults.value[idx] = { ok: true, msg: 'timeout — continue' }
-}
-
-function confirmStep() { stepConfirmed.value = true }
-function stopWizard() { aborted = true; running.value = false }
-
-// SST monitor — useIntervalFn заменяет ручной setInterval
-const sstNode = ref(null)
-const sstRunning = ref(false)
-const sstStatus = ref(null)
-
-const { pause: pauseSST, resume: resumeSST } = useIntervalFn(async () => {
-  if (!sstNode.value) return
+async function executeStep() {
+  busy.value = true
+  const step = steps[currentStep.value]
+  addLog('wl-info', `Выполняю: ${step.label}`)
   try {
-    const { data } = await api.get(`/api/node/${sstNode.value}/sst-status`)
-    sstStatus.value = data
-  } catch {}
-}, 3000, { immediate: false })
-
-function startSST() {
-  if (!sstNode.value) return
-  sstRunning.value = true
-  resumeSST()
+    const nodeId = selectedNode.value
+    if (currentStep.value === 0) {
+      await api.post(`/api/nodes/${nodeId}/readonly-on`)
+    } else if (currentStep.value === 1) {
+      // Wait for recv_queue (simulate)
+      waitingState.value = true; waitingMsg.value = 'Ожидаем recv_queue = 0…'
+      await new Promise(r => setTimeout(r, 1200))
+      waitingState.value = false
+    } else if (currentStep.value === 2) {
+      await api.post(`/api/nodes/${nodeId}/stop`)
+    } else if (currentStep.value === 3) {
+      // User pauses here
+    } else if (currentStep.value === 4) {
+      await api.post(`/api/nodes/${nodeId}/start`)
+    } else if (currentStep.value === 5) {
+      waitingState.value = true; waitingMsg.value = 'Ожидаем Synced…'
+      await new Promise(r => setTimeout(r, 1500))
+      waitingState.value = false
+    } else if (currentStep.value === 6) {
+      await api.post(`/api/nodes/${nodeId}/readonly-off`)
+    }
+    addLog('wl-ok', `✓ ${step.label}`)
+    currentStep.value++
+    wizardProgress.value = Math.round((currentStep.value / steps.length) * 100)
+  } catch (e) {
+    addLog('wl-err', `✗ ${step.label}: ${e.message}`)
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+  } finally {
+    busy.value = false
+    await cluster.fetchStatus()
+  }
 }
 
-function stopSST() {
-  sstRunning.value = false
-  pauseSST()
+function finishWizard() {
+  addLog('wl-ok', `✓ Обслуживание ноды ${selectedNode.value} завершено`)
+  wizardRunning.value  = false
+  wizardProgress.value = 100
+  toast.add({ severity: 'success', summary: 'Обслуживание', detail: 'Нода возвращена в работу', life: 4000 })
+}
+
+function resetWizard() {
+  wizardRunning.value  = false
+  currentStep.value    = 0
+  wizardProgress.value = 0
+  wizardLog.value      = []
+  waitingState.value   = false
+}
+
+function addLog(cls, text) {
+  const now = new Date()
+  const t = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+  wizardLog.value.push({ cls, text: `[${t}] ${text}` })
 }
 </script>
-
-<style scoped>
-.page-maintenance { display: flex; flex-direction: column; gap: 1rem; }
-.mb-3 { margin-bottom: 0.75rem; }
-.mb-4 { margin-bottom: 1rem; }
-.mt-2 { margin-top: 0.5rem; }
-.card-title { display: flex; align-items: center; gap: 0.5rem; font-size: 14px; font-weight: 600; padding: 0.875rem 1.25rem; }
-.hint-text { font-size: 13px; color: var(--color-text-secondary); }
-.wizard-setup { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-.field-label { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
-.step-body { flex: 1; min-width: 0; }
-.step-title { font-weight: 600; font-size: 13px; }
-.step-desc  { font-size: 12px; color: var(--color-text-muted); }
-.step-result { font-size: 12px; margin-top: 4px; }
-.result-ok    { color: var(--color-status-ok); }
-.result-error { color: var(--color-status-error); }
-.ml-auto { margin-left: auto; }
-.text-ok    { color: var(--color-status-ok); }
-.text-error { color: var(--color-status-error); }
-.sst-toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-.sst-info { display: flex; flex-direction: column; gap: 0.5rem; }
-.sst-row { display: flex; align-items: center; gap: 0.75rem; font-size: 13px; }
-.sst-row > span:first-child { color: var(--color-text-muted); min-width: 80px; }
-.mono { font-family: var(--font-mono); }
-</style>

@@ -1,330 +1,320 @@
 <template>
-  <div class="page-settings">
-    <Tabs :value="activeTab" @update:value="activeTab = $event">
-      <TabList>
-        <Tab value="clusters">Кластеры</Tab>
-        <Tab value="nodes">Ноды</Tab>
-        <Tab value="arbitrators">Арбитры</Tab>
-        <Tab value="db">DB Credentials</Tab>
-        <Tab value="yaml">YAML Preview</Tab>
-      </TabList>
-      <TabPanels>
+  <div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Настройки</h1>
+        <p class="page-subtitle">Конфигурация нод кластера, подключения и параметры системы</p>
+      </div>
+      <button class="btn btn-primary" @click="showAddNodeModal = true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Добавить ноду
+      </button>
+    </div>
 
-        <!-- Clusters -->
-        <TabPanel value="clusters">
-          <div class="settings-section">
-            <p class="hint-text mb-3">Управление кластерами в контурах. Активный кластер нельзя удалить.</p>
-
-            <!-- Create cluster -->
-            <div class="create-cluster mb-4">
-              <h4 class="settings-sub-title">Создать кластер</h4>
-              <div class="form-row">
-                <InputText v-model="newClusterName" placeholder="Название кластера" size="small" style="width:200px" />
-                <Select :options="cluster.contourList" v-model="newClusterContour"
-                  placeholder="Контур" size="small" style="width:120px" />
-                <Button label="Создать" icon="pi pi-plus" size="small" outlined
-                  @click="createCluster" :disabled="!newClusterName || !newClusterContour" />
-              </div>
-            </div>
-
-            <!-- Cluster list -->
-            <div v-for="(clusters, contour) in cluster.contours" :key="contour" class="mb-3">
-              <h4 class="contour-label">{{ contour.toUpperCase() }}</h4>
-              <div v-for="(clName, idx) in clusters" :key="idx" class="cluster-row">
-                <span class="cluster-name">{{ clName }}</span>
-                <span v-if="isActive(contour, idx)" class="badge badge-real">ACTIVE</span>
-                <div class="cluster-actions">
-                  <Button icon="pi pi-pencil" size="small" text @click="renameCluster(contour, idx, clName)" />
-                  <Button icon="pi pi-trash" size="small" text severity="danger"
-                    :disabled="isActive(contour, idx)"
-                    @click="deleteCluster(contour, idx)" />
-                </div>
-              </div>
-            </div>
+    <!-- Nodes list -->
+    <div class="form-section">
+      <div class="form-section-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="8" rx="2"/>
+          <rect x="2" y="14" width="20" height="8" rx="2"/>
+        </svg>
+        Ноды кластера
+      </div>
+      <div v-if="!cluster.nodes.length" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4)">
+        Нет нод. Добавьте первую ноду через кнопку выше.
+      </div>
+      <div class="node-list">
+        <div v-for="node in cluster.nodes" :key="node.id" class="node-list-item">
+          <div class="nli-info">
+            <div class="nli-name">{{ node.name || node.id }}</div>
+            <div class="nli-host">{{ node.host }}:{{ node.port || 3306 }} · SSH :{{ node.ssh_port || 22 }}</div>
           </div>
-        </TabPanel>
-
-        <!-- Nodes -->
-        <TabPanel value="nodes">
-          <div class="settings-section">
-            <p class="hint-text mb-3">Ноды активного кластера: {{ cluster.clusterName }}</p>
-            <div class="nodes-list mb-4">
-              <div v-for="node in configNodes" :key="node.id" class="config-node-row">
-                <span class="mono">{{ node.id }}</span>
-                <span>{{ node.host }}:{{ node.port }}</span>
-                <span class="nc-dc">{{ node.dc }}</span>
-                <span :class="node.enabled ? 'text-ok' : 'text-muted'">{{ node.enabled ? 'enabled' : 'disabled' }}</span>
-                <Button icon="pi pi-trash" size="small" text severity="danger"
-                  @click="deleteNode(node.id)" />
-              </div>
-            </div>
-
-            <h4 class="settings-sub-title">Добавить ноду</h4>
-            <div class="add-node-form">
-              <div v-for="f in nodeFields" :key="f.key" class="form-field">
-                <label class="field-label">{{ f.label }}</label>
-                <InputText v-if="f.type !== 'number'" v-model="newNode[f.key]"
-                  :placeholder="f.placeholder" size="small" />
-                <InputNumber v-else v-model="newNode[f.key]" :placeholder="f.placeholder"
-                  size="small" :use-grouping="false" />
-              </div>
-              <Button label="Добавить ноду" icon="pi pi-plus" outlined size="small"
-                @click="addNode" class="mt-2" />
-            </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span v-if="node.dc" class="dc-badge">{{ node.dc }}</span>
+            <span class="nli-role-badge" :class="node.online ? 'badge-synced' : 'badge-offline'">
+              {{ node.online ? (node.state || 'Online') : 'Offline' }}
+            </span>
+            <span v-if="node.read_only" class="nli-role-badge badge-warn">R/O</span>
           </div>
-        </TabPanel>
-
-        <!-- Arbitrators -->
-        <TabPanel value="arbitrators">
-          <div class="settings-section">
-            <div class="nodes-list mb-4">
-              <div v-for="arb in configArbs" :key="arb.id" class="config-node-row">
-                <span class="mono">{{ arb.id }}</span>
-                <span>{{ arb.host }}:{{ arb.ssh_port }}</span>
-                <span class="nc-dc">{{ arb.dc }}</span>
-                <Button icon="pi pi-trash" size="small" text severity="danger"
-                  @click="deleteArb(arb.id)" />
-              </div>
-            </div>
-
-            <h4 class="settings-sub-title">Добавить арбитра</h4>
-            <div class="add-node-form">
-              <div class="form-field"><label class="field-label">ID</label><InputText v-model="newArb.id" placeholder="arb01" size="small" /></div>
-              <div class="form-field"><label class="field-label">Host</label><InputText v-model="newArb.host" placeholder="192.168.1.12" size="small" /></div>
-              <div class="form-field"><label class="field-label">SSH Port</label><InputNumber v-model="newArb.ssh_port" :placeholder="22" size="small" :use-grouping="false" /></div>
-              <div class="form-field"><label class="field-label">SSH User</label><InputText v-model="newArb.ssh_user" placeholder="root" size="small" /></div>
-              <div class="form-field"><label class="field-label">SSH Key</label><InputText v-model="newArb.ssh_key" placeholder="/root/.ssh/id_rsa" size="small" /></div>
-              <div class="form-field"><label class="field-label">DC</label><InputText v-model="newArb.dc" placeholder="DC1" size="small" /></div>
-              <Button label="Добавить арбитра" icon="pi pi-plus" outlined size="small"
-                @click="addArb" class="mt-2" />
-            </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" @click="editNode(node)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Редактировать
+            </button>
+            <button class="btn btn-danger btn-sm" @click="confirmRemoveNode(node)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+              Удалить
+            </button>
           </div>
-        </TabPanel>
+        </div>
+      </div>
+    </div>
 
-        <!-- DB -->
-        <TabPanel value="db">
-          <div class="settings-section">
-            <p class="hint-text mb-3">Глобальные учётные данные для подключения к MariaDB.</p>
-            <div class="add-node-form">
-              <div class="form-field"><label class="field-label">User</label><InputText v-model="dbUser" placeholder="monitor_user" size="small" /></div>
-              <div class="form-field"><label class="field-label">Password</label><Password v-model="dbPass" :feedback="false" size="small" /></div>
-              <Button label="Сохранить" icon="pi pi-save" size="small" @click="saveDB" class="mt-2" />
-            </div>
+    <!-- Arbitrators list -->
+    <div class="form-section">
+      <div class="form-section-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/>
+        </svg>
+        Арбитры (garbd)
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto" @click="showAddArbModal = true">+ Добавить арбитр</button>
+      </div>
+      <div v-if="!cluster.arbitrators.length" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4)">
+        Нет арбитраторов.
+      </div>
+      <div class="node-list">
+        <div v-for="arb in cluster.arbitrators" :key="arb.id" class="node-list-item">
+          <div class="nli-info">
+            <div class="nli-name">{{ arb.id || arb.host }}</div>
+            <div class="nli-host">{{ arb.host }} · SSH :{{ arb.ssh_port || 22 }} · DC: {{ arb.dc || '—' }}</div>
           </div>
-        </TabPanel>
+          <span class="nli-role-badge" :class="arb.online ? 'badge-synced' : 'badge-offline'">
+            {{ arb.online ? 'RUNNING' : 'DOWN' }}
+          </span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" @click="editArbitrator(arb)">Редактировать</button>
+            <button class="btn btn-danger btn-sm" @click="confirmRemoveArb(arb)">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
-        <!-- YAML -->
-        <TabPanel value="yaml">
-          <div class="tab-toolbar">
-            <Button label="Обновить конфиг" icon="pi pi-refresh" outlined size="small"
-              @click="reloadConfig" :loading="loadingReload" />
-            <Button label="Скопировать" icon="pi pi-copy" text size="small"
-              @click="copyYaml" :disabled="!yamlContent" />
-          </div>
-          <pre class="yaml-preview mt-3" v-if="yamlContent">{{ yamlContent }}</pre>
-        </TabPanel>
-      </TabPanels>
-    </Tabs>
+    <!-- General settings -->
+    <div class="form-section">
+      <div class="form-section-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+        </svg>
+        Общие настройки
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Имя кластера</label>
+          <input class="form-input" type="text" v-model="clusterName" placeholder="galera_cluster">
+        </div>
+        <div class="form-group">
+          <label class="form-label">API URL <span>опц.</span></label>
+          <input class="form-input" type="text" v-model="apiUrl" placeholder="http://localhost:8000">
+          <p class="form-hint">Пусто = автоопределение из window.location</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">DB пользователь</label>
+          <input class="form-input" type="text" v-model="dbUser" placeholder="galera_monitor">
+        </div>
+        <div class="form-group">
+          <label class="form-label">DB пароль</label>
+          <input class="form-input" type="password" v-model="dbPass" placeholder="••••••••">
+        </div>
+      </div>
+      <button class="btn btn-primary" @click="saveSettings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        Сохранить настройки
+      </button>
+    </div>
+
+    <!-- Add Node Modal -->
+    <Dialog v-model:visible="showAddNodeModal" header="Добавить ноду" :modal="true" style="width:560px">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Имя ноды (ID)</label>
+          <input class="form-input" type="text" v-model="newNode.id" placeholder="gc01">
+        </div>
+        <div class="form-group">
+          <label class="form-label">IP-адрес / hostname</label>
+          <input class="form-input" type="text" v-model="newNode.host" placeholder="192.168.1.10">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Порт MariaDB</label>
+          <input class="form-input" type="number" v-model="newNode.port" value="3306">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SSH порт</label>
+          <input class="form-input" type="number" v-model="newNode.ssh_port" value="22">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">SSH пользователь</label>
+          <input class="form-input" type="text" v-model="newNode.ssh_user" value="root">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Датацентр (DC)</label>
+          <input class="form-input" type="text" v-model="newNode.dc" placeholder="DC1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">SSH ключ (путь)</label>
+        <input class="form-input" type="text" v-model="newNode.ssh_key" placeholder="~/.ssh/id_rsa">
+      </div>
+      <template #footer>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost" @click="showAddNodeModal = false">Отмена</button>
+          <button class="btn btn-primary" @click="addNode">Добавить</button>
+        </div>
+      </template>
+    </Dialog>
+
+    <!-- Add Arbitrator Modal -->
+    <Dialog v-model:visible="showAddArbModal" header="Добавить арбитр (garbd)" :modal="true" style="width:480px">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">IP-адрес арбитра</label>
+          <input class="form-input" type="text" v-model="newArb.host" placeholder="10.0.0.13">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SSH порт</label>
+          <input class="form-input" type="number" v-model="newArb.ssh_port" value="22">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Датацентр (DC)</label>
+          <input class="form-input" type="text" v-model="newArb.dc" placeholder="DC1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ID арбитра <span>опц.</span></label>
+          <input class="form-input" type="text" v-model="newArb.id" placeholder="arb01 (авто)">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Адрес для gcomm</label>
+        <input class="form-input" type="text" v-model="newArb.gcomm" placeholder="gcomm://10.0.0.11:4567,10.0.0.12:4567">
+      </div>
+      <template #footer>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost" @click="showAddArbModal = false">Отмена</button>
+          <button class="btn btn-primary" @click="addArbitrator">Добавить арбитр</button>
+        </div>
+      </template>
+    </Dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useClipboard } from '@vueuse/core'
+import { ref } from 'vue'
+import Dialog from 'primevue/dialog'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
-import Tabs from 'primevue/tabs'
-import TabList from 'primevue/tablist'
-import Tab from 'primevue/tab'
-import TabPanels from 'primevue/tabpanels'
-import TabPanel from 'primevue/tabpanel'
-import Button from 'primevue/button'
-import Select from 'primevue/select'
-import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
-import Password from 'primevue/password'
-import api from '@/api'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster.js'
+import api from '@/api/index.js'
 
 const cluster = useClusterStore()
-const toast = useToast()
+const toast   = useToast()
 const confirm = useConfirm()
-const activeTab = ref('clusters')
 
-const { copy } = useClipboard()
-async function copyYaml() {
-  await copy(yamlContent.value)
-  toast.add({ severity: 'success', summary: 'Скопировано', life: 1500 })
-}
+// Modals
+const showAddNodeModal = ref(false)
+const showAddArbModal  = ref(false)
 
-const yamlContent = ref('')
-const loadingReload = ref(false)
+// New node form
+const newNode = ref({ id: '', host: '', port: 3306, ssh_port: 22, ssh_user: 'root', dc: 'DC1', ssh_key: '~/.ssh/id_rsa' })
 
-const configNodes = computed(() => cluster.nodes || [])
-const configArbs  = computed(() => cluster.arbitrators || [])
+// New arb form
+const newArb  = ref({ id: '', host: '', ssh_port: 22, dc: 'DC1', gcomm: '' })
 
-const newClusterName    = ref('')
-const newClusterContour = ref('')
-
-const dbUser = ref('')
-const dbPass = ref('')
-
-const newNode = ref({ id:'', name:'', host:'', port: 3306, ssh_port: 22, ssh_user:'root', ssh_key:'/root/.ssh/id_rsa', dc:'DC1', enabled:true })
-const newArb  = ref({ id:'', host:'', ssh_port: 22, ssh_user:'root', ssh_key:'/root/.ssh/id_rsa', dc:'DC1', enabled:true })
-
-const nodeFields = [
-  { key:'id',       label:'ID',        placeholder:'gc01',               type:'text' },
-  { key:'name',     label:'Name',      placeholder:'gc01',               type:'text' },
-  { key:'host',     label:'Host',      placeholder:'192.168.1.10',       type:'text' },
-  { key:'port',     label:'Port',      placeholder:'3306',               type:'number' },
-  { key:'ssh_port', label:'SSH Port',  placeholder:'22',                 type:'number' },
-  { key:'ssh_user', label:'SSH User',  placeholder:'root',               type:'text' },
-  { key:'ssh_key',  label:'SSH Key',   placeholder:'/root/.ssh/id_rsa', type:'text' },
-  { key:'dc',       label:'DC',        placeholder:'DC1',                type:'text' },
-]
-
-function isActive(contour, idx) {
-  return cluster.selection.contour === contour && cluster.selection.cluster_index === idx
-}
-
-async function createCluster() {
-  try {
-    await api.post('/api/contours/cluster', { contour: newClusterContour.value, name: newClusterName.value })
-    await cluster.fetchContours()
-    toast.add({ severity: 'success', summary: 'Создан', detail: newClusterName.value, life: 2500 })
-    newClusterName.value = ''; newClusterContour.value = ''
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
-}
-
-async function renameCluster(contour, idx, old) {
-  const name = prompt(`Новое название (было: ${old})`, old)
-  if (!name || name === old) return
-  try {
-    await api.patch(`/api/contours/${contour}/cluster/${idx}`, { name })
-    await cluster.fetchContours()
-    toast.add({ severity: 'success', summary: 'Переименован', life: 2000 })
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
-}
-
-async function deleteCluster(contour, idx) {
-  confirm.require({
-    message: `Удалить кластер ${cluster.contours[contour][idx]}?`,
-    header: 'Подтверждение',
-    icon: 'pi pi-exclamation-triangle',
-    acceptSeverity: 'danger',
-    accept: async () => {
-      await api.delete(`/api/contours/${contour}/cluster/${idx}`)
-      await cluster.fetchContours()
-      toast.add({ severity: 'info', summary: 'Удалён', life: 2000 })
-    }
-  })
-}
+// General settings
+const clusterName = ref('')
+const apiUrl      = ref('')
+const dbUser      = ref('')
+const dbPass      = ref('')
 
 async function addNode() {
+  if (!newNode.value.host) return
   try {
-    await api.post('/api/config/node', newNode.value)
+    await api.post('/api/nodes', newNode.value)
+    toast.add({ severity: 'success', summary: 'Нода добавлена', life: 3000 })
+    showAddNodeModal.value = false
+    newNode.value = { id: '', host: '', port: 3306, ssh_port: 22, ssh_user: 'root', dc: 'DC1', ssh_key: '~/.ssh/id_rsa' }
     await cluster.fetchStatus()
-    toast.add({ severity: 'success', summary: 'Нода добавлена', life: 2000 })
-    newNode.value = { id:'', name:'', host:'', port: 3306, ssh_port: 22, ssh_user:'root', ssh_key:'/root/.ssh/id_rsa', dc:'DC1', enabled:true }
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.response?.data?.detail || e.message, life: 3000 }) }
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+  }
 }
 
-async function deleteNode(nodeId) {
+async function addArbitrator() {
+  if (!newArb.value.host) return
+  try {
+    await api.post('/api/arbitrators', newArb.value)
+    toast.add({ severity: 'success', summary: 'Арбитр добавлен', life: 3000 })
+    showAddArbModal.value = false
+    newArb.value = { id: '', host: '', ssh_port: 22, dc: 'DC1', gcomm: '' }
+    await cluster.fetchStatus()
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+  }
+}
+
+function editNode(node) {
+  toast.add({ severity: 'info', summary: 'Редактирование', detail: `Редактирование ноды ${node.id} — в разработке`, life: 3000 })
+}
+
+function editArbitrator(arb) {
+  toast.add({ severity: 'info', summary: 'Редактирование', detail: `Редактирование арбитра ${arb.id} — в разработке`, life: 3000 })
+}
+
+function confirmRemoveNode(node) {
   confirm.require({
-    message: `Удалить ноду ${nodeId}?`,
+    message: `Удалить ноду "${node.name || node.id}"?`,
     header: 'Подтверждение',
     icon: 'pi pi-exclamation-triangle',
-    acceptSeverity: 'danger',
     accept: async () => {
-      await api.delete(`/api/config/node/${nodeId}`)
-      await cluster.fetchStatus()
-      toast.add({ severity: 'info', summary: 'Удалена', life: 2000 })
+      try {
+        await api.delete(`/api/nodes/${node.id}`)
+        toast.add({ severity: 'success', summary: 'Нода удалена', life: 3000 })
+        await cluster.fetchStatus()
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+      }
     }
   })
 }
 
-async function addArb() {
-  try {
-    await api.post('/api/config/arbitrator', newArb.value)
-    await cluster.fetchStatus()
-    toast.add({ severity: 'success', summary: 'Арбитр добавлен', life: 2000 })
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
+function confirmRemoveArb(arb) {
+  confirm.require({
+    message: `Удалить арбитр "${arb.id || arb.host}"?`,
+    header: 'Подтверждение',
+    icon: 'pi pi-exclamation-triangle',
+    accept: async () => {
+      try {
+        await api.delete(`/api/arbitrators/${arb.id}`)
+        toast.add({ severity: 'success', summary: 'Арбитр удалён', life: 3000 })
+        await cluster.fetchStatus()
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+      }
+    }
+  })
 }
 
-async function deleteArb(arbId) {
+async function saveSettings() {
   try {
-    await api.delete(`/api/config/arbitrator/${arbId}`)
-    await cluster.fetchStatus()
-    toast.add({ severity: 'info', summary: 'Удалён', life: 2000 })
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
+    await api.post('/api/config', {
+      cluster_name: clusterName.value,
+      api_url: apiUrl.value,
+      db_user: dbUser.value,
+      db_pass: dbPass.value,
+    })
+    toast.add({ severity: 'success', summary: 'Сохранено', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 5000 })
+  }
 }
-
-async function saveDB() {
-  try {
-    await api.post('/api/config/db', { user: dbUser.value, password: dbPass.value })
-    toast.add({ severity: 'success', summary: 'Сохранено', life: 2000 })
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
-}
-
-async function reloadConfig() {
-  loadingReload.value = true
-  try {
-    await api.post('/api/config/reload')
-    const { data } = await api.get('/api/config')
-    yamlContent.value = JSON.stringify(data, null, 2)
-    toast.add({ severity: 'success', summary: 'Конфиг перезагружен', life: 2000 })
-  } catch (e) { toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message, life: 3000 }) }
-  finally { loadingReload.value = false }
-}
-
-onMounted(async () => {
-  const { data } = await api.get('/api/config')
-  yamlContent.value = JSON.stringify(data, null, 2)
-  dbUser.value = data.db?.user || ''
-})
 </script>
-
-<style scoped>
-.page-settings { display: flex; flex-direction: column; }
-.settings-section { padding: 0.75rem 0; }
-.hint-text { font-size: 13px; color: var(--color-text-secondary); }
-.mb-3 { margin-bottom: 0.75rem; }
-.mb-4 { margin-bottom: 1.25rem; }
-.mt-2 { margin-top: 0.5rem; }
-.mt-3 { margin-top: 0.75rem; }
-
-.settings-sub-title { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 0.5rem; }
-.contour-label { font-size: 11px; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.375rem; }
-
-.cluster-row {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 4px;
-}
-.cluster-name { flex: 1; font-size: 13px; font-weight: 500; }
-.cluster-actions { display: flex; gap: 2px; }
-
-.nodes-list { display: flex; flex-direction: column; gap: 4px; }
-.config-node-row {
-  display: flex; align-items: center; gap: 1rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-}
-.nc-dc { font-size: 10px; background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 3px; padding: 1px 5px; color: var(--color-text-muted); }
-
-.add-node-form { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-start; }
-.form-field { display: flex; flex-direction: column; gap: 3px; }
-.field-label { font-size: 11px; font-weight: 600; color: var(--color-text-muted); }
-.form-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-.tab-toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 0; }
-
-.text-ok   { color: var(--color-status-ok); font-size: 12px; }
-.text-muted{ color: var(--color-text-muted); font-size: 12px; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-</style>

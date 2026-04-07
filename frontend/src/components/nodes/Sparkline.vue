@@ -1,9 +1,33 @@
 <template>
   <div class="sparkline-wrap">
-    <svg :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none"
-      :width="width" :height="height" style="display:block;width:100%">
-      <polyline :points="points" fill="none" :stroke="lineColor" stroke-width="1.5" stroke-linejoin="round" />
-    </svg>
+    <div class="sparkline-item">
+      <div class="sparkline-label">FLOW CONTROL</div>
+      <div class="sparkline-value" :class="flowClass">{{ flowVal }}</div>
+      <svg class="sparkline-svg" :height="height" :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none">
+        <polyline
+          :points="flowPoints"
+          fill="none"
+          :stroke="flowClass === 'warn' ? 'var(--warning)' : 'var(--primary)'"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
+    </div>
+    <div class="sparkline-item">
+      <div class="sparkline-label">RECV QUEUE</div>
+      <div class="sparkline-value" :class="recvClass">{{ recvVal }}</div>
+      <svg class="sparkline-svg" :height="height" :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none">
+        <polyline
+          :points="recvPoints"
+          fill="none"
+          :stroke="recvClass === 'warn' ? 'var(--warning)' : 'var(--success)'"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
+    </div>
   </div>
 </template>
 
@@ -11,27 +35,42 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  data:      { type: Array, default: () => [] },
-  threshold: { type: Number, default: 0 },
-  colorOk:   { type: String, default: '#22c55e' },
-  colorWarn: { type: String, default: '#f59e0b' },
-  width:     { type: Number, default: 120 },
-  height:    { type: Number, default: 30 },
+  flowHistory: { type: Array, default: () => [0] },
+  recvHistory: { type: Array, default: () => [0] },
 })
 
-const lineColor = computed(() => {
-  const last = props.data[props.data.length - 1] || 0
-  return last > props.threshold ? props.colorWarn : props.colorOk
-})
+const width  = 80
+const height = 24
 
-const points = computed(() => {
-  const d = props.data
-  if (d.length < 2) return ''
-  const max = Math.max(...d, props.threshold * 2, 0.001)
-  return d.map((v, i) => {
-    const x = (i / (d.length - 1)) * props.width
-    const y = props.height - (v / max) * (props.height - 4) - 2
+function makePoints(data) {
+  if (!data || data.length === 0) return `0,${height} ${width},${height}`
+  const len  = data.length
+  const max  = Math.max(...data, 0.001)
+  return data.map((v, i) => {
+    const x = (i / Math.max(len - 1, 1)) * width
+    const y = height - (v / max) * (height - 2) - 1
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
+}
+
+const flowPoints = computed(() => makePoints(props.flowHistory))
+const recvPoints = computed(() => makePoints(props.recvHistory))
+
+const flowVal = computed(() => {
+  const v = props.flowHistory?.at(-1) ?? 0
+  return typeof v === 'number' ? v.toFixed(3) : '0.000'
+})
+const recvVal = computed(() => {
+  const v = props.recvHistory?.at(-1) ?? 0
+  return String(v)
+})
+
+const flowClass = computed(() => {
+  const v = parseFloat(flowVal.value)
+  return v > 0.05 ? 'warn' : 'ok'
+})
+const recvClass = computed(() => {
+  const v = parseInt(recvVal.value, 10)
+  return v > 0 ? 'warn' : 'ok'
 })
 </script>

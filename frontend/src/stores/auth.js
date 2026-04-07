@@ -1,45 +1,95 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api from '@/api'
+import api from '@/api/index.js'
+
+const LS_TOKEN = 'galera_token'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('galera_token') || '')
-  const username = ref(localStorage.getItem('galera_username') || '')
+  const token       = ref(localStorage.getItem(LS_TOKEN) || '')
   const authEnabled = ref(false)
-  const checked = ref(false)
+  const loading     = ref(false)
+  const loginError  = ref('')
 
-  const isAuthenticated = computed(() => {
+  const isLoggedIn = computed(() => {
     if (!authEnabled.value) return true
     return !!token.value
   })
 
-  async function checkAuthStatus() {
-    try {
-      const { data } = await api.get('/api/auth/status')
-      authEnabled.value = data.enabled
-    } catch {
-      authEnabled.value = false
-    } finally {
-      checked.value = true
+  function _setToken(t) {
+    token.value = t
+    if (t) {
+      localStorage.setItem(LS_TOKEN, t)
+    } else {
+      localStorage.removeItem(LS_TOKEN)
     }
   }
 
-  async function login(user, password) {
-    const { data } = await api.post('/api/auth/login', { username: user, password })
-    token.value = data.token
-    username.value = data.username
-    localStorage.setItem('galera_token', data.token)
-    localStorage.setItem('galera_username', data.username)
-    return data
+  async function init() {
+    // Check if auth is enabled on backend
+    try {
+      const resp = await api.get('/api/auth/status')
+      authEnabled.value = !!resp.data?.enabled
+
+      if (!authEnabled.value) return  // no auth needed
+
+      // Validate existing token
+      const saved = localStorage.getItem(LS_TOKEN)
+      if (!saved) {
+        _setToken('')
+        return
+      }
+      try {
+        const me = await api.get('/api/auth/me', {
+          headers: { Authorization: `Bearer ${saved}` }
+        })
+        if (me.status === 200) {
+          _setToken(saved)
+        } else {
+          _setToken('')
+        }
+      } catch {
+        _setToken('')
+      }
+    } catch {
+      // Backend offline — assume no auth
+      authEnabled.value = false
+    }
+  }
+
+  async function login(username, password) {
+    loading.value    = true
+    loginError.value = ''
+    try {
+      const resp = await api.post('/api/auth/login', { username, password })
+      if (resp.data?.token) {
+        _setToken(resp.data.token)
+        return true
+      } else {
+        loginError.value = resp.data?.detail || 'Неверный логин или пароль'
+        return false
+      }
+    } catch (e) {
+      loginError.value = e.response?.data?.detail || 'Ошибка соединения с сервером'
+      return false
+    } finally {
+      loading.value = false
+    }
   }
 
   async function logout() {
-    try { await api.post('/api/auth/logout') } catch {}
-    token.value = ''
-    username.value = ''
-    localStorage.removeItem('galera_token')
-    localStorage.removeItem('galera_username')
+    try {
+      await api.post('/api/auth/logout')
+    } catch { /* ignore */ }
+    _setToken('')
   }
 
-  return { token, username, authEnabled, checked, isAuthenticated, checkAuthStatus, login, logout }
+  function clearError() {
+    loginError.value = ''
+  }
+
+  return {
+    token, authEnabled, loading, loginError,
+    isLoggedIn,
+    init, login, logout, clearError,
+  }
 })

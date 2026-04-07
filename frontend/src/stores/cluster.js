@@ -1,163 +1,206 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api from '@/api'
+import api from '@/api/index.js'
+
+const LS_MODE    = 'galera_data_mode'  // 'mock' | 'real'
+const LS_CONTOUR = 'galera_contour'    // 'test' | 'prod'
+const LS_POLL    = 'galera_poll_interval'
 
 export const useClusterStore = defineStore('cluster', () => {
-  // ── State ───────────────────────────────────────────────
-  const status       = ref(null)
-  const contours     = ref({})
-  const selection    = ref({ contour: 'test', cluster_index: 0 })
-  const activeCluster= ref(null)
-  const mode         = ref('mock')          // 'mock' | 'real'
-  const scenario     = ref('normal')
-  const prefs        = ref({ theme: 'dark', poll_interval: 5 })
-  const logs         = ref([])
-  const loading      = ref(false)
-  const error        = ref(null)
-  const version      = ref(null)
-  const wsConnected  = ref(false)
+  // ── State ────────────────────────────────────────────────────────
+  const dataMode      = ref(localStorage.getItem(LS_MODE) || 'mock')
+  const contour       = ref(localStorage.getItem(LS_CONTOUR) || 'test')
+  const pollInterval  = ref(Number(localStorage.getItem(LS_POLL)) || 5)  // seconds
+  const clusterIndex  = ref(0)
+  const contours      = ref({})     // { test: ['cluster-1', ...], prod: [] }
 
-  // Sparkline ring-buffers per node
-  const sparklines   = ref({})   // { nodeId: { fc: [], rq: [] } }
+  const status        = ref(null)   // raw /api/status response
+  const loading       = ref(false)
+  const lastUpdate    = ref(null)   // Date object
+  const eventLog      = ref([])     // [{time, level, msg}]
+  const gitSha        = ref('v2.0.0')
+  const scenario      = ref('normal')
 
-  // ── Getters ─────────────────────────────────────────────
-  const isMock       = computed(() => mode.value === 'mock')
-  const nodes        = computed(() => status.value?.nodes || [])
-  const arbitrators  = computed(() => status.value?.arbitrators || [])
+  // History for sparklines (per node, last 30 points)
+  const sparkHistory  = ref({})     // { nodeId: { flow: [], recv: [] } }
+
+  // ── Computed ─────────────────────────────────────────────────────
+  const nodes = computed(() => status.value?.nodes || [])
+  const arbitrators = computed(() => status.value?.arbitrators || [])
   const clusterName  = computed(() => status.value?.cluster_name || '—')
-  const clusterHealth= computed(() => {
-    const s = status.value
-    if (!s) return 'unknown'
-    if (s.cluster_status === 'Primary' && s.nodes_synced === s.nodes_total) return 'ok'
-    if (s.cluster_status !== 'Primary') return 'error'
-    return 'warn'
+  const clusterState = computed(() => status.value?.cluster_status || 'unknown')
+  const isMock       = computed(() => dataMode.value === 'mock')
+  const isReal       = computed(() => dataMode.value === 'real')
+
+  const nodesSynced  = computed(() =>
+    nodes.value.filter(n => n.state === 'Synced' && n.online).length
+  )
+  const nodesOnline  = computed(() =>
+    nodes.value.filter(n => n.online).length
+  )
+  const arbOnline    = computed(() =>
+    arbitrators.value.filter(a => a.online).length
+  )
+  const flowControl  = computed(() =>
+    status.value?.flow_control ?? 0
+  )
+  const certFailures = computed(() =>
+    status.value?.cert_failures ?? 0
+  )
+
+  // header status dot class
+  const clusterStatusClass = computed(() => {
+    const s = clusterState.value
+    if (s === 'healthy') return 'ok'
+    if (s === 'degraded') return 'warn'
+    if (s === 'critical' || s === 'error') return 'error'
+    return 'ok'
   })
 
-  const contourList  = computed(() => Object.keys(contours.value))
-  const currentContourClusters = computed(() => {
-    const c = contours.value[selection.value.contour]
-    return c || []
-  })
+  // ── Actions ──────────────────────────────────────────────────────
+  function addLog(level, msg) {
+    const now = new Date()
+    const h   = String(now.getHours()).padStart(2,'0')
+    const m   = String(now.getMinutes()).padStart(2,'0')
+    const s   = String(now.getSeconds()).padStart(2,'0')
+    eventLog.value.unshift({ time: `${h}:${m}:${s}`, level, msg })
+    if (eventLog.value.length > 200) eventLog.value.pop()
+  }
 
-  // ── Actions ─────────────────────────────────────────────
+  function clearLog() {
+    eventLog.value = []
+  }
+
+  function _updateSparkHistory(nodes) {
+    nodes.forEach(n => {
+      if (!sparkHistory.value[n.id]) {
+        sparkHistory.value[n.id] = { flow: [], recv: [] }
+      }
+      const h = sparkHistory.value[n.id]
+      const flow = parseFloat(n.wsrep_flow_control_paused || n.metrics?.wsrep_flow_control_paused || 0)
+      const recv = parseInt(n.wsrep_local_recv_queue || n.metrics?.wsrep_local_recv_queue || 0, 10)
+      h.flow.push(flow); if (h.flow.length > 30) h.flow.shift()
+      h.recv.push(recv); if (h.recv.length > 30) h.recv.shift()
+    })
+  }
+
   async function fetchStatus() {
     loading.value = true
-    error.value = null
     try {
-      const { data } = await api.get('/api/status')
-      applyStatus(data)
+      const resp = await api.get('/api/status')
+      const data = resp.data
+      status.value    = data
+      lastUpdate.value = new Date()
+      _updateSparkHistory(data.nodes || [])
     } catch (e) {
-      error.value = e.message
+      addLog('ERROR', `Ошибка получения статуса: ${e.message}`)
     } finally {
       loading.value = false
     }
   }
 
-  function applyStatus(data) {
-    status.value = data
-    mode.value = data.use_mock ? 'mock' : 'real'
-    // Update sparklines
-    if (data.nodes) {
-      data.nodes.forEach(n => {
-        if (!sparklines.value[n.id]) {
-          sparklines.value[n.id] = { fc: [], rq: [] }
-        }
-        const sl = sparklines.value[n.id]
-        const fc = parseFloat(n.wsrep_flow_control_paused) || 0
-        const rq = parseInt(n.wsrep_local_recv_queue) || 0
-        sl.fc.push(fc); if (sl.fc.length > 50) sl.fc.shift()
-        sl.rq.push(rq); if (sl.rq.length > 50) sl.rq.shift()
-      })
-    }
+  async function setDataMode(mode) {
+    dataMode.value = mode
+    localStorage.setItem(LS_MODE, mode)
+    try {
+      await api.post('/api/config/mode', { mode })
+    } catch { /* ignore */ }
+    await fetchStatus()
+    addLog('INFO', `Режим данных: ${mode.toUpperCase()}`)
   }
 
-  async function fetchContours() {
-    const { data } = await api.get('/api/contours')
-    contours.value = data.contours || {}
-    selection.value = data.selection || selection.value
-    activeCluster.value = data.active_cluster || null
+  async function syncModeWithBackend() {
+    try {
+      const resp = await api.get('/api/config/mode')
+      const backendMode = resp.data?.mode
+      if (backendMode && backendMode !== dataMode.value) {
+        dataMode.value = backendMode
+        localStorage.setItem(LS_MODE, backendMode)
+      }
+    } catch { /* backend unavailable — use localStorage value */ }
   }
 
-  async function selectContour(contour, cluster_index = 0) {
-    await api.post('/api/contours/select', { contour, cluster_index })
-    selection.value = { contour, cluster_index }
+  async function loadContours() {
+    try {
+      const resp = await api.get('/api/contours')
+      contours.value = resp.data?.contours || {}
+      const sel = resp.data?.selection || {}
+      contour.value      = sel.contour       || contour.value
+      clusterIndex.value = sel.cluster_index || 0
+    } catch { /* no contours endpoint */ }
+  }
+
+  async function selectContour(c) {
+    contour.value = c
+    localStorage.setItem(LS_CONTOUR, c)
+    clusterIndex.value = 0
+    try {
+      await api.post('/api/contours/select', { contour: c, cluster_index: 0 })
+    } catch { /* ignore */ }
     await fetchStatus()
   }
 
   async function selectCluster(idx) {
-    await api.post('/api/contours/select', { contour: selection.value.contour, cluster_index: idx })
-    selection.value = { ...selection.value, cluster_index: idx }
-    await fetchStatus()
-  }
-
-  async function toggleMode() {
-    const newMode = mode.value === 'mock' ? 'real' : 'mock'
-    await api.post('/api/config/mode', { mode: newMode })
-    mode.value = newMode
-    await fetchStatus()
-    await fetchContours()
-  }
-
-  async function setMode(m) {
-    await api.post('/api/config/mode', { mode: m })
-    mode.value = m
-    await fetchStatus()
-    await fetchContours()
-  }
-
-  async function fetchVersion() {
+    clusterIndex.value = idx
     try {
-      const { data } = await api.get('/api/version')
-      version.value = data
-    } catch {}
+      await api.post('/api/contours/select', { contour: contour.value, cluster_index: idx })
+    } catch { /* ignore */ }
+    await fetchStatus()
   }
 
-  async function fetchLogs() {
-    const { data } = await api.get('/api/log')
-    logs.value = data.events || []
-  }
-
-  async function clearLogs() {
-    await api.delete('/api/log')
-    logs.value = []
-  }
-
-  async function fetchPrefs() {
-    try {
-      const { data } = await api.get('/api/prefs')
-      prefs.value = data
-    } catch {}
-  }
-
-  async function savePrefs(p) {
-    await api.post('/api/prefs', p)
-    prefs.value = { ...prefs.value, ...p }
-  }
-
-  async function setScenario(name) {
-    await api.post(`/api/scenario/${name}`)
+  async function applyScenario(name) {
     scenario.value = name
+    try {
+      await api.post('/api/scenario', { scenario: name })
+      addLog('INFO', `Сценарий: ${name}`)
+    } catch { /* ignore */ }
     await fetchStatus()
   }
 
   async function nodeAction(nodeId, action) {
-    const { data } = await api.post(`/api/node/${nodeId}/action`, { action })
-    await fetchStatus()
-    return data
+    addLog('INFO', `${action} → ${nodeId}`)
+    try {
+      const resp = await api.post(`/api/nodes/${nodeId}/${action}`)
+      addLog('OK', resp.data?.message || `${action} выполнен`)
+    } catch (e) {
+      addLog('ERROR', `${action} ${nodeId}: ${e.message}`)
+      throw e
+    }
   }
 
-  function addLog(level, message, source = 'ui') {
-    logs.value.unshift({ level, message, source, ts: new Date().toISOString() })
-    if (logs.value.length > 500) logs.value.pop()
+  async function setReadOnly(nodeId, enabled) {
+    const action = enabled ? 'readonly-on' : 'readonly-off'
+    return nodeAction(nodeId, action)
+  }
+
+  async function pingNode(nodeId) {
+    return nodeAction(nodeId, 'ping')
+  }
+
+  async function fetchGitSha() {
+    try {
+      const resp = await api.get('/api/version')
+      gitSha.value = resp.data?.sha || resp.data?.version || 'v2.0.0'
+    } catch { /* ignore */ }
+  }
+
+  function setPollInterval(secs) {
+    pollInterval.value = secs
+    localStorage.setItem(LS_POLL, secs)
   }
 
   return {
-    status, contours, selection, activeCluster, mode, scenario, prefs,
-    logs, loading, error, version, wsConnected, sparklines,
-    isMock, nodes, arbitrators, clusterName, clusterHealth,
-    contourList, currentContourClusters,
-    fetchStatus, applyStatus, fetchContours, selectContour, selectCluster,
-    toggleMode, setMode, fetchVersion, fetchLogs, clearLogs,
-    fetchPrefs, savePrefs, setScenario, nodeAction, addLog,
+    // state
+    dataMode, contour, pollInterval, clusterIndex, contours,
+    status, loading, lastUpdate, eventLog, gitSha, scenario, sparkHistory,
+    // computed
+    nodes, arbitrators, clusterName, clusterState,
+    isMock, isReal, nodesSynced, nodesOnline, arbOnline,
+    flowControl, certFailures, clusterStatusClass,
+    // actions
+    addLog, clearLog, fetchStatus, setDataMode,
+    syncModeWithBackend, loadContours, selectContour, selectCluster,
+    applyScenario, nodeAction, setReadOnly, pingNode,
+    fetchGitSha, setPollInterval,
   }
 })

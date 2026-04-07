@@ -1,17 +1,61 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth.js'
 
 const routes = [
-  { path: '/login',       name: 'Login',       component: () => import('@/pages/LoginPage.vue'),       meta: { public: true } },
-  { path: '/',            name: 'Overview',    component: () => import('@/pages/OverviewPage.vue'),     meta: { layout: true } },
-  { path: '/nodes',       name: 'Nodes',       component: () => import('@/pages/NodesPage.vue'),        meta: { layout: true } },
-  { path: '/topology',    name: 'Topology',    component: () => import('@/pages/TopologyPage.vue'),     meta: { layout: true } },
-  { path: '/recovery',    name: 'Recovery',    component: () => import('@/pages/RecoveryPage.vue'),     meta: { layout: true } },
-  { path: '/maintenance', name: 'Maintenance', component: () => import('@/pages/MaintenancePage.vue'),  meta: { layout: true } },
-  { path: '/diagnostics', name: 'Diagnostics', component: () => import('@/pages/DiagnosticsPage.vue'), meta: { layout: true } },
-  { path: '/settings',    name: 'Settings',    component: () => import('@/pages/SettingsPage.vue'),     meta: { layout: true } },
-  { path: '/docs',        name: 'Docs',        component: () => import('@/pages/DocsPage.vue'),         meta: { layout: true } },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/pages/LoginPage.vue'),
+    meta: { public: true },
+  },
+  {
+    path: '/',
+    redirect: '/overview',
+  },
+  {
+    path: '/overview',
+    name: 'overview',
+    component: () => import('@/pages/OverviewPage.vue'),
+  },
+  {
+    path: '/nodes',
+    name: 'nodes',
+    component: () => import('@/pages/NodesPage.vue'),
+  },
+  {
+    path: '/topology',
+    name: 'topology',
+    component: () => import('@/pages/TopologyPage.vue'),
+  },
+  {
+    path: '/recovery',
+    name: 'recovery',
+    component: () => import('@/pages/RecoveryPage.vue'),
+  },
+  {
+    path: '/maintenance',
+    name: 'maintenance',
+    component: () => import('@/pages/MaintenancePage.vue'),
+  },
+  {
+    path: '/diagnostics',
+    name: 'diagnostics',
+    component: () => import('@/pages/DiagnosticsPage.vue'),
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/pages/SettingsPage.vue'),
+  },
+  {
+    path: '/docs',
+    name: 'docs',
+    component: () => import('@/pages/DocsPage.vue'),
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/overview',
+  },
 ]
 
 const router = createRouter({
@@ -19,12 +63,13 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach((to, _from, next) => {
+  if (to.meta.public) return next()
   const auth = useAuthStore()
-  if (!auth.checked) await auth.checkAuthStatus()
-  if (to.meta.public) return true
-  if (!auth.isAuthenticated) return { name: 'Login', query: { redirect: to.fullPath } }
-  return true
+  if (auth.authEnabled && !auth.isLoggedIn) {
+    return next({ name: 'login' })
+  }
+  next()
 })
 
 export default router

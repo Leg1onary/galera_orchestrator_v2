@@ -1,150 +1,86 @@
 <template>
-  <div :data-theme="theme" class="app-root">
-    <!-- Login / no-layout pages -->
-    <router-view v-if="$route.meta.public" />
-
-    <!-- Main layout -->
-    <div v-else-if="auth.isAuthenticated" class="app-layout">
+  <div class="app-shell">
+    <!-- App shell renders layout, login handled by LoginPage route -->
+    <template v-if="$route.name !== 'login'">
+      <AppHeader />
       <AppSidebar />
-      <div class="app-main">
-        <AppHeader />
-        <main class="app-content">
-          <router-view v-slot="{ Component }">
-            <transition name="page" mode="out-in">
-              <component :is="Component" :key="$route.path" />
-            </transition>
-          </router-view>
-        </main>
-      </div>
-    </div>
+      <main class="app-main">
+        <router-view />
+      </main>
+      <AppFooter />
+    </template>
+    <template v-else>
+      <router-view />
+    </template>
 
+    <!-- PrimeVue global services -->
     <Toast position="bottom-right" />
     <ConfirmDialog />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue'
-import { useWebSocket, useIntervalFn, useOnline, useDark, useDocumentVisibility, useTitle } from '@vueuse/core'
+import { onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
 import ConfirmDialog from 'primevue/confirmdialog'
+
+import AppHeader  from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
-import AppHeader from '@/components/layout/AppHeader.vue'
-import { useAuthStore } from '@/stores/auth'
-import { useClusterStore } from '@/stores/cluster'
+import AppFooter  from '@/components/layout/AppFooter.vue'
 
-const auth = useAuthStore()
+import { useAuthStore }    from '@/stores/auth.js'
+import { useClusterStore } from '@/stores/cluster.js'
+
+const auth    = useAuthStore()
 const cluster = useClusterStore()
+const route   = useRoute()
 
-const theme = computed(() => cluster.prefs.theme || 'dark')
+// ── Theme: read from localStorage, apply immediately ──────────────
+const LS_THEME = 'galera_theme'
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t)
+}
+const savedTheme = localStorage.getItem(LS_THEME) || 'dark'
+applyTheme(savedTheme)
 
-// ── useTitle — динамический title по статусу кластера ────────────
-useTitle(computed(() => {
-  const s = cluster.status
-  if (!s) return 'Galera Orchestrator v2'
-  const health = cluster.clusterHealth === 'ok' ? '●' : cluster.clusterHealth === 'warn' ? '⚠' : '✕'
-  return `${health} ${s.cluster_name || 'Cluster'} | Galera Orch v2`
-}))
+// ── Poll timer ────────────────────────────────────────────────────
+let pollTimer = null
 
-// ── useDark — реактивная тема без ручного DOM-патчинга ───────────
-const isDark = useDark({
-  selector: '[data-theme]',
-  attribute: 'data-theme',
-  valueDark: 'dark',
-  valueLight: 'light',
-})
-// Синхронизируем с prefs
-watch(() => cluster.prefs.theme, (t) => { isDark.value = t !== 'light' }, { immediate: true })
-
-// ── useOnline — пауза реконнекта при отсутствии сети ─────────────
-const isOnline = useOnline()
-
-// ── useDocumentVisibility — пауза polling на свёрнутой вкладке ───
-const visibility = useDocumentVisibility()
-
-// ── WebSocket через useWebSocket ─────────────────────────────────
-let wsInstance = null
-
-function buildWsUrl() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const token = auth.token
-  return `${proto}://${location.host}/ws/cluster${token ? `?token=${token}` : ''}`
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(() => {
+    if (route.name !== 'login') {
+      cluster.fetchStatus()
+    }
+  }, cluster.pollInterval * 1000)
 }
 
-function connectWS() {
-  if (!auth.isAuthenticated) return
-
-  const { status, data, close } = useWebSocket(buildWsUrl(), {
-    autoReconnect: {
-      retries: Infinity,
-      delay: 2000,
-      onFailed() { cluster.wsConnected = false },
-    },
-    heartbeat: { message: 'ping', interval: 30000, pongTimeout: 5000 },
-    onConnected()  { cluster.wsConnected = true },
-    onDisconnected() { cluster.wsConnected = false },
-    onMessage(_, event) {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'status') cluster.applyStatus(msg)
-        if (msg.type === 'event') cluster.addLog(msg.level, msg.message, msg.source)
-      } catch {}
-    },
-  })
-
-  wsInstance = { close }
-
-  // Пауза реконнекта когда нет сети
-  watch(isOnline, (online) => {
-    if (!online) { cluster.wsConnected = false }
-  })
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
-function disconnectWS() {
-  wsInstance?.close()
-  wsInstance = null
-}
-
-// ── useIntervalFn — polling fallback ────────────────────────────
-const { pause: pausePoll, resume: resumePoll } = useIntervalFn(() => {
-  // Пропускаем если вкладка скрыта или WS активен
-  if (visibility.value === 'hidden') return
-  if (!cluster.wsConnected) cluster.fetchStatus()
-}, computed(() => (cluster.prefs.poll_interval || 5) * 1000), { immediate: false })
-
-// Пауза polling когда вкладка скрыта
-watch(visibility, (v) => {
-  v === 'hidden' ? pausePoll() : resumePoll()
+watch(() => cluster.pollInterval, () => {
+  startPolling()
 })
 
+// ── Lifecycle ─────────────────────────────────────────────────────
 onMounted(async () => {
-  if (!auth.checked) await auth.checkAuthStatus()
-  if (auth.isAuthenticated) {
-    await Promise.all([
-      cluster.fetchStatus(),
-      cluster.fetchContours(),
-      cluster.fetchPrefs(),
-      cluster.fetchVersion(),
-    ])
-    connectWS()
-    resumePoll()
-  }
+  // Init auth first
+  await auth.init()
+
+  // Sync data mode with backend, then fetch
+  await cluster.syncModeWithBackend()
+  await cluster.fetchStatus()
+  await cluster.fetchGitSha()
+
+  // Load contours for real mode
+  await cluster.loadContours()
+
+  startPolling()
 })
 
-watch(() => auth.isAuthenticated, (v) => {
-  if (v) {
-    cluster.fetchStatus()
-    cluster.fetchContours()
-    cluster.fetchPrefs()
-    connectWS()
-    resumePoll()
-  } else {
-    disconnectWS()
-    pausePoll()
-  }
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
-
-<style>
-.app-root { height: 100vh; overflow: hidden; }
-</style>

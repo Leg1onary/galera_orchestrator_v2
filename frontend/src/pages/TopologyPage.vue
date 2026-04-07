@@ -1,112 +1,154 @@
 <template>
-  <div class="page-topology">
-    <!-- SVG topology -->
-    <Card class="mb-4">
-      <template #header>
-        <div class="card-title">
-          <i class="pi pi-sitemap" />
-          SVG Топология кластера
-        </div>
-      </template>
-      <template #content>
-        <TopologySVG :nodes="cluster.nodes" :arbitrators="cluster.arbitrators" />
-      </template>
-    </Card>
+  <div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Топология</h1>
+        <p class="page-subtitle">Схема MariaDB Galera Cluster</p>
+      </div>
+    </div>
+
+    <!-- SVG Topology -->
+    <TopologySVG />
 
     <!-- wsrep comparison table -->
-    <Card>
-      <template #header>
-        <div class="card-title">
-          <i class="pi pi-table" />
-          Сравнение wsrep-переменных
-        </div>
-      </template>
-      <template #content>
-        <div class="table-wrap">
-          <DataTable :value="wsrepRows" size="small" stripedRows
-            class="wsrep-table" scrollable scroll-height="500px">
-            <Column field="variable" header="Переменная" frozen style="min-width:240px">
-              <template #body="{ data }">
-                <div class="var-cell">
-                  <span>{{ data.variable }}</span>
-                  <span v-if="data.hint" class="hint-icon" v-tooltip.right="data.hint">?</span>
-                </div>
-              </template>
-            </Column>
-            <Column v-for="node in cluster.nodes" :key="node.id" :header="node.name || node.id">
-              <template #body="{ data }">
-                <span :class="cellClass(data, node.id)">
-                  {{ data.values[node.id] ?? '—' }}
-                </span>
-              </template>
-            </Column>
-          </DataTable>
-        </div>
-      </template>
-    </Card>
+    <h2 class="card-title" style="font-size:var(--text-lg);margin-bottom:var(--space-5)">
+      Сравнение wsrep-переменных
+    </h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Переменная</th>
+            <th v-for="node in cluster.nodes" :key="node.id">
+              {{ node.name || node.id }}<br>
+              <span style="font-weight:400;font-family:var(--font-mono);font-size:0.7rem;color:var(--text-faint)">{{ node.host }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- seqno lag row — always first -->
+          <tr>
+            <td class="mono">
+              ⊿ seqno lag
+              <span class="wsrep-hint" data-tip="Разница wsrep_last_committed между нодами. Показывает отставание в транзакциях.">?</span>
+            </td>
+            <td
+              v-for="node in cluster.nodes"
+              :key="node.id"
+              :class="getSeqnoLagClass(node)"
+            >
+              {{ getSeqnoLag(node) }}
+            </td>
+          </tr>
+          <!-- wsrep variables -->
+          <tr v-for="varName in wsrepVars" :key="varName">
+            <td class="mono">
+              {{ varName }}
+              <span
+                v-if="WSREP_HINTS[varName]"
+                class="wsrep-hint"
+                :data-tip="WSREP_HINTS[varName]"
+              >?</span>
+            </td>
+            <td
+              v-for="node in cluster.nodes"
+              :key="node.id"
+              :class="getVarClass(varName, node)"
+            >
+              {{ getVar(varName, node) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import Card from 'primevue/card'
-import DataTable from 'primevue/datatable'
-import Column from 'primevue/column'
 import TopologySVG from '@/components/topology/TopologySVG.vue'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore } from '@/stores/cluster.js'
 
 const cluster = useClusterStore()
 
-const WSREP_VARS = [
-  { key: 'wsrep_cluster_status',         hint: 'Статус кластера. Норма: Primary' },
-  { key: 'wsrep_cluster_size',            hint: 'Число нод в кластере. Норма: ≥ 3' },
-  { key: 'wsrep_local_state_comment',     hint: 'Состояние ноды. Норма: Synced' },
-  { key: 'wsrep_flow_control_paused',     hint: 'Доля времени в flow control. Норма: < 0.05' },
-  { key: 'wsrep_local_recv_queue',        hint: 'Очередь входящих транзакций. Норма: 0' },
-  { key: 'wsrep_local_send_queue',        hint: 'Очередь исходящих транзакций. Норма: 0' },
-  { key: 'wsrep_local_cert_failures',     hint: 'Ошибки сертификации. Норма: 0' },
-  { key: 'wsrep_bf_aborts',               hint: 'BF-прерывания. Норма: ≈ 0' },
-  { key: 'wsrep_last_committed',          hint: 'Последний применённый seqno. Норма: одинаков на всех нодах' },
-  { key: 'wsrep_cluster_state_uuid',      hint: 'UUID кластера. Расхождение = Split-Brain!' },
-  { key: 'wsrep_connected',               hint: 'Подключение к кластеру. Норма: ON' },
-  { key: 'wsrep_ready',                   hint: 'Готовность принимать запросы. Норма: ON' },
-  { key: 'wsrep_cluster_conf_id',         hint: 'Конфигурационный ID кластера' },
-  { key: 'wsrep_cert_deps_distance',      hint: 'Среднее расстояние сертификационных зависимостей' },
-  { key: 'wsrep_local_commits',           hint: 'Число успешных commit (информационно)' },
+const WSREP_HINTS = {
+  'wsrep_cluster_status':      'Primary — кворум есть, запись разрешена. non-Primary — кластер разделён.',
+  'wsrep_local_state_comment': 'Synced — нода синхронизирована. Donor — отдаёт SST. Joining — получает данные.',
+  'wsrep_cluster_size':        'Количество нод в кластере. Должно совпадать на всех нодах.',
+  'wsrep_flow_control_paused': 'Доля времени (0.0–1.0) когда репликация была приостановлена. >0.1 — проблема.',
+  'wsrep_local_recv_queue':    'Очередь входящих транзакций. >0 длительно — нода не справляется.',
+  'wsrep_local_send_queue':    'Очередь исходящих транзакций. >0 — проблема сети.',
+  'wsrep_cert_deps_distance':  'Потенциал параллельного применения транзакций. Чем выше, тем лучше.',
+  'wsrep_local_commits':       'Число транзакций подтверждённых на ноде.',
+  'wsrep_local_cert_failures': 'Число транзакций отклонённых из-за конфликтов. >0 — конкурирующая запись.',
+  'wsrep_bf_aborts':           'Транзакции прерванные BFA. Ненулевое значение — норма при нагрузке.',
+  'wsrep_cluster_conf_id':     'Номер конфигурации кластера. Должен совпадать на всех нодах.',
+  'wsrep_cluster_state_uuid':  'UUID кластера. Должен совпадать. Расхождение — Split-Brain.',
+  'wsrep_connected':           'ON — нода подключена. OFF — изолирована.',
+  'wsrep_ready':               'ON — готова обрабатывать запросы. OFF — синхронизируется.',
+}
+
+const wsrepVars = [
+  'wsrep_cluster_status',
+  'wsrep_local_state_comment',
+  'wsrep_cluster_size',
+  'wsrep_connected',
+  'wsrep_ready',
+  'wsrep_flow_control_paused',
+  'wsrep_local_recv_queue',
+  'wsrep_local_send_queue',
+  'wsrep_cert_deps_distance',
+  'wsrep_local_commits',
+  'wsrep_local_cert_failures',
+  'wsrep_bf_aborts',
+  'wsrep_cluster_conf_id',
+  'wsrep_cluster_state_uuid',
 ]
 
-const wsrepRows = computed(() => {
-  return WSREP_VARS.map(({ key, hint }) => {
-    const values = {}
-    cluster.nodes.forEach(n => { values[n.id] = n[key] ?? null })
-    return { variable: key, hint, values }
-  })
-})
+function getVar(varName, node) {
+  const v = node[varName] ?? node.metrics?.[varName]
+  if (v === undefined || v === null) return '—'
+  return String(v)
+}
 
-function cellClass(row, nodeId) {
-  const val = row.values[nodeId]
-  if (val == null) return ''
-  // Check divergence
-  const allVals = Object.values(row.values).filter(v => v != null)
-  const unique = new Set(allVals)
-  if (unique.size > 1) return 'cell-diverge'
+function getVarClass(varName, node) {
+  const v = getVar(varName, node)
+  if (varName === 'wsrep_cluster_status')      return v === 'Primary' ? 'ok' : 'error'
+  if (varName === 'wsrep_local_state_comment') return v === 'Synced' ? 'ok' : v === 'Donor/Desynced' ? 'warn' : ''
+  if (varName === 'wsrep_connected')            return v === 'ON' ? 'ok' : 'error'
+  if (varName === 'wsrep_ready')                return v === 'ON' ? 'ok' : 'warn'
+  if (varName === 'wsrep_flow_control_paused') return parseFloat(v) > 0.05 ? 'warn' : ''
+  if (varName === 'wsrep_local_recv_queue')    return parseInt(v) > 0 ? 'warn' : ''
+  if (varName === 'wsrep_local_cert_failures') return parseInt(v) > 0 ? 'warn' : ''
+  // Check for cluster-wide inconsistency
+  const allVals = cluster.nodes.map(n => getVar(varName, n))
+  const allSame = allVals.every(x => x === allVals[0])
+  if (!allSame && ['wsrep_cluster_conf_id','wsrep_cluster_state_uuid','wsrep_cluster_size'].includes(varName)) {
+    return 'error'
+  }
   return ''
 }
-</script>
 
-<style scoped>
-.page-topology { display: flex; flex-direction: column; gap: 1rem; }
-.mb-4 { margin-bottom: 1rem; }
-.card-title { display: flex; align-items: center; gap: 0.5rem; font-size: 14px; font-weight: 600; padding: 0.875rem 1.25rem; }
+// Seqno lag helpers
+const maxSeqno = computed(() => {
+  const seqnos = cluster.nodes.map(n => {
+    return parseInt(n.wsrep_last_committed ?? n.metrics?.wsrep_last_committed ?? 0, 10) || 0
+  })
+  return Math.max(...seqnos, 0)
+})
 
-.table-wrap { overflow: auto; }
-.var-cell { display: flex; align-items: center; gap: 0.375rem; font-family: var(--font-mono); font-size: 12px; }
-.hint-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: var(--color-bg-elevated); border: 1px solid var(--color-border);
-  font-size: 10px; font-weight: 700; color: var(--color-text-muted);
-  cursor: default; flex-shrink: 0;
+function getSeqnoLag(node) {
+  const v = parseInt(node.wsrep_last_committed ?? node.metrics?.wsrep_last_committed ?? 0, 10) || 0
+  const lag = maxSeqno.value - v
+  return lag === 0 ? '0' : `+${lag}`
 }
-.cell-diverge { color: var(--color-status-error); font-weight: 600; }
-</style>
+
+function getSeqnoLagClass(node) {
+  const v = parseInt(node.wsrep_last_committed ?? node.metrics?.wsrep_last_committed ?? 0, 10) || 0
+  const lag = maxSeqno.value - v
+  if (lag === 0) return 'ok'
+  if (lag < 100) return 'warn'
+  return 'error'
+}
+</script>
