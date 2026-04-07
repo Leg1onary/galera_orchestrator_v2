@@ -31,10 +31,13 @@ backend/static/
 # OS
 .DS_Store
 Thumbs.db
-.idea/
 .vscode/
 *.swp
 *.swo
+
+# WebStorm / IntelliJ — системные файлы не коммитим, run configs — коммитим
+.idea/*
+!.idea/runConfigurations/
 
 # Docker
 .env
