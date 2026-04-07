@@ -118,6 +118,8 @@
           <div class="tab-toolbar">
             <Button label="Обновить конфиг" icon="pi pi-refresh" outlined size="small"
               @click="reloadConfig" :loading="loadingReload" />
+            <Button label="Скопировать" icon="pi pi-copy" text size="small"
+              @click="copyYaml" :disabled="!yamlContent" />
           </div>
           <pre class="yaml-preview mt-3" v-if="yamlContent">{{ yamlContent }}</pre>
         </TabPanel>
@@ -128,6 +130,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useClipboard } from '@vueuse/core'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import Tabs from 'primevue/tabs'
@@ -147,6 +150,12 @@ const cluster = useClusterStore()
 const toast = useToast()
 const confirm = useConfirm()
 const activeTab = ref('clusters')
+
+const { copy } = useClipboard()
+async function copyYaml() {
+  await copy(yamlContent.value)
+  toast.add({ severity: 'success', summary: 'Скопировано', life: 1500 })
+}
 
 const yamlContent = ref('')
 const loadingReload = ref(false)

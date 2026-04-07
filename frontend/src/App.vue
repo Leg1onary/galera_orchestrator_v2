@@ -24,7 +24,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
+import { useWebSocket, useIntervalFn, useOnline, useDark, useDocumentVisibility, useTitle } from '@vueuse/core'
 import Toast from 'primevue/toast'
 import ConfirmDialog from 'primevue/confirmdialog'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
@@ -37,51 +38,84 @@ const cluster = useClusterStore()
 
 const theme = computed(() => cluster.prefs.theme || 'dark')
 
-// WebSocket
-let ws = null
-let wsRetryTimeout = null
-let retryDelay = 2000
+// ── useTitle — динамический title по статусу кластера ────────────
+useTitle(computed(() => {
+  const s = cluster.status
+  if (!s) return 'Galera Orchestrator v2'
+  const health = cluster.clusterHealth === 'ok' ? '●' : cluster.clusterHealth === 'warn' ? '⚠' : '✕'
+  return `${health} ${s.cluster_name || 'Cluster'} | Galera Orch v2`
+}))
+
+// ── useDark — реактивная тема без ручного DOM-патчинга ───────────
+const isDark = useDark({
+  selector: '[data-theme]',
+  attribute: 'data-theme',
+  valueDark: 'dark',
+  valueLight: 'light',
+})
+// Синхронизируем с prefs
+watch(() => cluster.prefs.theme, (t) => { isDark.value = t !== 'light' }, { immediate: true })
+
+// ── useOnline — пауза реконнекта при отсутствии сети ─────────────
+const isOnline = useOnline()
+
+// ── useDocumentVisibility — пауза polling на свёрнутой вкладке ───
+const visibility = useDocumentVisibility()
+
+// ── WebSocket через useWebSocket ─────────────────────────────────
+let wsInstance = null
+
+function buildWsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const token = auth.token
+  return `${proto}://${location.host}/ws/cluster${token ? `?token=${token}` : ''}`
+}
 
 function connectWS() {
   if (!auth.isAuthenticated) return
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const token = auth.token
-  const url = `${proto}://${location.host}/ws/cluster${token ? `?token=${token}` : ''}`
 
-  ws = new WebSocket(url)
-  ws.onopen = () => { cluster.wsConnected = true; retryDelay = 2000 }
-  ws.onmessage = (ev) => {
-    try {
-      const msg = JSON.parse(ev.data)
-      if (msg.type === 'status') cluster.applyStatus(msg)
-      if (msg.type === 'event') cluster.addLog(msg.level, msg.message, msg.source)
-    } catch {}
-  }
-  ws.onerror = () => { cluster.wsConnected = false }
-  ws.onclose = () => {
-    cluster.wsConnected = false
-    wsRetryTimeout = setTimeout(() => {
-      retryDelay = Math.min(retryDelay * 1.5, 30000)
-      connectWS()
-    }, retryDelay)
-  }
+  const { status, data, close } = useWebSocket(buildWsUrl(), {
+    autoReconnect: {
+      retries: Infinity,
+      delay: 2000,
+      onFailed() { cluster.wsConnected = false },
+    },
+    heartbeat: { message: 'ping', interval: 30000, pongTimeout: 5000 },
+    onConnected()  { cluster.wsConnected = true },
+    onDisconnected() { cluster.wsConnected = false },
+    onMessage(_, event) {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.type === 'status') cluster.applyStatus(msg)
+        if (msg.type === 'event') cluster.addLog(msg.level, msg.message, msg.source)
+      } catch {}
+    },
+  })
+
+  wsInstance = { close }
+
+  // Пауза реконнекта когда нет сети
+  watch(isOnline, (online) => {
+    if (!online) { cluster.wsConnected = false }
+  })
 }
 
 function disconnectWS() {
-  if (ws) { ws.close(); ws = null }
-  if (wsRetryTimeout) clearTimeout(wsRetryTimeout)
+  wsInstance?.close()
+  wsInstance = null
 }
 
-// Poll fallback
-let pollInterval = null
-function startPoll() {
-  if (pollInterval) clearInterval(pollInterval)
-  pollInterval = setInterval(() => {
-    if (!cluster.wsConnected) cluster.fetchStatus()
-  }, (cluster.prefs.poll_interval || 5) * 1000)
-}
+// ── useIntervalFn — polling fallback ────────────────────────────
+const { pause: pausePoll, resume: resumePoll } = useIntervalFn(() => {
+  // Пропускаем если вкладка скрыта или WS активен
+  if (visibility.value === 'hidden') return
+  if (!cluster.wsConnected) cluster.fetchStatus()
+}, computed(() => (cluster.prefs.poll_interval || 5) * 1000), { immediate: false })
 
-watch(() => cluster.prefs.poll_interval, startPoll)
+// Пауза polling когда вкладка скрыта
+watch(visibility, (v) => {
+  v === 'hidden' ? pausePoll() : resumePoll()
+})
 
 onMounted(async () => {
   if (!auth.checked) await auth.checkAuthStatus()
@@ -93,13 +127,8 @@ onMounted(async () => {
       cluster.fetchVersion(),
     ])
     connectWS()
-    startPoll()
+    resumePoll()
   }
-})
-
-onUnmounted(() => {
-  disconnectWS()
-  if (pollInterval) clearInterval(pollInterval)
 })
 
 watch(() => auth.isAuthenticated, (v) => {
@@ -108,10 +137,10 @@ watch(() => auth.isAuthenticated, (v) => {
     cluster.fetchContours()
     cluster.fetchPrefs()
     connectWS()
-    startPoll()
+    resumePoll()
   } else {
     disconnectWS()
-    if (pollInterval) clearInterval(pollInterval)
+    pausePoll()
   }
 })
 </script>

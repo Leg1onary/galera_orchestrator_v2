@@ -31,6 +31,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useWebNotification } from '@vueuse/core'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
@@ -54,33 +55,29 @@ const filteredNodes = computed(() => {
   )
 })
 
-// Notification triggers
+// ── useWebNotification ───────────────────────────────────────────
+const { isSupported, permissionGranted, requestPermission, show } = useWebNotification({
+  title: 'Galera Orchestrator',
+  icon: '/favicon.svg',
+})
+
 async function toggleNotifications() {
-  if (notifEnabled.value) {
-    notifEnabled.value = false
-    return
-  }
-  if (!('Notification' in window)) {
-    alert('Браузерные уведомления не поддерживаются')
-    return
-  }
-  const perm = await Notification.requestPermission()
-  if (perm === 'granted') notifEnabled.value = true
+  if (notifEnabled.value) { notifEnabled.value = false; return }
+  if (!isSupported.value) { alert('Браузерные уведомления не поддерживаются'); return }
+  await requestPermission()
+  if (permissionGranted.value) notifEnabled.value = true
 }
 
 // Watch for triggers
 watch(() => cluster.nodes, (nodes) => {
   if (!notifEnabled.value) return
   nodes.forEach(n => {
-    if (n.wsrep_cluster_status && n.wsrep_cluster_status !== 'Primary') {
-      new Notification('Galera Orchestrator', { body: `${n.name}: non-Primary!`, icon: '/favicon.svg' })
-    }
-    if (parseFloat(n.wsrep_flow_control_paused) > 0.1) {
-      new Notification('Flow Control', { body: `${n.name}: flow_control_paused = ${n.wsrep_flow_control_paused}`, icon: '/favicon.svg' })
-    }
-    if (n.online === false) {
-      new Notification('Нода Offline', { body: `${n.name}: OFFLINE`, icon: '/favicon.svg' })
-    }
+    if (n.wsrep_cluster_status && n.wsrep_cluster_status !== 'Primary')
+      show({ title: 'Galera Orchestrator', body: `${n.name}: non-Primary!` })
+    if (parseFloat(n.wsrep_flow_control_paused) > 0.1)
+      show({ title: 'Flow Control', body: `${n.name}: fc_paused = ${n.wsrep_flow_control_paused}` })
+    if (n.online === false)
+      show({ title: 'Нода Offline', body: `${n.name}: OFFLINE` })
   })
 }, { deep: true })
 </script>

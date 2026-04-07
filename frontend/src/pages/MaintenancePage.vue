@@ -63,7 +63,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
 import { useToast } from 'primevue/usetoast'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
@@ -183,28 +184,29 @@ async function pollStep(idx, title) {
 function confirmStep() { stepConfirmed.value = true }
 function stopWizard() { aborted = true; running.value = false }
 
-// SST monitor
+// SST monitor — useIntervalFn заменяет ручной setInterval
 const sstNode = ref(null)
 const sstRunning = ref(false)
 const sstStatus = ref(null)
-let sstInterval = null
 
-async function startSST() {
+const { pause: pauseSST, resume: resumeSST } = useIntervalFn(async () => {
+  if (!sstNode.value) return
+  try {
+    const { data } = await api.get(`/api/node/${sstNode.value}/sst-status`)
+    sstStatus.value = data
+  } catch {}
+}, 3000, { immediate: false })
+
+function startSST() {
+  if (!sstNode.value) return
   sstRunning.value = true
-  sstInterval = setInterval(async () => {
-    try {
-      const { data } = await api.get(`/api/node/${sstNode.value}/sst-status`)
-      sstStatus.value = data
-    } catch {}
-  }, 3000)
+  resumeSST()
 }
 
 function stopSST() {
   sstRunning.value = false
-  if (sstInterval) clearInterval(sstInterval)
+  pauseSST()
 }
-
-onUnmounted(() => { stopSST(); aborted = true })
 </script>
 
 <style scoped>

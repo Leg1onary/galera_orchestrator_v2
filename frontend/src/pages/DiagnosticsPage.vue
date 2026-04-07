@@ -48,7 +48,11 @@
             <Button label="Получить" icon="pi pi-refresh" outlined size="small"
               @click="fetchInnoDB" :loading="loadingInnoDB" :disabled="!innoNode" />
           </div>
-          <pre v-if="innodbStatus" class="yaml-preview mt-3">{{ innodbStatus }}</pre>
+          <div v-if="innodbStatus" class="copy-wrap mt-3">
+            <Button icon="pi pi-copy" size="small" text @click="copyToClipboard(innodbStatus)"
+              v-tooltip="'Скопировать'" class="copy-btn" />
+            <pre class="yaml-preview">{{ innodbStatus }}</pre>
+          </div>
           <div v-else class="empty-state">Выберите ноду</div>
         </TabPanel>
 
@@ -95,7 +99,11 @@
             <Button label="Сравнить" icon="pi pi-arrows-h" outlined size="small"
               @click="compareGaleraCnf" :loading="loadingGalera" />
           </div>
-          <pre v-if="galeraCompare" class="yaml-preview mt-3">{{ galeraCompare }}</pre>
+          <div v-if="galeraCompare" class="copy-wrap mt-3">
+            <Button icon="pi pi-copy" size="small" text @click="copyToClipboard(galeraCompare)"
+              v-tooltip="'Скопировать'" class="copy-btn" />
+            <pre class="yaml-preview">{{ galeraCompare }}</pre>
+          </div>
           <div v-else class="empty-state">Нажмите «Сравнить»</div>
         </TabPanel>
 
@@ -122,6 +130,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useClipboard } from '@vueuse/core'
 import { useToast } from 'primevue/usetoast'
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
@@ -138,6 +147,13 @@ import { useClusterStore } from '@/stores/cluster'
 const cluster = useClusterStore()
 const toast = useToast()
 const activeTab = ref('processlist')
+
+// ── useClipboard — копирование вывода InnoDB/YAML в буфер ─────────
+const { copy, copied } = useClipboard()
+async function copyToClipboard(text) {
+  await copy(text)
+  toast.add({ severity: 'success', summary: 'Скопировано', life: 1500 })
+}
 
 const nodeIds = computed(() => cluster.nodes.map(n => n.id))
 
@@ -222,6 +238,9 @@ function formatTs(ts) {
 .tab-toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 0; }
 .mt-3 { margin-top: 0.75rem; }
 .empty-state { padding: 2rem 0; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+.copy-wrap { position: relative; }
+.copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; opacity: 0.6; }
+.copy-wrap:hover .copy-btn { opacity: 1; }
 
 .check-results { display: flex; flex-direction: column; gap: 0.5rem; }
 .check-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
