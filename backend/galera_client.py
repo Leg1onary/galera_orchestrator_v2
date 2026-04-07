@@ -177,12 +177,16 @@ def _real_node_status(node: dict, cfg: dict) -> dict:
         read_only_val = ro_rows[0][1].upper() if ro_rows else "OFF"
 
         def _int(k):
-            try:   return int(status.get(k, 0))
-            except: return 0
+            try:
+                return int(status.get(k, 0))
+            except (ValueError, TypeError):
+                return 0
 
         def _float(k):
-            try:   return float(status.get(k, 0))
-            except: return 0.0
+            try:
+                return float(status.get(k, 0))
+            except (ValueError, TypeError):
+                return 0.0
 
         state_comment = status.get("wsrep_local_state_comment", "unknown")
 

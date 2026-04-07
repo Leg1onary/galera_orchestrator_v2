@@ -13,7 +13,6 @@ Config example (nodes.yaml):
     secret_key: "change-me-32+"   # optional, auto-generated if omitted
 """
 
-import os
 import secrets
 import logging
 from datetime import datetime, timedelta, timezone
@@ -21,7 +20,6 @@ from typing import Optional
 
 import bcrypt as _bcrypt
 from fastapi import Request, HTTPException, status
-from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
 
 log = logging.getLogger("galera_orchestrator")

@@ -1,4 +1,11 @@
-import asyncio, concurrent.futures, json, logging, os, re, subprocess, time as _time, warnings
+import asyncio
+import concurrent.futures
+import json
+import logging
+import re
+import subprocess
+import time as _time
+import warnings
 from auth import init_auth, is_auth_enabled, verify_password, create_token, require_auth, decode_token, get_token_from_request
 from collections import deque, defaultdict
 from contextlib import asynccontextmanager
@@ -928,9 +935,8 @@ async def get_seqno(request: Request):
     use_mock = get_runtime_mode()
     nodes    = _get_active_nodes(cfg)
 
-    body = {}
     try:
-        body = await request.json()
+        await request.json()
     except Exception:
         pass
 
@@ -1080,7 +1086,7 @@ async def bootstrap_wizard(request: Request):
         steps.append({"step": n, "status": status, "message": msg})
 
     # Step 1: Read seqno / grastate
-    _step(1, "ok", f"Reading grastate.dat on all nodes…")
+    _step(1, "ok", "Reading grastate.dat on all nodes…")
 
     # Step 2: Stop MariaDB on all non-candidate nodes
     other_nodes = [n for n in nodes if n["id"] != candidate_id]
@@ -1376,8 +1382,10 @@ async def sst_status(node_id: str):
             "pgrep -la rsync 2>/dev/null || pgrep -la mariabackup 2>/dev/null || echo none",
             timeout=8,
         )
-        if "rsync"       in proc_out: result["sst_method"] = "rsync"
-        elif "mariabackup" in proc_out: result["sst_method"] = "mariabackup"
+        if "rsync" in proc_out:
+            result["sst_method"] = "rsync"
+        elif "mariabackup" in proc_out:
+            result["sst_method"] = "mariabackup"
     except Exception:
         pass
 
@@ -1440,10 +1448,6 @@ async def compare_galera_cnf():
     if not nodes:
         return {"ok": True, "nodes": [], "params": {}}
 
-    CNF_PATHS = [
-        "/etc/mysql/conf.d/galera.cnf",
-        "/etc/mysql/mariadb.conf.d/galera.cnf",
-    ]
 
     def _read_cnf(node):
         cmd = (
@@ -1739,7 +1743,6 @@ async def diagnostics_system_health():
 
     # ── Mock branch ──────────────────────────────────────────
     if use_mock:
-        import time as _t
         mock_nodes = []
         for node in nodes:
             nid = node["id"]
@@ -1758,8 +1761,10 @@ async def diagnostics_system_health():
             })
         return {"ok": True, "mock": True, "nodes": mock_nodes}
 
-    DISK_WARN = 80; DISK_CRIT = 90
-    MEM_WARN  = 85; MEM_CRIT  = 95
+    DISK_WARN = 80
+    DISK_CRIT = 90
+    MEM_WARN = 85
+    MEM_CRIT = 95
 
     def _collect(node):
         nid = node["id"]

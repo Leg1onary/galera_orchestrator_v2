@@ -31,7 +31,7 @@ Legacy flat format (v1) is auto-migrated on load.
 import json
 import yaml
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "nodes.yaml"
@@ -213,7 +213,7 @@ def load_config() -> dict:
         ConfigSchemaV2(**raw)
     except ValidationError as exc:
         errors = "; ".join(
-            f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}"
+            f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: {e['msg']}"
             for e in exc.errors()
         )
         raise RuntimeError(f"Config validation error in {CONFIG_PATH}: {errors}")
