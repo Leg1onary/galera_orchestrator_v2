@@ -130,6 +130,15 @@ a { color: inherit; }
   min-height: 100dvh;
 }
 
+/* Login page — single centered column, no sidebar/header grid */
+.app-shell--login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+
 /* ---- HEADER ---- */
 .app-header {
   grid-column: 1 / -1;
