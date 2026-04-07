@@ -1,0 +1,122 @@
+# ================================================================
+# Galera Orchestrator v2 — nodes.yaml
+# ================================================================
+#
+# Структура: контуры (test / prod) → кластеры → ноды + арбитры
+#
+# Можно добавить несколько кластеров внутри одного контура —
+# переключатель в header позволит выбрать нужный.
+#
+# ВАЖНО: режим mock/real НЕ хранится здесь.
+# Переключается из UI, сохраняется в config/mode.json.
+# ================================================================
+
+contours:
+
+  # ── TEST контур ─────────────────────────────────────────────────
+  test:
+    clusters:
+      - name: test-cluster-1
+        nodes:
+          - id: gc01
+            name: gc01
+            host: 192.168.1.10       # IP ноды
+            port: 3306
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa   # абсолютный путь к ключу
+            db_user: monitor_user         # per-node (опционально, иначе берётся из db.user)
+            db_password: ""               # per-node (опционально)
+            dc: DC1                       # Датацентр / сегмент
+            enabled: true
+
+          - id: gc02
+            name: gc02
+            host: 192.168.1.11
+            port: 3306
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC1
+            enabled: true
+
+          - id: gc03
+            name: gc03
+            host: 192.168.2.10
+            port: 3306
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC2
+            enabled: true
+
+        arbitrators:
+          - id: arb-test-01
+            host: 192.168.1.12
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC1
+            enabled: true
+
+  # ── PROD контур ──────────────────────────────────────────────────
+  prod:
+    clusters:
+      - name: prod-cluster-1
+        nodes:
+          - id: prod-gc01
+            name: prod-gc01
+            host: 10.10.1.10
+            port: 3306
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC1
+            enabled: false   # ← включить когда заполните реальные данные
+
+          - id: prod-gc02
+            name: prod-gc02
+            host: 10.10.1.11
+            port: 3306
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC1
+            enabled: false
+
+        arbitrators:
+          - id: arb-prod-01
+            host: 10.10.1.12
+            ssh_port: 22
+            ssh_user: root
+            ssh_key: /root/.ssh/id_rsa
+            dc: DC1
+            enabled: false
+
+
+# ── Глобальные DB credentials ────────────────────────────────────
+# Создать пользователя:
+#   GRANT SELECT, PROCESS, REPLICATION CLIENT ON *.*
+#     TO 'monitor_user'@'%' IDENTIFIED BY 'strong_password';
+db:
+  user: monitor_user
+  password: CHANGE_ME
+
+
+# ── Настройки ────────────────────────────────────────────────────
+settings:
+  poll_interval: 5   # секунды между опросами в real-режиме
+
+
+# ── Авторизация ──────────────────────────────────────────────────
+# По умолчанию ВКЛЮЧЕНА: admin / admin
+#
+# Для смены пароля сгенерировать новый хэш:
+#   python3 -c "import bcrypt; print(bcrypt.hashpw(b'newpassword', bcrypt.gensalt()).decode())"
+# ────────────────────────────────────────────────────────────────
+auth:
+  enabled: true                   # ← авторизация ВКЛЮЧЕНА по умолчанию
+  username: admin                 # логин
+  password_hash: "$2b$12$YyyqtgQOnGCRT07LsEwa0.0wQtvyaX69d.m21O2Y6o47Ng8Q2z2xm"  # пароль: admin
+  token_expire_hours: 24          # время жизни токена в часах
+  secret_key: "galera-orch-v2-change-me-in-production-32chars"   # ЗАМЕНИТЕ в production!

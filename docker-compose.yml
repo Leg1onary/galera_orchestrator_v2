@@ -1,0 +1,50 @@
+version: "3.9"
+
+# ================================================================
+# Galera Orchestrator v2 — Docker Compose
+#
+# Быстрый старт:
+#   docker compose up -d
+#
+# С пробросом SSH-ключей:
+#   docker compose up -d
+#   (ключи монтируются из ~/.ssh автоматически)
+# ================================================================
+
+services:
+  galera-orchestrator:
+    build: .
+    image: galera-orchestrator-v2:latest
+    container_name: galera-orchestrator-v2
+    restart: unless-stopped
+
+    ports:
+      - "${GALERA_PORT:-8000}:8000"
+
+    volumes:
+      # Config — обязательно примонтировать для persistence
+      - ./config:/app/config
+
+      # SSH ключи — для real-режима
+      - ~/.ssh:/root/.ssh:ro
+
+      # Логи
+      - ./logs:/app/logs
+
+    environment:
+      - GALERA_HOST=0.0.0.0
+      - GALERA_PORT=8000
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
