@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--login': $route.name === 'login' }">
     <!-- App shell renders layout, login handled by LoginPage route -->
     <template v-if="$route.name !== 'login'">
       <AppHeader />

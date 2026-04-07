@@ -1,7 +1,5 @@
 <template>
-  <div
-    style="display:flex;align-items:center;justify-content:center;min-height:100dvh;background:var(--bg)"
-  >
+  <div class="login-wrapper">
     <div class="login-card">
       <!-- Logo -->
       <div class="login-logo">
@@ -89,6 +87,13 @@ async function doLogin() {
 </script>
 
 <style scoped>
+.login-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: var(--bg);
+}
 .login-card {
   width: 100%; max-width: 400px;
   background: var(--surface);
