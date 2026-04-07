@@ -50,7 +50,7 @@ let pollTimer = null
 function startPolling() {
   stopPolling()
   pollTimer = setInterval(() => {
-    if (route.name !== 'login') {
+    if (route.name !== 'login' && auth.isLoggedIn) {
       cluster.fetchStatus()
     }
   }, cluster.pollInterval * 1000)
@@ -66,15 +66,15 @@ watch(() => cluster.pollInterval, () => {
 
 // ── Lifecycle ─────────────────────────────────────────────────────
 onMounted(async () => {
-  // Init auth first
+  // Init auth first — validates token with backend
   await auth.init()
 
-  // Sync data mode with backend, then fetch
+  // Only proceed with cluster init if authenticated
+  if (!auth.isLoggedIn) return
+
   await cluster.syncModeWithBackend()
   await cluster.fetchStatus()
   await cluster.fetchGitSha()
-
-  // Load contours for real mode
   await cluster.loadContours()
 
   startPolling()
