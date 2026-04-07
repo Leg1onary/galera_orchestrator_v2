@@ -29,12 +29,15 @@ Legacy flat format (v1) is auto-migrated on load.
 """
 
 import json
+import logging
+import shutil
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "nodes.yaml"
+CONFIG_PATH  = Path(__file__).parent.parent / "config" / "nodes.yaml"
+EXAMPLE_PATH = Path(__file__).parent.parent / "config" / "nodes.example.yaml"
 
 # Runtime mode — stored separately so nodes.yaml is never touched on mode switch
 _MODE_PATH   = Path(__file__).parent.parent / "config" / "mode.json"
@@ -199,11 +202,27 @@ def _migrate_v1_to_v2(raw: dict) -> dict:
 # ── Load / save ──────────────────────────────────────────────────────
 
 def load_config() -> dict:
-    """Load nodes.yaml, auto-migrate v1→v2, validate, return raw dict."""
+    """Load nodes.yaml, auto-migrate v1→v2, validate, return raw dict.
+
+    If nodes.yaml does not exist, it is automatically created from
+    nodes.example.yaml so the server starts cleanly on first run.
+    """
+    if not CONFIG_PATH.exists():
+        if EXAMPLE_PATH.exists():
+            shutil.copy(EXAMPLE_PATH, CONFIG_PATH)
+            log = logging.getLogger("galera_orchestrator")
+            log.warning(
+                "nodes.yaml not found — created from nodes.example.yaml. "
+                "Edit config/nodes.yaml to configure your cluster."
+            )
+        else:
+            raise RuntimeError(
+                f"Config file not found: {CONFIG_PATH}\n"
+                f"Also missing: {EXAMPLE_PATH}\n"
+                f"Please create config/nodes.yaml manually."
+            )
     try:
         raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except FileNotFoundError:
-        raise RuntimeError(f"Config file not found: {CONFIG_PATH}")
     except yaml.YAMLError as exc:
         raise RuntimeError(f"Invalid YAML in {CONFIG_PATH}: {exc}")
 
