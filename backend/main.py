@@ -113,9 +113,6 @@ def _db_connect(node: dict, cfg: dict, **kwargs):
 # ── Persistent event log ─────────────────────────────────────────
 _LOG_DIR  = Path(__file__).parent.parent / "logs"
 _LOG_FILE = _LOG_DIR / "events.log"
-# Rotation: 5 MB per file, keep 3 backups → max ~20 MB on disk.
-# _event_logger is initialised lazily on first write so the logs/
-# directory is not created at import time (avoids watchfiles noise).
 _event_logger: logging.Logger | None = None
 
 
@@ -126,13 +123,13 @@ def _get_event_logger() -> logging.Logger:
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
         _fh = _RFH(
             str(_LOG_FILE),
-            maxBytes=5 * 1024 * 1024,   # 5 MB per file
-            backupCount=3,               # events.log.1 / .2 / .3
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
             encoding="utf-8",
         )
         _fh.setFormatter(logging.Formatter("%(message)s"))
         _event_logger = logging.getLogger("galera.events")
-        _event_logger.propagate = False   # don't duplicate to root logger
+        _event_logger.propagate = False
         _event_logger.setLevel(logging.DEBUG)
         _event_logger.addHandler(_fh)
     return _event_logger
@@ -155,12 +152,10 @@ def _push_event(level: str, msg: str, source: str = "system"):
         "source": source,
     }
     _event_log.append(entry)
-    # Write log file in a thread pool to avoid blocking the event loop
     try:
         loop = asyncio.get_running_loop()
         loop.run_in_executor(None, _write_log_entry, json.dumps(entry))
     except RuntimeError:
-        # Called outside async context (e.g. startup) — write synchronously
         _write_log_entry(json.dumps(entry))
     try:
         mgr  = app.state.ws_manager
@@ -173,7 +168,6 @@ def _push_event(level: str, msg: str, source: str = "system"):
 
 
 def _write_log_entry(line: str):
-    """Write one JSON line to the rotating log file (5 MB × 3 backups)."""
     try:
         _get_event_logger().info(line)
     except Exception:
@@ -182,10 +176,6 @@ def _write_log_entry(line: str):
 
 # ── WebSocket manager ────────────────────────────────────────────
 class _WsManager:
-    """
-    Tracks active WebSocket connections and broadcasts JSON messages.
-    All public methods are coroutines and must be called from an async context.
-    """
     def __init__(self):
         self._connections: list = []
 
@@ -217,10 +207,9 @@ class _WsManager:
 
 # ── Rate limiter for SSH actions ─────────────────────────────────
 _action_calls: dict = defaultdict(list)
-_RATE_LIMIT_MAX    = 5   # max SSH action requests per node
-_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX    = 5
+_RATE_LIMIT_WINDOW = 60
 
-# Separate rate-limit bucket for cluster-wide operations
 _cluster_action_calls: list = []
 
 
@@ -238,7 +227,6 @@ def _check_rate_limit(node_id: str):
 
 
 def _check_cluster_rate_limit():
-    """Rate-limit cluster-wide operations (bootstrap, rejoin, wsrep-recover-all)."""
     global _cluster_action_calls
     now          = _time.monotonic()
     window_start = now - _RATE_LIMIT_WINDOW
@@ -252,7 +240,7 @@ def _check_cluster_rate_limit():
     _cluster_action_calls.append(now)
 
 
-# ── api_version cache (module-level, not function attribute) ──
+# ── api_version cache ──
 _version_cache: Optional[dict] = None
 
 
@@ -262,7 +250,7 @@ async def lifespan(app: FastAPI):
     cfg  = _load_config_cached()
     nodes = [n["id"] for n in get_active_cluster(cfg).get("nodes", []) if n.get("enabled")]
     arbs  = [a for a in get_active_cluster(cfg).get("arbitrators", []) if a.get("enabled", True)]
-    init_auth(cfg)  # load auth config (enabled/disabled, credentials)
+    init_auth(cfg)
     auth_state = "enabled" if is_auth_enabled() else "disabled"
     contours_info = list_contours(cfg)
     cluster = get_active_cluster(cfg)
@@ -274,10 +262,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Galera Orchestrator", lifespan=lifespan)
 
-# v2: serve built Vue SPA from backend/static/
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Mount static assets (JS, CSS, fonts) only if built
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets") if (STATIC_DIR / "assets").exists() else None
 
@@ -312,7 +298,6 @@ async def favicon_svg():
 # ── Health endpoint ───────────────────────────────────────────
 @app.get("/api/health")
 async def health():
-    """Lightweight health check for systemd, load balancers, and uptime monitors."""
     return {"ok": True, "status": "healthy", "ts": datetime.utcnow().isoformat() + "Z"}
 
 
@@ -320,13 +305,11 @@ async def health():
 
 @app.get("/api/auth/status")
 async def auth_status():
-    """Returns whether auth is enabled (public endpoint — used by frontend on load)."""
     return {"enabled": is_auth_enabled()}
 
 
 @app.post("/api/auth/login")
 async def auth_login(request: Request):
-    """Login with username+password, receive JWT token."""
     try:
         body = await request.json()
     except Exception:
@@ -336,7 +319,6 @@ async def auth_login(request: Request):
     password = str(body.get("password", ""))
 
     if not is_auth_enabled():
-        # Auth disabled — return a dummy token so frontend works uniformly
         return {"ok": True, "token": create_token("admin"), "username": "admin"}
 
     cfg = _load_config_cached()
@@ -356,7 +338,7 @@ async def auth_login(request: Request):
 
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
-    """Logout — client should discard the token."""
+    """Logout — always succeeds regardless of token validity."""
     token = get_token_from_request(request)
     if token:
         username = decode_token(token)
@@ -367,7 +349,6 @@ async def auth_logout(request: Request):
 
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
-    """Returns current user info. 401 if not authenticated."""
     require_auth(request)
     token = get_token_from_request(request)
     username = decode_token(token) if token else None
@@ -375,6 +356,18 @@ async def auth_me(request: Request):
 
 
 # ── Auth middleware ───────────────────────────────────────────────
+
+# Public paths that never require authentication
+_PUBLIC_PATHS = {
+    "/",
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/status",
+    "/favicon.ico",
+    "/favicon.svg",
+}
+
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -384,8 +377,7 @@ async def auth_middleware(request: Request, call_next):
 
     path = request.url.path
 
-    # Always public
-    if path in {"/", "/api/health", "/api/auth/login", "/api/auth/status", "/favicon.ico"}:
+    if path in _PUBLIC_PATHS:
         return await call_next(request)
 
     # Static frontend files
@@ -413,7 +405,6 @@ async def api_status():
         data    = await asyncio.get_event_loop().run_in_executor(
             None, get_cluster_status, cluster, cfg
         )
-        # Add selection metadata to response
         sel = get_selection()
         data["contour"]       = cluster.get("_contour", sel.get("contour", "test"))
         data["cluster_index"] = cluster.get("_index",   sel.get("cluster_index", 0))
@@ -444,7 +435,6 @@ async def get_scenario_api():
 @app.get("/api/config")
 async def get_config():
     cfg = _load_config_cached()
-    # Also return active selection for frontend init
     sel     = get_selection()
     cluster = get_active_cluster(cfg)
     return {**cfg, "_selection": sel, "_active_cluster": cluster}
@@ -454,7 +444,6 @@ async def get_config():
 
 @app.get("/api/contours")
 async def get_contours():
-    """List all contours and their clusters."""
     cfg  = _load_config_cached()
     sel  = get_selection()
     return {
@@ -466,7 +455,6 @@ async def get_contours():
 
 @app.post("/api/contours/select")
 async def select_cluster(request: Request):
-    """Set active contour + cluster. Body: {contour: str, cluster_index: int}"""
     body    = await request.json()
     cfg     = _load_config_cached()
     contour = str(body.get("contour", "test"))
@@ -490,7 +478,6 @@ async def select_cluster(request: Request):
 
 @app.post("/api/contours/cluster")
 async def add_cluster(request: Request):
-    """Add a new cluster to a contour. Body: {contour, name, ...}"""
     body    = await request.json()
     contour = str(body.get("contour", "test"))
     name    = str(body.get("name", "")).strip()
@@ -502,7 +489,6 @@ async def add_cluster(request: Request):
     cfg["contours"].setdefault(contour, {"clusters": []})
     cfg["contours"][contour].setdefault("clusters", [])
 
-    # Check no duplicate name in this contour
     existing = [c["name"] for c in cfg["contours"][contour]["clusters"]]
     if name in existing:
         raise HTTPException(409, f"Cluster '{name}' already exists in '{contour}'")
@@ -516,7 +502,6 @@ async def add_cluster(request: Request):
     save_config(cfg)
     _invalidate_config_cache()
 
-    # Auto-select the new cluster
     new_idx = len(cfg["contours"][contour]["clusters"]) - 1
     set_selection(contour, new_idx)
 
@@ -526,7 +511,6 @@ async def add_cluster(request: Request):
 
 @app.delete("/api/contours/{contour}/cluster/{idx}")
 async def delete_cluster(contour: str, idx: int):
-    """Delete a cluster from a contour by index."""
     cfg = load_config()
     clusters = cfg.get("contours", {}).get(contour, {}).get("clusters", [])
     if idx >= len(clusters):
@@ -534,7 +518,6 @@ async def delete_cluster(contour: str, idx: int):
     removed = clusters.pop(idx)
     save_config(cfg)
     _invalidate_config_cache()
-    # Reset selection to first cluster in contour
     new_idx = 0 if clusters else 0
     set_selection(contour, new_idx)
     _push_event("info", f"Cluster '{removed.get('name')}' deleted from '{contour}'", "ui")
@@ -542,7 +525,6 @@ async def delete_cluster(contour: str, idx: int):
 
 @app.patch("/api/contours/{contour}/cluster/{idx}")
 async def rename_cluster(contour: str, idx: int, request: Request):
-    """Rename a cluster. Body: {name: str}"""
     body = await request.json()
     new_name = (body.get("name") or "").strip()
     if not new_name:
@@ -557,8 +539,9 @@ async def rename_cluster(contour: str, idx: int, request: Request):
     _invalidate_config_cache()
     _push_event("info", f"Cluster renamed: '{old_name}' → '{new_name}' in '{contour}'", "ui")
     return {"ok": True, "name": new_name}
-    
-# ── Nodes API (v2 — scoped to active cluster) ──────────────────────────────────
+
+
+# ── Nodes API ──────────────────────────────────────────────────────────
 
 @app.get("/api/nodes")
 async def list_nodes():
@@ -568,18 +551,15 @@ async def list_nodes():
 
 
 def _get_active_nodes(cfg: dict) -> list:
-    """Helper: enabled nodes from active cluster."""
     return [n for n in get_active_cluster(cfg).get("nodes", []) if n.get("enabled", True)]
 
 
 def _find_node(cfg: dict, node_id: str) -> dict | None:
-    """Find a node by id in the active cluster."""
     cluster = get_active_cluster(cfg)
     return next((n for n in cluster.get("nodes", []) if n["id"] == node_id), None)
 
 
 def _find_node_globally(cfg: dict, node_id: str) -> dict | None:
-    """Find a node by id across ALL contours and clusters."""
     for contour_data in cfg.get("contours", {}).values():
         for cluster in contour_data.get("clusters", []):
             for n in cluster.get("nodes", []):
@@ -590,13 +570,11 @@ def _find_node_globally(cfg: dict, node_id: str) -> dict | None:
 
 @app.get("/api/node/{node_id}/test-connection")
 async def test_node_connection(node_id: str):
-    """SSH + DB connectivity check."""
     cfg  = _load_config_cached()
     node = _find_node(cfg, node_id)
     if not node:
         raise HTTPException(404, f"Node '{node_id}' not found")
 
-    # SSH check
     try:
         [(ec, out, err)] = ssh_run(node, "echo ok", timeout=8)
         ssh_ok  = ec == 0 and out.strip() == "ok"
@@ -605,7 +583,6 @@ async def test_node_connection(node_id: str):
         ssh_ok  = False
         ssh_msg = str(e)
 
-    # DB check
     db_ok  = False
     db_msg = "Not tested"
     try:
@@ -648,7 +625,6 @@ async def node_action(node_id: str, body: NodeActionRequest):
     if not cmd:
         raise HTTPException(400, f"Unknown action '{body.action}'. Allowed: {list(msgs)}")
 
-    # Mock mode: simulate the action, no real SSH
     if get_runtime_mode():
         from mock_data import mock_ssh_action
         result = mock_ssh_action(node_id, body.action, cmd)
@@ -677,12 +653,10 @@ async def get_mode():
 @app.post("/api/config/mode")
 async def set_mode(request: Request):
     body = await request.json()
-    # Accept both use_mock (bool) and mode ("mock"/"real") from frontend
     if "mode" in body:
         use_mock = body["mode"] != "real"
     else:
         use_mock = bool(body.get("use_mock", True))
-    # Write to config/mode.json only — nodes.yaml is never touched on mode switch
     set_runtime_mode(use_mock)
     _push_event("info", f"Data mode changed to {'mock' if use_mock else 'real'}", "ui")
     return {"ok": True, "use_mock": use_mock, "mode": "mock" if use_mock else "real"}
@@ -792,7 +766,6 @@ async def delete_all_arbitrators():
 
 @app.put("/api/config/arbitrator/{arb_id}")
 async def update_arbitrator(arb_id: str, body: ArbitratorConfig):
-    """Update an existing arbitrator. Validated via Pydantic — only known fields are accepted."""
     cfg  = load_config()
     arbs = get_active_cluster(cfg).get("arbitrators", [])
     if isinstance(arbs, dict):
@@ -800,9 +773,8 @@ async def update_arbitrator(arb_id: str, body: ArbitratorConfig):
     idx = next((i for i, a in enumerate(arbs) if a.get("id") == arb_id), None)
     if idx is None:
         raise HTTPException(404, f"Arbitrator '{arb_id}' not found")
-    # Merge: preserve existing id, update the rest
     arbs[idx].update(body.dict())
-    arbs[idx]["id"] = arb_id   # ensure id cannot be changed via body
+    arbs[idx]["id"] = arb_id
     mutate_active_cluster(cfg, "arbitrators", arbs)
     save_config(cfg)
     _invalidate_config_cache()
@@ -817,7 +789,6 @@ class DBCredentials(BaseModel):
 
 @app.post("/api/config/db")
 async def update_db_credentials(creds: DBCredentials):
-    """Update DB credentials for all nodes."""
     cfg   = load_config()
     nodes = get_active_cluster(cfg).get("nodes", [])
     for node in nodes:
@@ -839,7 +810,7 @@ async def reload_config_legacy():
 async def reload_config():
     _invalidate_config_cache()
     cfg = _load_config_cached()
-    init_auth(cfg)  # re-read auth settings after reload
+    init_auth(cfg)
     _push_event("info", "Config reloaded via API", "ui")
     return {"ok": True, "nodes": len(get_active_cluster(cfg).get("nodes", []))}
 
@@ -862,7 +833,6 @@ async def save_prefs(request: Request):
 
 @app.get("/api/garbd/{arb_id}/log")
 async def garbd_log(arb_id: str, lines: int = 100):
-    """SSH: tail the garbd log from the arbitrator host."""
     cfg = _load_config_cached()
     arbs = get_active_cluster(cfg).get("arbitrators", [])
     arb  = next((a for a in arbs if a["id"] == arb_id), None)
@@ -885,10 +855,8 @@ async def garbd_log(arb_id: str, lines: int = 100):
         return {"ok": False, "log": str(e)}
 
 
-# ── wsrep-recover (single node) ───────────────────────────────
 @app.post("/api/node/{node_id}/wsrep-recover")
 async def wsrep_recover(node_id: str):
-    """SSH: run galera_recovery / mysqld --wsrep-recover on a single node."""
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     node     = _find_node(cfg, node_id)
@@ -923,14 +891,8 @@ async def wsrep_recover(node_id: str):
         raise HTTPException(500, str(e))
 
 
-# ── seqno (read grastate.dat from all nodes) ──────────────────
 @app.post("/api/seqno")
 async def get_seqno(request: Request):
-    """SSH: read /var/lib/mysql/grastate.dat from all nodes in parallel.
-
-    Accepts optional body: {nodes?: list[str], candidate?: str, candidate_seqno?: int}
-    Returns per-node seqno info used by the Bootstrap Wizard.
-    """
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     nodes    = _get_active_nodes(cfg)
@@ -991,13 +953,8 @@ async def get_seqno(request: Request):
     return {"ok": True, "mock": False, "nodes": results}
 
 
-# ── wsrep-recover-all (parallel, all nodes) ───────────────────
 @app.post("/api/wsrep-recover-all")
 async def wsrep_recover_all():
-    """SSH: run wsrep-recover on ALL nodes in parallel.
-
-    Used by the Bootstrap Wizard to determine which node has the highest seqno.
-    """
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     nodes    = _get_active_nodes(cfg)
@@ -1042,14 +999,8 @@ async def wsrep_recover_all():
     return {"ok": True, "mock": False, "nodes": results}
 
 
-# ── Bootstrap Wizard (6-step orchestrated bootstrap) ─────────
 @app.post("/api/bootstrap/wizard")
 async def bootstrap_wizard(request: Request):
-    """Orchestrated 6-step cluster bootstrap.
-
-    Body: {candidate_id: str}
-    Returns step-by-step progress so the frontend wizard can display each stage.
-    """
     body         = await request.json()
     candidate_id = body.get("candidate_id") or body.get("node_id")
 
@@ -1060,11 +1011,8 @@ async def bootstrap_wizard(request: Request):
     if not nodes:
         raise HTTPException(400, "No enabled nodes found in the active cluster")
 
-    # Auto-select candidate if not provided: pick node with highest seqno (mock)
-    # or first available node (real — let the wizard guide the user)
     if not candidate_id:
         if use_mock:
-            # In mock mode pick node with highest deterministic seqno
             from mock_data import _node_base_seqno
             candidate_id = max(nodes, key=lambda n: _node_base_seqno(n["id"]))["id"]
         else:
@@ -1085,10 +1033,8 @@ async def bootstrap_wizard(request: Request):
     def _step(n: int, status: str, msg: str):
         steps.append({"step": n, "status": status, "message": msg})
 
-    # Step 1: Read seqno / grastate
     _step(1, "ok", "Reading grastate.dat on all nodes…")
 
-    # Step 2: Stop MariaDB on all non-candidate nodes
     other_nodes = [n for n in nodes if n["id"] != candidate_id]
     for n in other_nodes:
         try:
@@ -1098,7 +1044,6 @@ async def bootstrap_wizard(request: Request):
         except Exception as e:
             _step(2, "error", f"SSH → {n['id']}: stop failed — {e}")
 
-    # Step 3: galera_new_cluster on candidate
     try:
         [(ec, out, err)] = ssh_run(
             candidate,
@@ -1116,7 +1061,6 @@ async def bootstrap_wizard(request: Request):
 
     _push_event("info", f"Bootstrap wizard: candidate={candidate_id}", "ui")
 
-    # Steps 4+: Start MariaDB on remaining nodes one by one
     for i, n in enumerate(other_nodes, 4):
         try:
             [(ec, out, err)] = ssh_run(n, "systemctl start mariadb 2>&1", timeout=60)
@@ -1131,10 +1075,8 @@ async def bootstrap_wizard(request: Request):
     return {"ok": True, "mock": False, "candidate_id": candidate_id, "steps": steps}
 
 
-# ── reset-grastate ─────────────────────────────────────────────
 @app.post("/api/node/{node_id}/reset-grastate")
 async def reset_grastate(node_id: str):
-    """SSH: reset safe_to_bootstrap flag in grastate.dat."""
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     node     = _find_node(cfg, node_id)
@@ -1164,10 +1106,8 @@ async def reset_grastate(node_id: str):
         raise HTTPException(500, str(e))
 
 
-# ── pc.bootstrap (force primary component) ────────────────────
 @app.post("/api/node/{node_id}/pc-bootstrap")
 async def pc_bootstrap(node_id: str):
-    """DB: SET GLOBAL wsrep_provider_options='pc.bootstrap=YES' to force Primary Component."""
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     node     = _find_node(cfg, node_id)
@@ -1193,14 +1133,8 @@ async def pc_bootstrap(node_id: str):
         raise HTTPException(500, str(e))
 
 
-# ── rejoin (cluster-level, with method) ───────────────────────
 @app.post("/api/rejoin")
 async def do_rejoin_cluster(request: Request):
-    """SSH: stop + start MariaDB on a node to re-join the cluster.
-
-    Body: {node_id: str, method?: str}
-    This is a cluster-level rejoin (no node_id in path) used by the Recovery page.
-    """
     body    = await request.json()
     node_id = body.get("node_id")
     if not node_id:
@@ -1236,16 +1170,13 @@ async def do_rejoin_cluster(request: Request):
         raise HTTPException(500, str(e))
 
 
-# ── set-donor (frontend calls /api/node/{id}/set-donor) ───────
 @app.post("/api/node/{node_id}/set-donor")
 async def set_donor_alias(node_id: str, request: Request):
-    """Alias: frontend calls set-donor, backend was named sst-donor. Both work."""
     return await force_sst_donor(node_id, request)
 
 
 @app.post("/api/bootstrap")
 async def do_bootstrap(request: Request):
-    """Bootstrap the Galera cluster from the node with the highest seqno."""
     body    = await request.json()
     node_id = body.get("node_id")
     cfg     = _load_config_cached()
@@ -1292,7 +1223,6 @@ async def do_bootstrap(request: Request):
 
 @app.post("/api/node/{node_id}/rejoin")
 async def do_rejoin(node_id: str):
-    """SSH: stop + start MariaDB on the given node to re-join the cluster."""
     cfg  = _load_config_cached()
     node = _find_node(cfg, node_id)
     if not node:
@@ -1316,7 +1246,6 @@ async def do_rejoin(node_id: str):
 
 @app.post("/api/node/{node_id}/sst-donor")
 async def force_sst_donor(node_id: str, request: Request):
-    """SSH: set wsrep_sst_donor on the recipient node."""
     body     = await request.json()
     donor_id = body.get("donor_id")
     cfg      = _load_config_cached()
@@ -1342,7 +1271,6 @@ async def force_sst_donor(node_id: str, request: Request):
 
 @app.get("/api/node/{node_id}/sst-status")
 async def sst_status(node_id: str):
-    """SSH + DB: monitor SST progress on the given node."""
     cfg  = _load_config_cached()
     node = _find_node(cfg, node_id)
     if not node:
@@ -1358,7 +1286,6 @@ async def sst_status(node_id: str):
         "message":     "",
     }
 
-    # DB query — parameterized to prevent SQL injection
     try:
         conn = _db_connect(node, cfg)
         with conn.cursor() as cur:
@@ -1375,7 +1302,6 @@ async def sst_status(node_id: str):
     except Exception:
         pass
 
-    # SSH: detect active SST process
     try:
         [(_, proc_out, _)] = ssh_run(
             node,
@@ -1400,7 +1326,6 @@ async def sst_status(node_id: str):
 
 @app.get("/api/node/{node_id}/processlist")
 async def get_processlist(node_id: str, min_time: int = 0):
-    """DB: SHOW FULL PROCESSLIST filtered by minimum query time."""
     cfg  = _load_config_cached()
     node = _find_node(cfg, node_id)
     if not node:
@@ -1420,7 +1345,6 @@ async def get_processlist(node_id: str, min_time: int = 0):
 
 @app.post("/api/node/{node_id}/kill-query")
 async def kill_query(node_id: str, request: Request):
-    """DB: KILL QUERY on the given node."""
     body    = await request.json()
     proc_id = body.get("process_id")
     if not proc_id:
@@ -1442,12 +1366,10 @@ async def kill_query(node_id: str, request: Request):
 
 @app.get("/api/config/compare-galera-cnf")
 async def compare_galera_cnf():
-    """SSH: read galera.cnf from all nodes and return diff-friendly structure."""
     cfg   = _load_config_cached()
     nodes = _get_active_nodes(cfg)
     if not nodes:
         return {"ok": True, "nodes": [], "params": {}}
-
 
     def _read_cnf(node):
         cmd = (
@@ -1531,7 +1453,6 @@ async def compare_galera_cnf():
 
 @app.get("/api/diagnostics/check-all")
 async def check_all():
-    """Run a comprehensive cluster health check across all nodes."""
     cfg   = _load_config_cached()
     nodes = _get_active_nodes(cfg)
     mode  = get_runtime_mode()
@@ -1561,7 +1482,6 @@ async def check_all():
             "summary": f"Mock check: {len(nodes)} nodes OK",
         }
 
-    # Real mode — parameterized queries
     wsrep_vars = [
         "wsrep_connected", "wsrep_ready", "wsrep_local_state_comment",
         "wsrep_last_committed", "wsrep_local_recv_queue", "wsrep_flow_control_paused",
@@ -1604,7 +1524,6 @@ async def check_all():
 
 @app.get("/api/node/{node_id}/innodb-status")
 async def innodb_status(node_id: str):
-    """DB: SHOW ENGINE INNODB STATUS — returns raw output for deadlock analysis."""
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     node     = _find_node(cfg, node_id)
@@ -1629,7 +1548,6 @@ async def innodb_status(node_id: str):
 
 @app.websocket("/ws/cluster")
 async def ws_cluster(websocket: WebSocket):
-    """WebSocket endpoint — streams cluster events to connected browsers."""
     mgr = websocket.app.state.ws_manager
     await mgr.connect(websocket)
     try:
@@ -1646,10 +1564,8 @@ async def ws_cluster(websocket: WebSocket):
         mgr.disconnect(websocket)
 
 
-# ── EVENT LOG API ─────────────────────────────────────────────
 @app.get("/api/log")
 async def get_log(limit: int = 200, level: str = ""):
-    """Return recent events from the in-memory ring buffer."""
     entries = list(_event_log)
     if level:
         entries = [e for e in entries if e["level"] == level.upper()]
@@ -1663,12 +1579,8 @@ async def clear_log():
     return {"ok": True}
 
 
-# ── VERSION / UPDATE CHECK ────────────────────────────────────
 @app.get("/api/version")
 async def api_version():
-    """Return current local commit SHA and check GitHub for the latest commit.
-    Uses a 5-minute server-side cache stored at module level.
-    """
     global _version_cache
 
     import shutil
@@ -1728,12 +1640,8 @@ async def api_version():
     }
 
 
-# ── DISK / SYSTEM HEALTH ─────────────────────────────────────
 @app.get("/api/diagnostics/system-health")
 async def diagnostics_system_health():
-    """SSH: collect df/free/uptime for every node in parallel.
-    Thresholds: disk_warn=80%, disk_crit=90%; mem_warn=85%, mem_crit=95%.
-    """
     cfg   = _load_config_cached()
     nodes = _get_active_nodes(cfg)
     use_mock = get_runtime_mode()
@@ -1741,7 +1649,6 @@ async def diagnostics_system_health():
     if not nodes:
         return {"ok": True, "nodes": []}
 
-    # ── Mock branch ──────────────────────────────────────────
     if use_mock:
         mock_nodes = []
         for node in nodes:
@@ -1814,7 +1721,6 @@ async def diagnostics_system_health():
             disk_warn = disk_data.get("used_pct", 0) or 0
             disk_crit_flag = disk_warn >= DISK_CRIT
             disk_warn_flag = disk_warn >= DISK_WARN
-
             mem_crit_flag = (mem_pct or 0) >= MEM_CRIT
             mem_warn_flag = (mem_pct or 0) >= MEM_WARN
 
@@ -1842,10 +1748,8 @@ async def diagnostics_system_health():
     return {"ok": True, "nodes": node_results}
 
 
-# ── NODE SSH PING ─────────────────────────────────────────────
 @app.get("/api/node/{node_id}/ping")
 async def node_ping(node_id: str):
-    """Quick SSH reachability check + systemctl is-active mariadb.service."""
     cfg      = _load_config_cached()
     use_mock = get_runtime_mode()
     node     = _find_node(cfg, node_id)
