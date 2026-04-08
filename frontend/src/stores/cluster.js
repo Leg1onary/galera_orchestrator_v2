@@ -89,7 +89,24 @@ export const useClusterStore = defineStore('cluster', () => {
     try {
       const resp = await api.get('/api/status')
       const data = resp.data
-      status.value    = data
+
+      // Log cluster status changes
+      const prevStatus = status.value?.cluster_status
+      if (prevStatus && prevStatus !== data.cluster_status) {
+        addLog('INFO', `Статус кластера: ${prevStatus} → ${data.cluster_status}`)
+      }
+
+      // Log node state changes
+      const prevNodes = status.value?.nodes || []
+      const prevByIdState = Object.fromEntries(prevNodes.map(n => [n.id, n.state]))
+      ;(data.nodes || []).forEach(n => {
+        const prev = prevByIdState[n.id]
+        if (prev && prev !== n.state) {
+          addLog('WARN', `Нода ${n.name || n.id}: ${prev} → ${n.state}`)
+        }
+      })
+
+      status.value     = data
       lastUpdate.value = new Date()
       _updateSparkHistory(data.nodes || [])
     } catch (e) {
@@ -151,17 +168,21 @@ export const useClusterStore = defineStore('cluster', () => {
   async function applyScenario(name) {
     scenario.value = name
     try {
-      await api.post('/api/scenario', { scenario: name })
+      // fix: backend expects /api/scenario/{name}, not POST body
+      await api.post(`/api/scenario/${name}`)
       addLog('INFO', `Сценарий: ${name}`)
-    } catch { /* ignore */ }
+    } catch (e) {
+      addLog('ERROR', `Сценарий ${name}: ${e.message}`)
+    }
     await fetchStatus()
   }
 
   async function nodeAction(nodeId, action) {
     addLog('INFO', `${action} → ${nodeId}`)
     try {
-      const resp = await api.post(`/api/nodes/${nodeId}/${action}`)
-      addLog('OK', resp.data?.message || `${action} выполнен`)
+      // fix: backend endpoint is /api/node/{id}/action with body {action}
+      const resp = await api.post(`/api/node/${nodeId}/action`, { action })
+      addLog('INFO', resp.data?.msg || `${action} выполнен`)
     } catch (e) {
       addLog('ERROR', `${action} ${nodeId}: ${e.message}`)
       throw e
@@ -169,12 +190,23 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function setReadOnly(nodeId, enabled) {
-    const action = enabled ? 'readonly-on' : 'readonly-off'
+    const action = enabled ? 'set_read_only' : 'set_read_write'
     return nodeAction(nodeId, action)
   }
 
   async function pingNode(nodeId) {
-    return nodeAction(nodeId, 'ping')
+    // ping is not a backend action — use test-connection endpoint instead
+    addLog('INFO', `ping → ${nodeId}`)
+    try {
+      const resp = await api.get(`/api/node/${nodeId}/test-connection`)
+      const ssh = resp.data?.ssh
+      const db  = resp.data?.db
+      addLog(resp.data?.ok ? 'INFO' : 'WARN',
+        `${nodeId}: SSH=${ssh?.message || '?'}, DB=${db?.message || '?'}`)
+    } catch (e) {
+      addLog('ERROR', `ping ${nodeId}: ${e.message}`)
+      throw e
+    }
   }
 
   async function fetchGitSha() {
