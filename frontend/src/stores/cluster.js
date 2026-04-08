@@ -2,16 +2,18 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/api/index.js'
 
-const LS_MODE    = 'galera_data_mode'  // 'mock' | 'real'
-const LS_CONTOUR = 'galera_contour'    // 'test' | 'prod'
-const LS_POLL    = 'galera_poll_interval'
+const LS_MODE          = 'galera_data_mode'      // 'mock' | 'real'
+const LS_CONTOUR       = 'galera_contour'         // 'test' | 'prod' | ...
+const LS_POLL          = 'galera_poll_interval'
+const LS_CLUSTER_INDEX = 'galera_cluster_index'   // persisted cluster index
 
 export const useClusterStore = defineStore('cluster', () => {
   // ── State ────────────────────────────────────────────────────────
   const dataMode      = ref(localStorage.getItem(LS_MODE) || 'mock')
   const contour       = ref(localStorage.getItem(LS_CONTOUR) || 'test')
-  const pollInterval  = ref(Number(localStorage.getItem(LS_POLL)) || 5)  // seconds
-  const clusterIndex  = ref(0)
+  const pollInterval  = ref(Number(localStorage.getItem(LS_POLL)) || 5)
+  // FIX: read from localStorage on init so index survives restarts
+  const clusterIndex  = ref(Number(localStorage.getItem(LS_CLUSTER_INDEX)) || 0)
   const contours      = ref({})     // { test: ['cluster-1', ...], prod: [] }
 
   const status        = ref(null)   // raw /api/status response
@@ -142,8 +144,12 @@ export const useClusterStore = defineStore('cluster', () => {
       const resp = await api.get('/api/contours')
       contours.value = resp.data?.contours || {}
       const sel = resp.data?.selection || {}
-      contour.value      = sel.contour       || contour.value
-      clusterIndex.value = sel.cluster_index || 0
+      // FIX: use ?? instead of || so that index=0 is not treated as falsy
+      if (sel.contour != null)       contour.value      = sel.contour
+      if (sel.cluster_index != null) {
+        clusterIndex.value = sel.cluster_index
+        localStorage.setItem(LS_CLUSTER_INDEX, sel.cluster_index)
+      }
     } catch { /* no contours endpoint */ }
   }
 
@@ -151,6 +157,7 @@ export const useClusterStore = defineStore('cluster', () => {
     contour.value = c
     localStorage.setItem(LS_CONTOUR, c)
     clusterIndex.value = 0
+    localStorage.setItem(LS_CLUSTER_INDEX, 0)
     try {
       await api.post('/api/contours/select', { contour: c, cluster_index: 0 })
     } catch { /* ignore */ }
@@ -159,6 +166,8 @@ export const useClusterStore = defineStore('cluster', () => {
 
   async function selectCluster(idx) {
     clusterIndex.value = idx
+    // FIX: persist so the selection survives page reload / container restart
+    localStorage.setItem(LS_CLUSTER_INDEX, idx)
     try {
       await api.post('/api/contours/select', { contour: contour.value, cluster_index: idx })
     } catch { /* ignore */ }
@@ -168,7 +177,6 @@ export const useClusterStore = defineStore('cluster', () => {
   async function applyScenario(name) {
     scenario.value = name
     try {
-      // fix: backend expects /api/scenario/{name}, not POST body
       await api.post(`/api/scenario/${name}`)
       addLog('INFO', `Сценарий: ${name}`)
     } catch (e) {
@@ -180,7 +188,6 @@ export const useClusterStore = defineStore('cluster', () => {
   async function nodeAction(nodeId, action) {
     addLog('INFO', `${action} → ${nodeId}`)
     try {
-      // fix: backend endpoint is /api/node/{id}/action with body {action}
       const resp = await api.post(`/api/node/${nodeId}/action`, { action })
       addLog('INFO', resp.data?.msg || `${action} выполнен`)
     } catch (e) {
@@ -195,7 +202,6 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function pingNode(nodeId) {
-    // ping is not a backend action — use test-connection endpoint instead
     addLog('INFO', `ping → ${nodeId}`)
     try {
       const resp = await api.get(`/api/node/${nodeId}/test-connection`)
