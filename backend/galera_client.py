@@ -8,6 +8,7 @@ In real mode: connects via pymysql + paramiko SSH.
 """
 
 import logging
+from pathlib import Path
 from config import get_runtime_mode
 from mock_data import node_status as mock_node_status
 
@@ -94,6 +95,9 @@ def get_cluster_status(cluster: dict, cfg: dict) -> dict:
             r.setdefault("dc", ncfg["dc"])
         if ncfg.get("db_user"):
             r.setdefault("db_user", ncfg["db_user"])
+        # Fix: ensure `state` field is always populated (mock returns wsrep_local_state_comment only)
+        if "state" not in r:
+            r["state"] = r.get("wsrep_local_state_comment", "unknown")
 
     synced    = sum(1 for r in results if r.get("wsrep_local_state_comment") == "Synced")
     online    = sum(1 for r in results if r.get("online"))
@@ -258,7 +262,3 @@ def _arb_status_real(arb_cfg: dict) -> dict:
         log.warning(f"[garbd {arb_cfg.get('id', '')}] SSH check failed: {e}")
         return {"enabled": True, "online": False, "host": arb_cfg.get("host", ""),
                 "id": arb_cfg.get("id", ""), "error": str(e)}
-
-
-# missing import needed for _arb_status_real
-from pathlib import Path
