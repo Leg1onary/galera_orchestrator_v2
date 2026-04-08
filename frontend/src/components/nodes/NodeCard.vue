@@ -15,7 +15,7 @@
       </div>
     </div>
 
-    <!-- Metrics grid 2×4 -->
+    <!-- Metrics grid 2x4 -->
     <div class="node-metrics">
       <div class="metric-row">
         <div class="metric-key">wsrep_cluster_status</div>
@@ -66,31 +66,34 @@
     <!-- Action buttons row 1 -->
     <div class="node-actions">
       <button class="btn btn-success btn-sm" @click="$emit('action', { nodeId: node.id, action: 'start' })">
-        ▶ Start
+        &#9654; Start
       </button>
       <button class="btn btn-danger btn-sm" @click="confirmStop">
-        ⏹ Stop
+        &#9209; Stop
       </button>
       <button class="btn btn-warning btn-sm" @click="confirmRestart">
-        ↺ Restart
+        &#8634; Restart
       </button>
-      <button class="btn btn-primary btn-sm" @click="$emit('action', { nodeId: node.id, action: 'rejoin' })">
-        → Rejoin
+      <!-- FIX: emit 'rejoin' with _rejoin flag so OverviewPage routes to /api/node/{id}/rejoin -->
+      <button class="btn btn-primary btn-sm" @click="$emit('action', { nodeId: node.id, action: 'rejoin', _rejoin: true })">
+        &rarr; Rejoin
       </button>
     </div>
 
     <!-- Toggle buttons row 2 -->
     <div class="node-actions">
+      <!-- FIX: action names match backend: set_read_only / set_read_write -->
       <button
         class="btn btn-sm"
         :class="node.read_only ? 'btn-warning' : 'btn-ghost'"
-        @click="$emit('action', { nodeId: node.id, action: node.read_only ? 'readonly-off' : 'readonly-on' })"
+        @click="$emit('action', { nodeId: node.id, action: node.read_only ? 'set_read_write' : 'set_read_only' })"
         :title="node.read_only ? 'Read-Only включён — нажать для R/W' : 'Нажать для включения R/O'"
       >
         {{ node.read_only ? '🔒 R/O' : '✓ R/W' }}
       </button>
-      <button class="btn btn-ghost btn-sm" @click="$emit('action', { nodeId: node.id, action: 'ping' })">
-        ⊙ Ping
+      <!-- FIX: emit _ping flag so OverviewPage routes to cluster.pingNode() -->
+      <button class="btn btn-ghost btn-sm" @click="$emit('action', { nodeId: node.id, action: 'ping', _ping: true })">
+        &#8857; Ping
       </button>
     </div>
 
@@ -134,12 +137,11 @@ const state = computed(() => {
   return 'synced'
 })
 
-const cardClass = computed(() => state.value)
-const stateLabel = computed(() => {
+const cardClass      = computed(() => state.value)
+const stateLabel     = computed(() => {
   if (!props.node.online) return 'OFFLINE'
   return m('wsrep_local_state_comment').toUpperCase() || 'UNKNOWN'
 })
-
 const stateBadgeClass = computed(() => {
   switch (state.value) {
     case 'synced':  return 'badge-synced'
@@ -149,7 +151,6 @@ const stateBadgeClass = computed(() => {
     default:        return 'badge-primary'
   }
 })
-
 const stateClass = computed(() => {
   switch (state.value) {
     case 'synced':  return 'ok'
@@ -160,13 +161,8 @@ const stateClass = computed(() => {
   }
 })
 
-// Sparkline history from store
-const flowHistory = computed(() =>
-  cluster.sparkHistory[props.node.id]?.flow || [0]
-)
-const recvHistory = computed(() =>
-  cluster.sparkHistory[props.node.id]?.recv || [0]
-)
+const flowHistory = computed(() => cluster.sparkHistory[props.node.id]?.flow || [0])
+const recvHistory = computed(() => cluster.sparkHistory[props.node.id]?.recv || [0])
 
 function confirmStop() {
   confirm.require({

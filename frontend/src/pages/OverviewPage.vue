@@ -35,7 +35,7 @@
         style="display:flex;align-items:center;gap:var(--space-2);background:var(--success-dim);border:1px solid var(--success);border-radius:var(--radius-full);padding:4px 14px"
       >
         <span style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block"></span>
-        <span style="font-size:var(--text-xs);font-weight:700;color:var(--success)">LIVE · REAL DATA</span>
+        <span style="font-size:var(--text-xs);font-weight:700;color:var(--success)">LIVE &middot; REAL DATA</span>
       </div>
     </div>
 
@@ -75,7 +75,7 @@
       <div class="kpi-card">
         <div class="kpi-label">Repl Lag</div>
         <div class="kpi-value" :class="seqnoLag > 100 ? 'warn' : 'ok'">{{ seqnoLag }}</div>
-        <div class="kpi-sub">Δ wsrep_last_committed</div>
+        <div class="kpi-sub">&Delta; wsrep_last_committed</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Cert Fail / BF Ab</div>
@@ -211,14 +211,18 @@ import { useToast } from 'primevue/usetoast'
 import NodeCard from '@/components/nodes/NodeCard.vue'
 import { useClusterStore } from '@/stores/cluster.js'
 
-const cluster = useClusterStore()
-const toast   = useToast()
+const cluster   = useClusterStore()
+const toast     = useToast()
 const logFilter = ref('all')
 
+// FIX: include cluster name in subtitle
 const subtitle = computed(() => {
-  const c = cluster.contour === 'prod' ? 'Prod-контур' : 'Тестовый контур'
-  const m = cluster.isMock ? '· Симуляция' : '· Реальные данные'
-  return `${c} ${m}`
+  const contourLabel = cluster.contour === 'prod' ? 'Prod-контур' : 'Тестовый контур'
+  const modeLabel    = cluster.isMock ? '· Симуляция' : '· Реальные данные'
+  const clusterLabel = cluster.clusterName && cluster.clusterName !== '—'
+    ? ` · ${cluster.clusterName}`
+    : ''
+  return `${contourLabel}${clusterLabel} ${modeLabel}`
 })
 
 const lastUpdateStr = computed(() => {
@@ -230,36 +234,51 @@ const lastUpdateStr = computed(() => {
   return `${h}:${m}:${s}`
 })
 
-const maxRecvQueue = computed(() => {
-  return Math.max(0, ...cluster.nodes.map(n => {
-    const v = n.wsrep_local_recv_queue ?? n.metrics?.wsrep_local_recv_queue ?? 0
-    return parseInt(v, 10) || 0
-  }))
-})
+const maxRecvQueue = computed(() =>
+  Math.max(0, ...cluster.nodes.map(n =>
+    parseInt(n.wsrep_local_recv_queue ?? n.metrics?.wsrep_local_recv_queue ?? 0, 10) || 0
+  ))
+)
 
 const seqnoLag = computed(() => {
-  const seqnos = cluster.nodes.map(n => {
-    const v = n.wsrep_last_committed ?? n.metrics?.wsrep_last_committed ?? 0
-    return parseInt(v, 10) || 0
-  }).filter(v => v > 0)
+  const seqnos = cluster.nodes
+    .map(n => parseInt(n.wsrep_last_committed ?? n.metrics?.wsrep_last_committed ?? 0, 10) || 0)
+    .filter(v => v > 0)
   if (!seqnos.length) return 0
   return Math.max(...seqnos) - Math.min(...seqnos)
 })
 
-const maxBfAborts = computed(() => {
-  return Math.max(0, ...cluster.nodes.map(n => {
-    const v = n.wsrep_bf_aborts ?? n.metrics?.wsrep_bf_aborts ?? 0
-    return parseInt(v, 10) || 0
-  }))
-})
+const maxBfAborts = computed(() =>
+  Math.max(0, ...cluster.nodes.map(n =>
+    parseInt(n.wsrep_bf_aborts ?? n.metrics?.wsrep_bf_aborts ?? 0, 10) || 0
+  ))
+)
 
-const filteredLog = computed(() => {
-  if (logFilter.value === 'all') return cluster.eventLog
-  return cluster.eventLog.filter(e => e.level === logFilter.value)
-})
+const filteredLog = computed(() =>
+  logFilter.value === 'all'
+    ? cluster.eventLog
+    : cluster.eventLog.filter(e => e.level === logFilter.value)
+)
 
-async function handleNodeAction({ nodeId, action }) {
+// FIX: route ping and rejoin to dedicated store methods;
+//      all other actions go to generic nodeAction()
+async function handleNodeAction({ nodeId, action, _ping, _rejoin }) {
   try {
+    if (_ping) {
+      // ping → GET /api/node/{id}/test-connection
+      await cluster.pingNode(nodeId)
+      return
+    }
+    if (_rejoin) {
+      // rejoin → POST /api/node/{id}/rejoin
+      const { default: api } = await import('@/api/index.js')
+      const resp = await api.post(`/api/node/${nodeId}/rejoin`)
+      cluster.addLog('INFO', `Rejoin ${nodeId}: ${resp.data?.msg || 'OK'}`)
+      toast.add({ severity: 'success', summary: 'Rejoin', detail: resp.data?.msg || 'Запущен', life: 3000 })
+      await cluster.fetchStatus()
+      return
+    }
+    // generic: start / stop / restart / set_read_only / set_read_write
     await cluster.nodeAction(nodeId, action)
     toast.add({ severity: 'success', summary: 'Готово', detail: `${action} → ${nodeId}`, life: 3000 })
     await cluster.fetchStatus()
@@ -273,7 +292,9 @@ function exportLog() {
   const blob  = new Blob([lines], { type: 'text/plain' })
   const url   = URL.createObjectURL(blob)
   const a     = document.createElement('a')
-  a.href = url; a.download = `galera_log_${Date.now()}.txt`
-  a.click(); URL.revokeObjectURL(url)
+  a.href = url
+  a.download = `galera_log_${Date.now()}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 </script>
