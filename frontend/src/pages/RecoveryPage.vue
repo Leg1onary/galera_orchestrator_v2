@@ -25,8 +25,9 @@
           </div>
           <div style="display:flex;gap:var(--space-2);align-items:center">
             <button
-              v-if="!wizardRunning"
+              v-if="!wizardRunning && !wizardDone"
               class="btn btn-primary"
+              :disabled="wizardLoading"
               @click="startWizard"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -35,7 +36,7 @@
               Запустить Wizard
             </button>
             <button
-              v-if="wizardRunning"
+              v-if="wizardRunning || wizardDone"
               class="btn btn-ghost btn-sm"
               @click="resetWizard"
             >
@@ -66,23 +67,22 @@
 
         <!-- Wizard body -->
         <div class="wizard-body">
-          <div v-if="!wizardRunning" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4) 0">
-            Нажмите «Запустить Wizard» — пошаговое восстановление с автопереходами
+          <div v-if="!wizardRunning && !wizardDone" style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4) 0">
+            Нажмите «Запустить Wizard» — пошаговое восстановление с вызовами API
+          </div>
+          <div v-else-if="wizardLoading" style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-4) 0;display:flex;align-items:center;gap:8px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" opacity=".3"/><path d="M21 12a9 9 0 0 0-9-9"/></svg>
+            Выполняется...
+          </div>
+          <div v-else-if="wizardDone" style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-4) 0">
+            <strong style="color:var(--success)">✓ Bootstrap завершён</strong>
+            <p style="margin-top:var(--space-2)">Кластер восстановлен. Нажмите «Сброс» для повтора.</p>
           </div>
           <div v-else style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-4) 0">
             <strong style="color:var(--text)">Шаг {{ wizardStep + 1 }}: {{ wizardSteps[wizardStep] }}</strong>
             <p style="margin-top:var(--space-2)">{{ wizardStepDesc[wizardStep] }}</p>
-            <div class="wizard-action-row">
-              <button
-                v-if="wizardStep < wizardSteps.length - 1"
-                class="btn btn-primary"
-                @click="nextWizardStep"
-              >Следующий шаг →</button>
-              <button
-                v-if="wizardStep === wizardSteps.length - 1"
-                class="btn btn-success"
-                @click="finishWizard"
-              >✓ Завершить</button>
+            <div v-if="wizardCandidateId" style="margin-top:var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-2);border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:var(--text-xs)">
+              Кандидат: {{ wizardCandidateId }}
             </div>
           </div>
         </div>
@@ -93,7 +93,7 @@
         </div>
 
         <!-- Progress bar -->
-        <div v-if="wizardRunning" class="wizard-poll-bar">
+        <div v-if="wizardRunning || wizardDone" class="wizard-poll-bar">
           <div class="wizard-poll-fill" :style="`width:${wizardProgress}%`"></div>
         </div>
       </div>
@@ -259,10 +259,13 @@ const sstRecipient  = ref('')
 const sstDonor      = ref('')
 
 // Bootstrap wizard state
-const wizardRunning  = ref(false)
-const wizardStep     = ref(0)
-const wizardProgress = ref(0)
-const wizardLog      = ref([])
+const wizardRunning    = ref(false)
+const wizardDone       = ref(false)
+const wizardLoading    = ref(false)
+const wizardStep       = ref(0)
+const wizardProgress   = ref(0)
+const wizardLog        = ref([])
+const wizardCandidateId = ref(null)
 
 const wizardSteps = [
   'Проверка состояния',
@@ -283,45 +286,109 @@ const wizardStepDesc = [
   'Кластер восстановлен. Все ноды синхронизированы.',
 ]
 
-function startWizard() {
-  wizardRunning.value  = true
-  wizardStep.value     = 0
-  wizardProgress.value = 0
-  wizardLog.value      = [{ cls: 'wl-info', text: '[INFO] Bootstrap Wizard запущен' }]
-  addWizardLog('wl-info', 'Проверка состояния кластера...')
-}
-
-function nextWizardStep() {
-  if (wizardStep.value < wizardSteps.length - 1) {
-    wizardStep.value++
-    wizardProgress.value = Math.round((wizardStep.value / (wizardSteps.length - 1)) * 100)
-    addWizardLog('wl-ok', `✓ Шаг ${wizardStep.value}: ${wizardSteps[wizardStep.value]}`)
-  }
-}
-
-function finishWizard() {
-  addWizardLog('wl-ok', '✓ Кластер восстановлен')
-  wizardRunning.value  = false
-  wizardProgress.value = 100
-  toast.add({ severity: 'success', summary: 'Bootstrap', detail: 'Wizard завершён успешно', life: 4000 })
-}
-
-function resetWizard() {
-  wizardRunning.value  = false
-  wizardStep.value     = 0
-  wizardProgress.value = 0
-  wizardLog.value      = []
-}
-
 function addWizardLog(cls, text) {
   wizardLog.value.push({ cls, text })
 }
 
+function _setStep(i) {
+  wizardStep.value     = i
+  wizardProgress.value = Math.round((i / (wizardSteps.length - 1)) * 100)
+}
+
+async function startWizard() {
+  wizardRunning.value     = true
+  wizardDone.value        = false
+  wizardLoading.value     = true
+  wizardStep.value        = 0
+  wizardProgress.value    = 0
+  wizardLog.value         = [{ cls: 'wl-info', text: '[INFO] Bootstrap Wizard запущен' }]
+  wizardCandidateId.value = null
+
+  try {
+    // Step 1: read seqno from all nodes
+    _setStep(0)
+    addWizardLog('wl-info', '[1] Чтение grastate.dat на всех нодах...')
+    const seqResp = await api.post('/api/seqno', {})
+    const seqNodes = seqResp.data?.nodes || []
+    seqNodes.forEach(n => {
+      const mark = n.reachable ? 'wl-ok' : 'wl-warn'
+      addWizardLog(mark, `  ${n.id}: seqno=${n.seqno} safe_to_bootstrap=${n.safe_to_bootstrap} reachable=${n.reachable}`)
+    })
+
+    // Step 2: wsrep-recover
+    _setStep(1)
+    addWizardLog('wl-info', '[2] Запуск wsrep-recover на всех нодах...')
+    const recoverResp = await api.post('/api/wsrep-recover-all')
+    const recoverNodes = recoverResp.data?.nodes || []
+    recoverNodes.forEach(n => {
+      addWizardLog(n.ok ? 'wl-ok' : 'wl-warn', `  ${n.node_id}: seqno=${n.seqno}`)
+    })
+
+    // Step 3: pick candidate (highest seqno from wsrep-recover, fallback to seqno read)
+    _setStep(2)
+    let candidateId = null
+    let maxSeq = -2
+    const allSeqs = recoverNodes.length ? recoverNodes : seqNodes
+    for (const n of allSeqs) {
+      const s = typeof n.seqno === 'string'
+        ? parseInt((n.seqno || '').split(':').pop(), 10)
+        : (n.seqno || -1)
+      if (s > maxSeq) { maxSeq = s; candidateId = n.node_id || n.id }
+    }
+    // safe_to_bootstrap=1 overrides seqno choice
+    const safeNode = seqNodes.find(n => n.safe_to_bootstrap === 1)
+    if (safeNode) candidateId = safeNode.id
+    wizardCandidateId.value = candidateId
+    addWizardLog('wl-ok', `[3] Кандидат для bootstrap: ${candidateId} (seqno=${maxSeq})`)
+
+    // Steps 4-6: call bootstrap wizard endpoint
+    _setStep(3)
+    addWizardLog('wl-info', `[4] Запуск galera_new_cluster на ${candidateId}...`)
+    const bootResp = await api.post('/api/bootstrap/wizard', { candidate_id: candidateId })
+    const steps = bootResp.data?.steps || []
+    steps.forEach(s => {
+      const cls = s.status === 'ok' || s.status === 'done' ? 'wl-ok'
+                : s.status === 'warn' ? 'wl-warn' : 'wl-error'
+      addWizardLog(cls, `  [${s.step}] ${s.message}`)
+    })
+    _setStep(4)
+    _setStep(5)
+
+    if (!bootResp.data?.ok) {
+      addWizardLog('wl-error', '[ERROR] Bootstrap завершился с ошибкой')
+      toast.add({ severity: 'error', summary: 'Bootstrap', detail: 'Bootstrap завершился с ошибкой', life: 6000 })
+    } else {
+      _setStep(6)
+      addWizardLog('wl-ok', '✓ Bootstrap завершён успешно')
+      wizardDone.value = true
+      toast.add({ severity: 'success', summary: 'Bootstrap', detail: 'Wizard завершён успешно', life: 4000 })
+      await cluster.fetchStatus()
+    }
+  } catch (e) {
+    addWizardLog('wl-error', `[ERROR] ${e.message}`)
+    toast.add({ severity: 'error', summary: 'Bootstrap Wizard', detail: e.message, life: 6000 })
+  } finally {
+    wizardLoading.value = false
+    wizardRunning.value = !wizardDone.value
+  }
+}
+
+function resetWizard() {
+  wizardRunning.value     = false
+  wizardDone.value        = false
+  wizardLoading.value     = false
+  wizardStep.value        = 0
+  wizardProgress.value    = 0
+  wizardLog.value         = []
+  wizardCandidateId.value = null
+}
+
+// FIX: was /api/nodes/{id}/rejoin (404) — correct path is /api/node/{id}/rejoin
 async function doRejoin() {
   if (!rejoinNode.value) return
   try {
-    const resp = await api.post(`/api/nodes/${rejoinNode.value}/rejoin`, { method: rejoinMethod.value })
-    toast.add({ severity: 'success', summary: 'Rejoin', detail: resp.data?.message || 'Запущен', life: 4000 })
+    const resp = await api.post(`/api/node/${rejoinNode.value}/rejoin`)
+    toast.add({ severity: 'success', summary: 'Rejoin', detail: resp.data?.msg || 'Запущен', life: 4000 })
     cluster.addLog('INFO', `Rejoin ${rejoinNode.value} (${rejoinMethod.value})`)
     await cluster.fetchStatus()
   } catch (e) {
@@ -329,11 +396,14 @@ async function doRejoin() {
   }
 }
 
+// FIX: was /api/sst-donor with wrong body — correct is /api/node/{recipient}/sst-donor
 async function setSstDonor() {
   if (!sstRecipient.value || !sstDonor.value) return
   try {
-    const resp = await api.post('/api/sst-donor', { recipient: sstRecipient.value, donor: sstDonor.value })
-    toast.add({ severity: 'success', summary: 'SST Донор', detail: resp.data?.message || 'Установлен', life: 4000 })
+    const resp = await api.post(`/api/node/${sstRecipient.value}/sst-donor`, {
+      donor_id: sstDonor.value,
+    })
+    toast.add({ severity: 'success', summary: 'SST Донор', detail: resp.data?.msg || 'Установлен', life: 4000 })
     cluster.addLog('INFO', `SST донор: ${sstDonor.value} → ${sstRecipient.value}`)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Ошибка', detail: String(e.message), life: 5000 })
