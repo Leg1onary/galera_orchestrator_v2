@@ -80,8 +80,13 @@ async def logout(response: Response) -> MessageResponse:
 # GET /api/auth/me
 # ---------------------------------------------------------------------------
 @router.get("/me", response_model=MeResponse)
-async def me(payload: dict = Depends(require_auth)) -> MeResponse:
-    username = payload.get("sub", "")
+async def me(username: str = Depends(require_auth)) -> MeResponse:
+    """
+    Returns the currently authenticated user.
+    Dependency require_auth raises 401 if cookie is missing/invalid.
+    Frontend uses this as the primary auth check on app startup.
+    """
+    return MeResponse(authenticated=True, username=username)
     """
     Returns the currently authenticated user.
     Dependency require_auth raises 401 if cookie is missing/invalid.
