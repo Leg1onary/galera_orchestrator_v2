@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
@@ -8,7 +7,7 @@ import ToastService from 'primevue/toastservice'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
@@ -19,7 +18,6 @@ import App from './App.vue'
 import router from './router'
 
 const pinia = createPinia()
-pinia.use(piniaPluginPersistedstate)
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -42,10 +40,9 @@ app.use(ToastService)
 app.component('Button', Button)
 app.component('InputText', InputText)
 app.component('Password', Password)
-app.component('Dropdown', Dropdown)
+app.component('Dropdown', Select)
 app.component('Tag', Tag)
 app.component('Message', Message)
 app.component('ProgressSpinner', ProgressSpinner)
 
-app.use(router)
 app.mount('#app')

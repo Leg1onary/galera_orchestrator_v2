@@ -61,8 +61,13 @@ export const useClusterStore = defineStore('cluster', {
             const params = contourId ? { contour_id: contourId } : {}
             const { data } = await api.get<Cluster[]>('/api/clusters', { params })
             this.clusters = data
-            // Автовыбор первого кластера
-            if (!this.selectedClusterId && data.length > 0) {
+
+            // Восстанавливаем сохранённый выбор из sessionStorage
+            const saved = sessionStorage.getItem('selectedClusterId')
+            if (saved && data.find((c) => c.id === Number(saved))) {
+                this.selectedClusterId = Number(saved)
+            } else if (!this.selectedClusterId && data.length > 0) {
+                // Автовыбор первого кластера если сохранённого нет или он не найден в списке
                 this.selectedClusterId = data[0].id
             }
         },
@@ -78,16 +83,10 @@ export const useClusterStore = defineStore('cluster', {
         // чтобы не создавать circular dep с vue-query.
         async selectCluster(clusterId: number, queryClient?: ReturnType<typeof useQueryClient>) {
             this.selectedClusterId = clusterId
+            sessionStorage.setItem('selectedClusterId', String(clusterId))
             // Инвалидируем все запросы с ключом ['cluster', *]
             queryClient?.invalidateQueries({ queryKey: ['cluster'] })
             // WS переподключение делает AppLayout через watch(selectedClusterId)
         },
-    },
-
-    // Persist selectedClusterId и selectedContourId в sessionStorage
-    // чтобы F5 не сбрасывал выбор
-    persist: {
-        paths: ['selectedContourId', 'selectedClusterId'],
-        storage: sessionStorage,
     },
 })
