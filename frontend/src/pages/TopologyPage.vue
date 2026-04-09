@@ -33,7 +33,7 @@
       <TopologyCanvas
           v-else
           :topology="topology"
-          @node-click="selectedNode = $event"
+          @node-click="handleNodeClick"
       />
     </div>
 
@@ -54,6 +54,7 @@ import TopologyCanvas from '@/components/topology/TopologyCanvas.vue'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 import { topologyApi } from '@/api/topology'
 import type { TopoNode } from '@/api/topology'
+import type { NodeListItem } from '@/api/nodes'
 import { useClusterStore } from '@/stores/cluster'
 import { onWsEvent } from '@/stores/ws'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -61,7 +62,9 @@ import { useQueryClient } from '@tanstack/vue-query'
 const clusterStore = useClusterStore()
 const queryClient = useQueryClient()
 const clusterId = computed(() => clusterStore.selectedClusterId!)
-const selectedNode = ref<TopoNode | null>(null)
+
+// ← тип NodeListItem, а не TopoNode — совместимо с NodeDetailDrawer
+const selectedNode = ref<NodeListItem | null>(null)
 
 const { data: topology, isLoading, isFetching, refetch } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'topology']),
@@ -70,7 +73,7 @@ const { data: topology, isLoading, isFetching, refetch } = useQuery({
   refetchInterval: 15_000,
 })
 
-// WS инвалидация — те же события что и Nodes
+// WS инвалидация
 onWsEvent((event) => {
   if (
       (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed') &&
@@ -79,6 +82,17 @@ onWsEvent((event) => {
     queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'topology'] })
   }
 })
+
+// Конвертируем TopoNode → NodeListItem, добавляя поля которых нет в TopoNode
+function handleNodeClick(topoNode: TopoNode) {
+  selectedNode.value = {
+    ...topoNode,
+    // Поля NodeListItem которых нет в TopoNode — ставим null
+    wsrep_flow_control_paused: null,
+    wsrep_local_recv_queue_avg: null,
+    last_error: null,
+  } satisfies NodeListItem
+}
 
 const LEGEND = [
   { label: 'Synced',         color: '#437a22' },
