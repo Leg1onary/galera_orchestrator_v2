@@ -52,14 +52,14 @@ app = FastAPI(
 
 # ── API routers ───────────────────────────────────────────────────────────────
 
-app.include_router(auth_router)
-app.include_router(clusters_router)                               # prefix уже задан в роутере
-app.include_router(nodes_router)
-app.include_router(settings_router)
-app.include_router(diagnostics_router)
-app.include_router(recovery_router)
-app.include_router(maintenance_router)
-app.include_router(ws_router)                                     # WS без prefix — путь /ws/clusters/{id}
+app.include_router(auth_router,        prefix="/api")
+app.include_router(clusters_router)    # у него prefix="/api/clusters" уже внутри
+app.include_router(nodes_router,       prefix="/api")
+app.include_router(settings_router,    prefix="/api")
+app.include_router(diagnostics_router, prefix="/api")
+app.include_router(recovery_router,    prefix="/api")
+app.include_router(maintenance_router, prefix="/api")
+app.include_router(ws_router)
 
 # Phase 2+ routers added here:
 # from routers import clusters, nodes, settings_router, recovery, maintenance, diagnostics
