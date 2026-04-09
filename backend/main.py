@@ -52,7 +52,7 @@ app = FastAPI(
 
 # ── API routers ───────────────────────────────────────────────────────────────
 
-app.include_router(auth_router.router)
+app.include_router(auth_router)
 app.include_router(clusters_router)                               # prefix уже задан в роутере
 app.include_router(nodes_router)
 app.include_router(settings_router)
