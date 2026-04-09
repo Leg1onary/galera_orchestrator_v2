@@ -136,15 +136,15 @@ export const useRecoveryStore = defineStore('recovery', () => {
         const wsStore = useWsStore()
         wsUnsub?.()
         wsUnsub = wsStore.on((event) => {
-            if (event.type === 'operation_started' && event.payload?.operation_type?.startsWith('recovery')) {
+            if (event.event === 'operation_started' && event.payload?.operation_type?.startsWith('recovery')) {
                 operationState.value = 'running'
                 progressPct.value = 0
             }
-            if (event.type === 'operation_progress') {
+            if (event.event === 'operation_progress') {
                 progressPct.value = event.payload?.progress_pct ?? progressPct.value
                 progressMessage.value = event.payload?.message ?? null
             }
-            if (event.type === 'operation_finished') {
+            if (event.event === 'operation_finished') {
                 progressPct.value = 100
                 progressMessage.value = event.payload?.message ?? 'Completed'
                 if (event.payload?.success === false) {
@@ -155,7 +155,7 @@ export const useRecoveryStore = defineStore('recovery', () => {
                 }
                 step.value = 4
             }
-            if (event.type === 'operation_cancelled') {
+            if (event.event === 'operation_cancelled') {
                 operationState.value = 'cancelled'
                 step.value = 4
             }
