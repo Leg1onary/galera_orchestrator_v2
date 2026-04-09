@@ -1,64 +1,230 @@
-from __future__ import annotations
+"""
+SSHClient — paramiko-based SSH client for node management.
+
+Per ТЗ раздел 15.11:
+  - SSH connect timeout: 5s
+  - SSH command execute timeout: 10s
+
+Usage as context manager:
+    with SSHClient(host, port, user) as ssh:
+        stdout, stderr = ssh.execute("hostname")
+
+Usage standalone:
+    ssh = SSHClient(host, port, user)
+    try:
+        ssh.connect()
+        result = ssh.execute("hostname")
+    finally:
+        ssh.close()
+"""
+
+import logging
+import time
+from typing import Self
+
+import paramiko
 
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+# Per ТЗ раздел 15.11
+SSH_CONNECT_TIMEOUT_SEC = 5
+SSH_EXECUTE_TIMEOUT_SEC = 10
+
+
+class SSHError(Exception):
+    """Raised when an SSH operation fails."""
 
 
 class SSHClient:
     """
-    SSH client wrapper around paramiko for executing commands on nodes
-    and arbitrators.
+    Thin wrapper around paramiko.SSHClient.
 
-    STUB — Phase 1 implementation.
-
-    Responsibilities (to implement in Phase 1):
-    - Connect using the global SSH key at settings.SSH_KEY_PATH
-    - execute(command) → stdout, stderr, exit_code
-    - test_connection() → latency_ms or raise
-    - Context manager support (__enter__ / __exit__)
-
-    Timeouts (per ТЗ section 15.11):
-    - SSH connect timeout: 5 seconds
-    - Diagnostic SSH commands: 10 seconds
+    Per ТЗ раздел 3.2: one global SSH key, mounted read-only at
+    settings.SSH_KEY_PATH. No per-node key configuration.
     """
 
-    def __init__(self, host: str, port: int = 22, username: str = "root") -> None:
+    def __init__(
+            self,
+            host: str,
+            port: int = 22,
+            username: str = "root",
+    ) -> None:
         self.host = host
         self.port = port
         self.username = username
-        self.key_path = settings.SSH_KEY_PATH
-        self._client = None
+        self._client: paramiko.SSHClient | None = None
+
+    # ── Connection lifecycle ──────────────────────────────────────────────────
 
     def connect(self) -> None:
-        """Establish SSH connection. Implement in Phase 1."""
-        raise NotImplementedError("SSHClient.connect() not implemented — Phase 1")
-
-    def execute(self, command: str, timeout: int = 10) -> tuple[str, str, int]:
         """
-        Execute a command over SSH.
+        Open SSH connection using the global key from settings.SSH_KEY_PATH.
 
-        Returns:
-            (stdout, stderr, exit_code)
+        Raises:
+            SSHError: if the connection cannot be established within 5 seconds,
+                      or if authentication fails.
+        """
+        client = paramiko.SSHClient()
+        # AutoAddPolicy: trust all host keys automatically.
+        # Per ТЗ this is acceptable — all managed hosts are known infrastructure.
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        Implement in Phase 1.
-        """
-        raise NotImplementedError("SSHClient.execute() not implemented — Phase 1")
+        try:
+            client.connect(
+                hostname=self.host,
+                port=self.port,
+                username=self.username,
+                key_filename=str(settings.SSH_KEY_PATH),
+                timeout=SSH_CONNECT_TIMEOUT_SEC,
+                # Disable password auth — key-only per ТЗ раздел 3.2
+                allow_agent=False,
+                look_for_keys=False,
+            )
+        except paramiko.AuthenticationException as exc:
+            raise SSHError(
+                f"SSH auth failed for {self.username}@{self.host}:{self.port} — "
+                f"check SSH_KEY_PATH ({settings.SSH_KEY_PATH}): {exc}"
+            ) from exc
+        except paramiko.SSHException as exc:
+            raise SSHError(
+                f"SSH error connecting to {self.host}:{self.port}: {exc}"
+            ) from exc
+        except OSError as exc:
+            # Covers ConnectionRefusedError, TimeoutError, etc.
+            raise SSHError(
+                f"Cannot reach {self.host}:{self.port} — {exc}"
+            ) from exc
 
-    def test_connection(self) -> float:
-        """
-        Test SSH connectivity and return latency in milliseconds.
-        Raises on failure. Implement in Phase 1.
-        """
-        raise NotImplementedError(
-            "SSHClient.test_connection() not implemented — Phase 1"
-        )
+        self._client = client
+        logger.debug("SSH connected to %s:%s as %s", self.host, self.port, self.username)
 
     def close(self) -> None:
-        """Close the SSH connection. Implement in Phase 1."""
-        raise NotImplementedError("SSHClient.close() not implemented — Phase 1")
+        """Close the SSH connection if open."""
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            finally:
+                self._client = None
+                logger.debug("SSH disconnected from %s:%s", self.host, self.port)
 
-    def __enter__(self) -> "SSHClient":
+    # ── Context manager ───────────────────────────────────────────────────────
+
+    def __enter__(self) -> Self:
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
+        # Do not suppress exceptions
+        return None
+
+    # ── Command execution ─────────────────────────────────────────────────────
+
+    def execute(self, command: str) -> tuple[str, str]:
+        """
+        Execute a shell command over SSH.
+
+        Args:
+            command: shell command string
+
+        Returns:
+            (stdout, stderr) as stripped strings
+
+        Raises:
+            SSHError: if not connected, or if execution times out / fails
+        """
+        if self._client is None:
+            raise SSHError("Not connected — call connect() first")
+
+        try:
+            stdin, stdout, stderr = self._client.exec_command(
+                command,
+                timeout=SSH_EXECUTE_TIMEOUT_SEC,
+            )
+            # Read output — blocks until command finishes or timeout fires
+            out = stdout.read().decode("utf-8", errors="replace").strip()
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+        except paramiko.SSHException as exc:
+            raise SSHError(
+                f"SSH exec failed [{self.host}:{self.port}] `{command}`: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise SSHError(
+                f"SSH exec I/O error [{self.host}:{self.port}] `{command}`: {exc}"
+            ) from exc
+
+        logger.debug(
+            "SSH exec [%s:%s] `%s` → stdout=%r stderr=%r",
+            self.host, self.port, command, out[:200], err[:200],
+        )
+        return out, err
+
+    # ── Diagnostics ───────────────────────────────────────────────────────────
+
+    def test_connection(self) -> float:
+        """
+        Verify connectivity by executing `echo ok` and measuring round-trip latency.
+
+        Returns:
+            latency_ms: float — round-trip time in milliseconds
+
+        Raises:
+            SSHError: if connection or execution fails
+        """
+        if self._client is None:
+            self.connect()
+
+        t0 = time.monotonic()
+        out, _ = self.execute("echo ok")
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        if out != "ok":
+            raise SSHError(
+                f"Unexpected response from {self.host}:{self.port} — "
+                f"expected 'ok', got {out!r}"
+            )
+
+        logger.debug(
+            "SSH test_connection %s:%s OK — %.1f ms", self.host, self.port, latency_ms
+        )
+        return round(latency_ms, 2)
+
+    def check_process_running(self, process_name: str) -> bool:
+        """
+        Check whether a process is running on the remote host.
+        Used for garbd arbitrator checks per ТЗ раздел 7.4.
+
+        Args:
+            process_name: e.g. "garbd"
+
+        Returns:
+            True if at least one process with that name is running
+        """
+        try:
+            out, _ = self.execute(f"pgrep -x {process_name} | head -1")
+            return bool(out.strip())
+        except SSHError:
+            return False
+
+    def read_file(self, path: str) -> str:
+        """
+        Read a remote file via `cat`.
+        Used for grastate.dat reading in Recovery per ТЗ раздел 13.7.
+
+        Args:
+            path: absolute path on remote host
+
+        Returns:
+            file contents as string
+
+        Raises:
+            SSHError: if file cannot be read
+        """
+        out, err = self.execute(f"cat {path}")
+        if err and not out:
+            raise SSHError(f"Cannot read {path} on {self.host}: {err}")
+        return out

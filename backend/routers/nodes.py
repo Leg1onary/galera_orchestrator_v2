@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from dependencies import get_current_user
+from dependencies import require_auth
 
 router = APIRouter(prefix="/clusters", tags=["nodes"])
 
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/clusters", tags=["nodes"])
 async def node_action(
         cluster_id: int,
         node_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Node action endpoint. Implement in Phase 2."""
     return {"accepted": False, "message": "Not implemented yet"}

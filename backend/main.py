@@ -1,17 +1,43 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# Абсолютные импорты — backend запускается как flat-пакет из /backend/,
-# поэтому config.py и database.py находятся в sys.path напрямую.
 from config import settings
-from database import engine, init_db
-from routers import auth as auth_router
+from database import init_db
+from routers import (
+    auth_router,
+    clusters_router,
+    diagnostics_router,
+    maintenance_router,
+    nodes_router,
+    recovery_router,
+    settings_router,
+    ws_router,
+)
+from services.poller import start_poller, stop_poller
 
 logger = logging.getLogger(__name__)
+
+# ── Lifespan (replaces @app.on_event) ─────────────────────────────────────────
+# Combines init_db() (sync) and poller start/stop (async) in one place.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ───────────────────────────────────────────────────────────────
+    init_db()          # synchronous — creates tables + seeds contours/settings
+    start_poller()     # schedules asyncio background task
+    logger.info("Galera Orchestrator v2 started")
+
+    yield  # application runs here
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    stop_poller()
+    logger.info("Galera Orchestrator v2 stopped")
+
 
 # ── App factory ───────────────────────────────────────────────────────────────
 
@@ -21,49 +47,34 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """
-    Synchronous startup hook.
-
-    init_db() uses SQLAlchemy Core with a synchronous engine — no await needed.
-    Calling it here guarantees tables + seed data exist before the first request.
-    """
-    init_db()
-
-
 # ── API routers ───────────────────────────────────────────────────────────────
-# Все роутеры регистрируются ДО static mount и SPA fallback.
 
-app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
+app.include_router(auth_router.router)
+app.include_router(clusters_router)                               # prefix уже задан в роутере
+app.include_router(nodes_router)
+app.include_router(settings_router)
+app.include_router(diagnostics_router)
+app.include_router(recovery_router)
+app.include_router(maintenance_router)
+app.include_router(ws_router)                                     # WS без prefix — путь /ws/clusters/{id}
 
-# Phase 1+ routers (добавлять здесь по мере реализации):
-# from routers import clusters, nodes, settings, recovery, maintenance, diagnostics, ws
+# Phase 2+ routers added here:
+# from routers import clusters, nodes, settings_router, recovery, maintenance, diagnostics
 # app.include_router(clusters.router, prefix="/api", tags=["clusters"])
 
-
 # ── Static assets ─────────────────────────────────────────────────────────────
-# Монтируем /assets (хэшированные JS/CSS бандлы Vite) без html=True.
-# html=True вызывает SPA-fallback внутри Starlette и ломает /api/* — см. фикс выше.
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 if STATIC_DIR.is_dir():
     assets_dir = STATIC_DIR / "assets"
     if assets_dir.is_dir():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(assets_dir)),
-            name="assets",
-        )
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 # ── SPA fallback ──────────────────────────────────────────────────────────────
-# Catch-all ДОЛЖЕН быть последним маршрутом.
-# Исключаем все non-SPA префиксы явно.
 
 _SPA_EXCLUDED_PREFIXES = (
     "/api/",
@@ -77,11 +88,7 @@ INDEX_HTML = STATIC_DIR / "index.html"
 
 
 @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
-def spa_fallback(request: Request, full_path: str) -> Response:
-    """
-    SPA fallback — отдаёт index.html для всех маршрутов Vue Router.
-    Не перехватывает /api/*, /ws/*, /docs, /redoc, /openapi.json.
-    """
+async def spa_fallback(full_path: str, request: Request):
     path = request.url.path
 
     for prefix in _SPA_EXCLUDED_PREFIXES:

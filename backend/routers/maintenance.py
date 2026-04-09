@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from dependencies import get_current_user
+from dependencies import require_auth
 
 router = APIRouter(prefix="/clusters", tags=["maintenance"])
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/clusters", tags=["maintenance"])
 )
 async def maintenance_status(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Maintenance status endpoint. Implement in Phase 3."""
     return {"active_operation": None}
@@ -33,7 +33,7 @@ async def maintenance_status(
 )
 async def rolling_restart(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Rolling restart. Implement in Phase 3."""
     return {"accepted": False, "message": "Not implemented yet"}
@@ -45,7 +45,7 @@ async def rolling_restart(
 )
 async def maintenance_cancel(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Maintenance cancel. Implement in Phase 3."""
     return {"cancelled": False, "message": "Not implemented yet"}

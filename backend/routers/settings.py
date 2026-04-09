@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from dependencies import get_current_user
+from dependencies import require_auth
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 @router.get("/system", include_in_schema=True)
-async def get_system_settings(_: str = Depends(get_current_user)):
+async def get_system_settings(_: str = Depends(require_auth)):
     """STUB: Returns default system settings. Implement in Phase 2."""
     return {
         "polling_interval_sec": 5,

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from config import settings
-from dependencies import get_current_user
+from dependencies import require_auth
 from security import clear_auth_cookie, create_access_token, set_auth_cookie
 
 logger = logging.getLogger(__name__)
@@ -80,10 +80,11 @@ async def logout(response: Response) -> MessageResponse:
 # GET /api/auth/me
 # ---------------------------------------------------------------------------
 @router.get("/me", response_model=MeResponse)
-async def me(username: str = Depends(get_current_user)) -> MeResponse:
+async def me(payload: dict = Depends(require_auth)) -> MeResponse:
+    username = payload.get("sub", "")
     """
     Returns the currently authenticated user.
-    Dependency get_current_user raises 401 if cookie is missing/invalid.
+    Dependency require_auth raises 401 if cookie is missing/invalid.
     Frontend uses this as the primary auth check on app startup.
     """
     return MeResponse(authenticated=True, username=username)

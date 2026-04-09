@@ -1,89 +1,547 @@
-from __future__ import annotations
+"""
+Poller — asyncio background task for real-time node status collection.
+
+Per ТЗ раздел 8:
+  - Interval from system_settings.polling_interval_sec (default 5s)
+  - Reads interval from DB on every cycle (picks up Settings changes live)
+  - enabled=False nodes are skipped entirely
+  - Ring buffer 30 points for flow_control and recv_queue (sparklines)
+  - Emits node_state_changed via ws_manager on state change
+
+Per ТЗ раздел 15.11:
+  - SSH connect timeout: 5s
+  - DB connect timeout: 3s
+
+Lifecycle:
+  start_poller() → called from main.py lifespan on startup
+  stop_poller()  → called from main.py lifespan on shutdown
+"""
 
 import asyncio
 import logging
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import text
+
+from database import engine
+from models_live import LiveArbitratorState, LiveNodeState
+from services.ssh_client import SSHClient, SSHError
+from services.db_client import DBClient, DBError
+from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# STUB — Phase 1
-#
-# The polling loop is an asyncio background task that:
-# 1. Reads polling_interval_sec from system_settings on each cycle
-# 2. For each enabled node in each cluster:
-#    - Opens SSH connection
-#    - Runs SHOW GLOBAL STATUS WHERE Variable_name IN (...)
-#    - Updates in-memory live state
-#    - Emits node_state_changed WS event if state changed
-# 3. For each enabled arbitrator:
-#    - Checks SSH connectivity and garbd process
-#    - Emits arbitrator_state_changed WS event if state changed
-# 4. Maintains ring buffer of 30 data points per node for
-#    flow_control and recv_queue sparklines (in-memory only)
-#
-# Ring buffer and live state are stored in module-level dicts
-# (cluster_id → node_id → LiveNodeState) — survives only until restart.
-# ---------------------------------------------------------------------------
+# ── Global live state stores ──────────────────────────────────────────────────
+# Accessed by GET /api/clusters/{id}/status without locking —
+# Python GIL makes dict reads safe for our single-worker use case.
+# Keys: cluster_id → node_id → LiveNodeState
+live_node_states: dict[int, dict[int, LiveNodeState]] = {}
 
-# In-memory live state storage — populated in Phase 1
-_live_node_states: dict[int, dict[int, dict]] = {}  # cluster_id → node_id → state
-_live_arbitrator_states: dict[int, dict[int, dict]] = {}  # cluster_id → arb_id → state
-_sparkline_buffers: dict[int, dict[str, list[float]]] = {}  # node_id → metric → [30 pts]
+# Keys: cluster_id → arbitrator_id → LiveArbitratorState
+live_arbitrator_states: dict[int, dict[int, LiveArbitratorState]] = {}
 
-_poller_task: Optional[asyncio.Task] = None
+# ── Poller task handle ────────────────────────────────────────────────────────
+_poller_task: asyncio.Task | None = None
+
+# ── wsrep STATUS variables to fetch per ТЗ раздел 7.2 ───────────────────────
+_WSREP_STATUS_VARS = (
+    "wsrep_cluster_status",
+    "wsrep_cluster_size",
+    "wsrep_connected",
+    "wsrep_ready",
+    "wsrep_local_state_comment",
+    "wsrep_local_recv_queue",
+    "wsrep_local_send_queue",
+    "wsrep_flow_control_paused",
+    "wsrep_flow_control_sent",
+)
+
+_WSREP_IN_CLAUSE = ", ".join(f"'{v}'" for v in _WSREP_STATUS_VARS)
 
 
-async def start_poller() -> None:
+# ── Public lifecycle API ──────────────────────────────────────────────────────
+
+def start_poller() -> None:
     """
-    Start the background polling task.
-    Called from FastAPI startup event in main.py.
-    STUB — implement in Phase 1.
-    """
-    global _poller_task
-    logger.info("Polling loop start requested — STUB, not yet implemented (Phase 1)")
-    # Phase 1: _poller_task = asyncio.create_task(_poll_loop())
-
-
-async def stop_poller() -> None:
-    """
-    Stop the background polling task gracefully.
-    Called from FastAPI shutdown event in main.py.
-    STUB — implement in Phase 1.
+    Schedule the polling loop as an asyncio background task.
+    Called from main.py lifespan on startup.
     """
     global _poller_task
-    if _poller_task is not None:
+    if _poller_task is not None and not _poller_task.done():
+        logger.warning("Poller already running — ignoring start_poller() call")
+        return
+    _poller_task = asyncio.create_task(_poll_loop(), name="poller")
+    logger.info("Poller task started")
+
+
+def stop_poller() -> None:
+    """
+    Cancel the polling loop task.
+    Called from main.py lifespan on shutdown.
+    """
+    global _poller_task
+    if _poller_task is not None and not _poller_task.done():
         _poller_task.cancel()
+        logger.info("Poller task cancelled")
+    _poller_task = None
+
+
+# ── Main polling loop ─────────────────────────────────────────────────────────
+
+async def _poll_loop() -> None:
+    """Infinite loop: poll all clusters, sleep interval, repeat."""
+    logger.info("Polling loop started")
+    while True:
         try:
-            await _poller_task
+            interval_sec = await asyncio.to_thread(_get_polling_interval)
+            await _poll_all_clusters()
         except asyncio.CancelledError:
-            pass
-    logger.info("Polling loop stopped")
+            logger.info("Polling loop cancelled — shutting down")
+            raise
+        except Exception as exc:
+            logger.exception("Unhandled error in poll cycle: %s", exc)
+            interval_sec = 5  # safe fallback on unexpected error
+
+        await asyncio.sleep(interval_sec)
 
 
-def get_live_node_state(cluster_id: int, node_id: int) -> dict | None:
-    """
-    Return the latest polled live state for a node.
-    Returns None if no data yet (node not yet polled or poller not started).
-    STUB — returns None in Phase 0.
-    """
-    return _live_node_states.get(cluster_id, {}).get(node_id)
+def _get_polling_interval() -> int:
+    """Read polling_interval_sec from system_settings synchronously."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT polling_interval_sec FROM system_settings LIMIT 1")
+        ).fetchone()
+    return int(row[0]) if row else 5
 
 
-def get_live_arbitrator_state(cluster_id: int, arbitrator_id: int) -> dict | None:
+# ── Cluster-level dispatch ────────────────────────────────────────────────────
+
+async def _poll_all_clusters() -> None:
     """
-    Return the latest polled live state for an arbitrator.
-    Returns None if no data yet.
-    STUB — returns None in Phase 0.
+    Load all enabled nodes + arbitrators, dispatch parallel cluster polls.
     """
-    return _live_arbitrator_states.get(cluster_id, {}).get(arbitrator_id)
+    nodes_by_cluster, arbitrators_by_cluster = await asyncio.to_thread(
+        _load_all_targets
+    )
+
+    cluster_ids = set(nodes_by_cluster) | set(arbitrators_by_cluster)
+    if not cluster_ids:
+        return
+
+    await asyncio.gather(
+        *[
+            _poll_cluster(
+                cluster_id,
+                nodes_by_cluster.get(cluster_id, []),
+                arbitrators_by_cluster.get(cluster_id, []),
+            )
+            for cluster_id in cluster_ids
+        ],
+        return_exceptions=True,
+    )
 
 
-def get_sparkline(node_id: int, metric: str) -> list[float]:
+def _load_all_targets() -> tuple[dict[int, list[dict]], dict[int, list[dict]]]:
+    """Load all enabled nodes and arbitrators from SQLite."""
+    nodes_by_cluster: dict[int, list[dict]] = {}
+    arbitrators_by_cluster: dict[int, list[dict]] = {}
+
+    with engine.connect() as conn:
+        node_rows = conn.execute(
+            text(
+                """
+                SELECT id, name, host, port, ssh_port, ssh_user,
+                       db_user, db_password, cluster_id, maintenance
+                FROM nodes
+                WHERE enabled = 1
+                """
+            )
+        ).mappings().fetchall()
+
+        arb_rows = conn.execute(
+            text(
+                """
+                SELECT id, name, host, ssh_port, ssh_user, cluster_id
+                FROM arbitrators
+                WHERE enabled = 1
+                """
+            )
+        ).mappings().fetchall()
+
+    for row in node_rows:
+        cid = row["cluster_id"]
+        nodes_by_cluster.setdefault(cid, []).append(dict(row))
+
+    for row in arb_rows:
+        cid = row["cluster_id"]
+        arbitrators_by_cluster.setdefault(cid, []).append(dict(row))
+
+    return nodes_by_cluster, arbitrators_by_cluster
+
+
+async def _poll_cluster(
+        cluster_id: int,
+        nodes: list[dict],
+        arbitrators: list[dict],
+) -> None:
+    """Poll all nodes and arbitrators of a single cluster in parallel."""
+    tasks = (
+            [_poll_node(cluster_id, node) for node in nodes]
+            + [_poll_arbitrator(cluster_id, arb) for arb in arbitrators]
+    )
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+# ── Node polling ──────────────────────────────────────────────────────────────
+
+async def _poll_node(cluster_id: int, node: dict) -> None:
     """
-    Return the sparkline ring buffer for a node metric.
-    metrics: 'flow_control' | 'recv_queue'
-    Returns empty list if no data yet.
-    STUB — returns [] in Phase 0.
+    Poll a single node: SSH check → DB status → update live state → broadcast.
+    Runs the blocking I/O in a thread pool via asyncio.to_thread().
     """
-    return _sparkline_buffers.get(node_id, {}).get(metric, [])
+    node_id = node["id"]
+
+    # Ensure slot exists
+    live_node_states.setdefault(cluster_id, {})
+    if node_id not in live_node_states[cluster_id]:
+        live_node_states[cluster_id][node_id] = LiveNodeState()
+
+    previous = live_node_states[cluster_id][node_id]
+    prev_state_comment = previous.wsrep_local_state_comment
+    prev_ssh_ok = previous.ssh_ok
+
+    new_state = await asyncio.to_thread(_collect_node_state, node, previous)
+    live_node_states[cluster_id][node_id] = new_state
+
+    # ── Change detection → WS broadcast + event log ──────────────────────────
+    state_changed = (
+            new_state.wsrep_local_state_comment != prev_state_comment
+            or new_state.ssh_ok != prev_ssh_ok
+    )
+
+    if state_changed:
+        await _broadcast_node_state_changed(cluster_id, node_id, node["name"], new_state)
+        await asyncio.to_thread(
+            _write_event_log,
+            cluster_id=cluster_id,
+            node_id=node_id,
+            source="ssh" if not new_state.ssh_ok else "system",
+            message=(
+                    f"Node '{node['name']}' state changed: "
+                    f"{prev_state_comment} → {new_state.wsrep_local_state_comment}"
+                    + (f" (SSH: {prev_ssh_ok} → {new_state.ssh_ok})" if prev_ssh_ok != new_state.ssh_ok else "")
+            ),
+        )
+
+
+def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
+    """
+    Blocking: open SSH + DB connections, collect all live fields.
+    Returns a fully populated LiveNodeState.
+
+    Strategy:
+      1. SSH connect → ssh_ok, ssh_latency_ms
+      2. If SSH failed → db_ok=False, fill wsrep defaults, return early
+      3. DB connect → db_ok, db_latency_ms
+      4. SHOW GLOBAL STATUS WHERE Variable_name IN (...)
+      5. SHOW GLOBAL VARIABLES LIKE 'read_only'
+      6. maintenance_drift check
+      7. Append to ring buffers (carry over from previous state)
+    """
+    # Carry ring buffers forward — they are cumulative across cycles
+    new_state = LiveNodeState(
+        flow_control_history=previous.flow_control_history,
+        recv_queue_history=previous.recv_queue_history,
+    )
+    new_state.last_check_ts = datetime.now(timezone.utc)
+
+    # ── Step 1: SSH ───────────────────────────────────────────────────────────
+    ssh_client = SSHClient(
+        host=node["host"],
+        port=int(node.get("ssh_port") or 22),
+        username=node.get("ssh_user") or "root",
+    )
+    try:
+        ssh_client.connect()
+        new_state.ssh_latency_ms = ssh_client.test_connection()
+        new_state.ssh_ok = True
+    except SSHError as exc:
+        new_state.ssh_ok = False
+        new_state.db_ok = False
+        new_state.error = str(exc)
+        logger.warning("SSH failed for node %s (%s): %s", node["name"], node["host"], exc)
+        _fill_wsrep_defaults(new_state)
+        return new_state
+
+    # ── Step 2: DB ────────────────────────────────────────────────────────────
+    db_client = DBClient(
+        host=node["host"],
+        port=int(node.get("port") or 3306),
+        user=node.get("db_user") or "root",
+        encrypted_password=node.get("db_password") or "",
+    )
+    try:
+        db_client.connect()
+        new_state.db_latency_ms = db_client.test_connection()
+        new_state.db_ok = True
+    except DBError as exc:
+        new_state.db_ok = False
+        new_state.error = str(exc)
+        logger.warning("DB failed for node %s (%s): %s", node["name"], node["host"], exc)
+        _fill_wsrep_defaults(new_state)
+        ssh_client.close()
+        return new_state
+
+    # ── Step 3: wsrep status ──────────────────────────────────────────────────
+    try:
+        status_rows = db_client.query(
+            f"SHOW GLOBAL STATUS WHERE Variable_name IN ({_WSREP_IN_CLAUSE})"
+        )
+        status_map = _parse_status_rows(status_rows)
+        _apply_wsrep_status(new_state, status_map)
+
+        # read_only
+        ro_rows = db_client.query("SHOW GLOBAL VARIABLES LIKE 'read_only'")
+        ro_map = _parse_status_rows(ro_rows)
+        new_state.readonly = ro_map.get("read_only", "OFF").upper() in ("ON", "1")
+
+    except DBError as exc:
+        new_state.error = f"Status query failed: {exc}"
+        logger.warning("Status query failed for node %s: %s", node["name"], exc)
+        _fill_wsrep_defaults(new_state)
+    finally:
+        db_client.close()
+        ssh_client.close()
+
+    # ── Step 4: maintenance_drift ─────────────────────────────────────────────
+    # Node is marked maintenance=True in DB but MariaDB is NOT read-only → drift
+    node_maintenance = bool(node.get("maintenance", False))
+    if node_maintenance and not new_state.readonly:
+        new_state.maintenance_drift = True
+    else:
+        new_state.maintenance_drift = False
+
+    # ── Step 5: ring buffers ──────────────────────────────────────────────────
+    new_state.flow_control_history.append(new_state.wsrep_flow_control_paused)
+    new_state.recv_queue_history.append(new_state.wsrep_local_recv_queue)
+
+    return new_state
+
+
+def _parse_status_rows(rows: list[dict]) -> dict[str, str]:
+    """
+    Convert SHOW GLOBAL STATUS / VARIABLES rows to a flat dict.
+
+    Handles both column naming conventions:
+      - pymysql DictCursor returns {'Variable_name': ..., 'Value': ...}
+      - key names are case-sensitive in pymysql — normalise to lower
+    """
+    result: dict[str, str] = {}
+    for row in rows:
+        # Normalise key casing from pymysql DictCursor
+        normalised = {k.lower(): v for k, v in row.items()}
+        name = normalised.get("variable_name", "")
+        value = normalised.get("value", "")
+        if name:
+            result[name.lower()] = str(value) if value is not None else ""
+    return result
+
+
+def _apply_wsrep_status(state: LiveNodeState, status_map: dict[str, str]) -> None:
+    """
+    Populate wsrep fields on state from the status_map.
+    Missing keys → safe defaults (non-Galera MariaDB returns empty result set).
+    """
+    state.wsrep_cluster_status       = status_map.get("wsrep_cluster_status", "NON-PRIMARY")
+    state.wsrep_connected             = status_map.get("wsrep_connected", "OFF")
+    state.wsrep_ready                 = status_map.get("wsrep_ready", "OFF")
+    state.wsrep_local_state_comment   = status_map.get("wsrep_local_state_comment", "OFFLINE")
+
+    try:
+        state.wsrep_cluster_size = int(status_map.get("wsrep_cluster_size", "0") or "0")
+    except ValueError:
+        state.wsrep_cluster_size = 0
+
+    try:
+        state.wsrep_local_recv_queue = int(status_map.get("wsrep_local_recv_queue", "0") or "0")
+    except ValueError:
+        state.wsrep_local_recv_queue = 0
+
+    try:
+        state.wsrep_local_send_queue = int(status_map.get("wsrep_local_send_queue", "0") or "0")
+    except ValueError:
+        state.wsrep_local_send_queue = 0
+
+    try:
+        state.wsrep_flow_control_paused = float(status_map.get("wsrep_flow_control_paused", "0") or "0")
+    except ValueError:
+        state.wsrep_flow_control_paused = 0.0
+
+    # If Galera is not installed, wsrep_local_state_comment will be empty string
+    if not state.wsrep_local_state_comment:
+        state.wsrep_local_state_comment = "OFFLINE"
+
+
+def _fill_wsrep_defaults(state: LiveNodeState) -> None:
+    """Set safe offline defaults when SSH or DB is unavailable."""
+    state.wsrep_cluster_status       = "NON-PRIMARY"
+    state.wsrep_cluster_size          = 0
+    state.wsrep_connected             = "OFF"
+    state.wsrep_ready                 = "OFF"
+    state.wsrep_local_state_comment   = "OFFLINE"
+    state.wsrep_local_recv_queue      = 0
+    state.wsrep_local_send_queue      = 0
+    state.wsrep_flow_control_paused   = 0.0
+    state.readonly                    = False
+
+
+# ── Arbitrator polling ────────────────────────────────────────────────────────
+
+async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
+    """
+    Poll a single garbd arbitrator: SSH check + pgrep garbd.
+    """
+    arb_id = arb["id"]
+    live_arbitrator_states.setdefault(cluster_id, {})
+    if arb_id not in live_arbitrator_states[cluster_id]:
+        live_arbitrator_states[cluster_id][arb_id] = LiveArbitratorState()
+
+    previous = live_arbitrator_states[cluster_id][arb_id]
+    prev_ssh_ok = previous.ssh_ok
+    prev_garbd_running = previous.garbd_running
+
+    new_state = await asyncio.to_thread(_collect_arbitrator_state, arb)
+    live_arbitrator_states[cluster_id][arb_id] = new_state
+
+    # ── Change detection → WS broadcast ──────────────────────────────────────
+    state_changed = (
+            new_state.ssh_ok != prev_ssh_ok
+            or new_state.garbd_running != prev_garbd_running
+    )
+    if state_changed:
+        await _broadcast_arbitrator_state_changed(cluster_id, arb_id, arb["name"], new_state)
+
+
+def _collect_arbitrator_state(arb: dict) -> LiveArbitratorState:
+    """
+    Blocking: SSH connect, check garbd process.
+    Per ТЗ раздел 7.4.
+    """
+    state = LiveArbitratorState()
+    state.last_check_ts = datetime.now(timezone.utc)
+
+    ssh_client = SSHClient(
+        host=arb["host"],
+        port=int(arb.get("ssh_port") or 22),
+        username=arb.get("ssh_user") or "root",
+    )
+    try:
+        ssh_client.connect()
+        state.ssh_latency_ms = ssh_client.test_connection()
+        state.ssh_ok = True
+        state.garbd_running = ssh_client.check_process_running("garbd")
+    except SSHError as exc:
+        state.ssh_ok = False
+        state.garbd_running = False
+        state.error = str(exc)
+        logger.warning(
+            "SSH failed for arbitrator %s (%s): %s",
+            arb["name"], arb["host"], exc,
+        )
+    finally:
+        ssh_client.close()
+
+    return state
+
+
+# ── WebSocket broadcast helpers ───────────────────────────────────────────────
+
+async def _broadcast_node_state_changed(
+        cluster_id: int,
+        node_id: int,
+        node_name: str,
+        state: LiveNodeState,
+) -> None:
+    """
+    Emit node_state_changed event to all WS clients of the cluster.
+    Per ТЗ раздел 5.1.
+    """
+    event = {
+        "event":      "node_state_changed",
+        "cluster_id": cluster_id,
+        "ts":         datetime.now(timezone.utc).isoformat(),
+        "payload": {
+            "node_id":   node_id,
+            "node_name": node_name,
+            **state.to_dict(),
+        },
+    }
+    await ws_manager.broadcast(cluster_id, event)
+    logger.debug(
+        "WS broadcast node_state_changed: cluster=%d node=%d state=%s",
+        cluster_id, node_id, state.wsrep_local_state_comment,
+    )
+
+
+async def _broadcast_arbitrator_state_changed(
+        cluster_id: int,
+        arb_id: int,
+        arb_name: str,
+        state: LiveArbitratorState,
+) -> None:
+    """
+    Emit arbitrator_state_changed event to all WS clients of the cluster.
+    Per ТЗ раздел 5.1.
+    """
+    event = {
+        "event":      "arbitrator_state_changed",
+        "cluster_id": cluster_id,
+        "ts":         datetime.now(timezone.utc).isoformat(),
+        "payload": {
+            "arbitrator_id":   arb_id,
+            "arbitrator_name": arb_name,
+            **state.to_dict(),
+        },
+    }
+    await ws_manager.broadcast(cluster_id, event)
+
+
+# ── Event log writer ──────────────────────────────────────────────────────────
+
+def _write_event_log(
+        *,
+        cluster_id: int,
+        node_id: int | None = None,
+        source: str,
+        message: str,
+) -> None:
+    """
+    Write a single row to event_logs table synchronously.
+    Per ТЗ раздел 11: all SSH/DB/system events are logged.
+
+    Called via asyncio.to_thread() — do not call from async context directly.
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO event_logs
+                        (cluster_id, node_id, source, message, created_at)
+                    VALUES
+                        (:cluster_id, :node_id, :source, :message, :created_at)
+                    """
+                ),
+                {
+                    "cluster_id": cluster_id,
+                    "node_id":    node_id,
+                    "source":     source,
+                    "message":    message,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+    except Exception as exc:
+        # Never crash the poller due to a logging failure
+        logger.warning("Failed to write event_log: %s", exc)

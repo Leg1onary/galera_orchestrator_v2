@@ -1,73 +1,97 @@
-from __future__ import annotations
+"""
+WebSocket endpoint — WS /ws/clusters/{cluster_id}
+
+Per ТЗ раздел 5:
+  - Auth via httpOnly cookie (same JWT as REST API)
+  - One endpoint per cluster_id
+  - Frontend reconnects every 5s on disconnect
+
+Per ТЗ раздел 5.2: events:
+  node_state_changed, arbitrator_state_changed,
+  operation_started, operation_progress, operation_finished, log_entry
+"""
 
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from security import AUTH_COOKIE_NAME, decode_token
+from security import decode_token
+from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["websocket"])
+router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# STUB — Phase 1
-# Full implementation requires:
-#   - ConnectionManager class with per-cluster subscription dict
-#   - broadcast() for each of the 6 event types
-#   - Integration with polling loop to emit node_state_changed events
-#
-# Event types (per ТЗ section 5.2):
-#   node_state_changed
-#   arbitrator_state_changed
-#   operation_started
-#   operation_progress
-#   operation_finished
-#   log_entry
-# ---------------------------------------------------------------------------
+
+def _get_token_from_websocket(websocket: WebSocket) -> str | None:
+    """
+    Extract JWT from the httpOnly cookie on the WebSocket upgrade request.
+
+    The browser sends cookies automatically on WS upgrade — same as REST.
+    We read the cookie named 'access_token' (set by POST /api/auth/login).
+    """
+    return websocket.cookies.get("access_token")
 
 
 @router.websocket("/ws/clusters/{cluster_id}")
 async def websocket_endpoint(websocket: WebSocket, cluster_id: int) -> None:
     """
-    WebSocket endpoint for cluster-scoped real-time events.
+    Cluster-scoped WebSocket endpoint.
 
-    Auth: validated via httpOnly cookie (same cookie as REST API).
-    The browser sends cookies automatically during the WS upgrade handshake.
+    Authentication:
+      - Reads JWT from the 'access_token' httpOnly cookie
+      - Closes with 1008 (Policy Violation) if not authenticated
 
-    Phase 0: accepts connection, sends a stub 'connected' message, then
-    waits and handles disconnect. Full implementation in Phase 1.
+    Lifecycle:
+      - On connect: register with ConnectionManager
+      - On disconnect: deregister from ConnectionManager
+      - Does not send data itself — Poller calls ws_manager.broadcast()
     """
-    # Auth check via cookie (browsers send cookies on WS upgrade)
-    token = websocket.cookies.get(AUTH_COOKIE_NAME)
-    if token is None or decode_token(token) is None:
-        await websocket.close(code=4001)
+    # ── Auth check ────────────────────────────────────────────────────────────
+    token = _get_token_from_websocket(websocket)
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         logger.warning(
-            "WS auth failed for cluster_id=%d — no valid cookie", cluster_id
+            "WS connection rejected — no auth cookie (cluster_id=%d, client=%s)",
+            cluster_id, websocket.client,
         )
         return
 
-    await websocket.accept()
-    logger.info("WS connection accepted for cluster_id=%d", cluster_id)
+    try:
+        decode_token(token)
+    except Exception as exc:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        logger.warning(
+            "WS connection rejected — invalid token (cluster_id=%d): %s",
+            cluster_id, exc,
+        )
+        return
+
+    # ── Register connection ───────────────────────────────────────────────────
+    await ws_manager.connect(cluster_id, websocket)
 
     try:
-        # Send a stub connected event so frontend can validate the handshake
-        await websocket.send_json(
-            {
-                "event": "connected",
-                "cluster_id": cluster_id,
-                "ts": None,
-                "payload": {"message": "WebSocket stub — Phase 1 pending"},
-            }
-        )
-
-        # Keep connection alive until client disconnects
+        # Keep the connection open — wait for client disconnect or error
+        # Poller pushes data via ws_manager.broadcast(), not here
         while True:
-            # In Phase 1 this loop will receive messages and handle pings
+            # recv_text() blocks until the client sends something or disconnects.
+            # Clients should send periodic pings to keep the connection alive;
+            # if they don't send anything we still stay open until disconnect.
             data = await websocket.receive_text()
+            # Silently ignore client messages in Phase 1
+            # Phase 2+: handle "ping" → "pong" keepalive
             logger.debug(
-                "WS received from cluster_id=%d: %s", cluster_id, data
+                "WS received from cluster %d client: %r (ignored)", cluster_id, data
             )
 
-    except WebSocketDisconnect:
-        logger.info("WS disconnected for cluster_id=%d", cluster_id)
+    except WebSocketDisconnect as exc:
+        logger.info(
+            "WS client disconnected from cluster %d (code=%s)",
+            cluster_id, exc.code,
+        )
+    except Exception as exc:
+        logger.warning(
+            "WS error on cluster %d: %s", cluster_id, exc
+        )
+    finally:
+        ws_manager.disconnect(cluster_id, websocket)

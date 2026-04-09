@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from dependencies import get_current_user
+from dependencies import require_auth
 
 router = APIRouter(prefix="/clusters", tags=["recovery"])
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/clusters", tags=["recovery"])
 )
 async def recovery_status(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Recovery status endpoint. Implement in Phase 3."""
     return {"active_operation": None}
@@ -34,7 +34,7 @@ async def recovery_status(
 )
 async def recovery_bootstrap(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Recovery bootstrap. Implement in Phase 3."""
     return {"accepted": False, "message": "Not implemented yet"}
@@ -46,7 +46,7 @@ async def recovery_bootstrap(
 )
 async def recovery_rejoin(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Recovery rejoin. Implement in Phase 3."""
     return {"accepted": False, "message": "Not implemented yet"}
@@ -58,7 +58,7 @@ async def recovery_rejoin(
 )
 async def recovery_cancel(
         cluster_id: int,
-        _: str = Depends(get_current_user),
+        _: str = Depends(require_auth),
 ):
     """STUB: Recovery cancel. Implement in Phase 3."""
     return {"cancelled": False, "message": "Not implemented yet"}
