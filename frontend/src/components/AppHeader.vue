@@ -98,8 +98,8 @@ const statusClass = computed(() => {
   gap: 1rem;
   padding: 0 1.5rem;
   height: 56px;
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-border);
+  background: #1a1f2e;
+  border-bottom: 1px solid #2a3040;
   flex-shrink: 0;
   z-index: 100;
 }
@@ -111,8 +111,16 @@ const statusClass = computed(() => {
   font-weight: 600;
   font-size: 1rem;
   white-space: nowrap;
-  color: var(--primary-color);
+  color: #4ade80;
 }
+
+.username { font-size: 0.875rem; color: #94a3b8; }
+
+/* статус badges — они уже хардкодом, ок, но dark mode плохо читается */
+.status-healthy  { background: #052e16; color: #4ade80; }
+.status-degraded { background: #451a03; color: #fbbf24; }
+.status-critical { background: #450a0a; color: #f87171; }
+.status-unknown  { background: #1e293b; color: #64748b; }
 
 .logo-icon { font-size: 1.25rem; }
 
@@ -135,11 +143,6 @@ const statusClass = computed(() => {
   letter-spacing: 0.05em;
 }
 
-.status-healthy  { background: #d1fae5; color: #065f46; }
-.status-degraded { background: #fef3c7; color: #92400e; }
-.status-critical { background: #fee2e2; color: #991b1b; }
-.status-unknown  { background: var(--surface-200); color: var(--text-color-secondary); }
-
 .header-user {
   display: flex;
   align-items: center;
@@ -147,8 +150,4 @@ const statusClass = computed(() => {
   margin-left: auto;
 }
 
-.username {
-  font-size: 0.875rem;
-  color: var(--text-color-secondary);
-}
 </style>

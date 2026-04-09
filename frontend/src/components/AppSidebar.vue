@@ -63,8 +63,8 @@ function isActive(name: string) {
 <style scoped>
 .app-sidebar {
   width: 220px;
-  background: var(--surface-card);
-  border-right: 1px solid var(--surface-border);
+  background: #1a1f2e;
+  border-right: 1px solid #2a3040;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -81,26 +81,21 @@ function isActive(name: string) {
   height: 40px;
   background: none;
   border: none;
-  border-bottom: 1px solid var(--surface-border);
+  border-bottom: 1px solid #2a3040;
   cursor: pointer;
-  color: var(--text-color-secondary);
+  color: #64748b;
   transition: color 0.15s;
 }
-.collapse-btn:hover { color: var(--primary-color); }
+.collapse-btn:hover { color: #4ade80; }
 
-.nav-list {
-  list-style: none;
-  padding: 0.5rem 0;
-  margin: 0;
-  flex: 1;
-}
+.nav-list { list-style: none; padding: 0.5rem 0; margin: 0; flex: 1; }
 
 .nav-item {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.625rem 1rem;
-  color: var(--text-color-secondary);
+  color: #94a3b8;
   text-decoration: none;
   font-size: 0.875rem;
   border-radius: 6px;
@@ -108,16 +103,15 @@ function isActive(name: string) {
   transition: background 0.15s, color 0.15s;
   position: relative;
 }
-.nav-item:hover { background: var(--surface-hover); color: var(--text-color); }
-.nav-item.active { background: var(--primary-50); color: var(--primary-color); font-weight: 600; }
+.nav-item:hover  { background: #252b3b; color: #e2e8f0; }
+.nav-item.active { background: #0f2918; color: #4ade80; font-weight: 600; }
 
 .nav-label { white-space: nowrap; overflow: hidden; }
 
 .op-indicator {
-  width: 7px;
-  height: 7px;
+  width: 7px; height: 7px;
   border-radius: 50%;
-  background: var(--yellow-400);
+  background: #fbbf24;
   margin-left: auto;
   flex-shrink: 0;
 }

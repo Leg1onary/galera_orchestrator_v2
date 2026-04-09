@@ -13,7 +13,7 @@ import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 
 import 'primeicons/primeicons.css'
-//import './assets/main.css'
+import './assets/main.css'
 import App from './App.vue'
 import router from './router'
 
@@ -33,7 +33,14 @@ const app = createApp(App)
 app.use(pinia)
 app.use(router)
 app.use(VueQueryPlugin, { queryClient })
-app.use(PrimeVue, { theme: { preset: Aura } })
+app.use(PrimeVue, {
+    theme: {
+        preset: Aura,
+        options: {
+            darkModeSelector: 'system',
+        }
+    }
+})
 app.use(ToastService)
 
 // Глобальная регистрация PrimeVue компонентов (минимум для текущих страниц)

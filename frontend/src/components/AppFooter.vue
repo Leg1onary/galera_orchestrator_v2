@@ -28,11 +28,11 @@ const labels: Record<WsStatus, string> = {
   justify-content: space-between;
   height: 32px;
   padding: 0 1.5rem;
-  background: var(--surface-card);
-  border-top: 1px solid var(--surface-border);
+  background: #1a1f2e;
+  border-top: 1px solid #2a3040;
   flex-shrink: 0;
   font-size: 0.75rem;
-  color: var(--text-color-secondary);
+  color: #94a3b8;
 }
 
 .ws-indicator {

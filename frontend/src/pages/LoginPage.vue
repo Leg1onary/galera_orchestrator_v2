@@ -85,17 +85,17 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-ground);
+  background: #0f1117;   /* ← хардкод вместо --p-surface-ground */
 }
 
 .login-card {
-  background: var(--surface-card);
-  border: 1px solid var(--surface-border);
+  background: #1a1f2e;
+  border: 1px solid #2a3040;
   border-radius: 12px;
   padding: 2.5rem 2rem;
   width: 100%;
   max-width: 380px;
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.08);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
 }
 
 .login-logo {
@@ -105,13 +105,16 @@ async function submit() {
   margin-bottom: 2rem;
 }
 
-.logo-icon { font-size: 2rem; color: var(--primary-color); }
+.logo-icon {
+  font-size: 1.75rem;
+  color: #4ade80;
+}
 
 h1 {
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--text-color);
   margin: 0;
+  color: #e2e8f0;
 }
 
 .login-form {
@@ -129,6 +132,19 @@ h1 {
 label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--text-color);
+  color: #94a3b8;
+}
+
+/* PrimeVue InputText на всю ширину */
+:deep(.p-inputtext) {
+  width: 100%;
+}
+
+/* PrimeVue Password wrapper на всю ширину */
+:deep(.p-password) {
+  width: 100%;
+}
+:deep(.p-password input) {
+  width: 100%;
 }
 </style>

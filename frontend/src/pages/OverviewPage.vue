@@ -120,7 +120,7 @@ onWsEvent((event) => {
   align-items: center;
   gap: 1rem;
   padding: 4rem 0;
-  color: var(--text-color-secondary);
+  color: #94a3b8;  /* было: var(--text-color-secondary) */
 }
 
 .section-title {
@@ -128,7 +128,7 @@ onWsEvent((event) => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-color-secondary);
+  color: #64748b;  /* было: var(--text-color-secondary) */
   margin: 0 0 0.75rem;
 }
 
