@@ -49,19 +49,15 @@ app = FastAPI(
 #   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
 #   - Если роутер имеет prefix="/auth" / "/diagnostics" и т.д. → include_router c prefix="/api"
 #
-# Phase 1 routers
 app.include_router(auth_router,        prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")   # только один раз
 app.include_router(recovery_router,    prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
-
-# Phase 2 routers
-app.include_router(clusters_router)
-app.include_router(contours_router)    # ← добавь
+app.include_router(clusters_router, prefix="/api")
+app.include_router(contours_router)
 app.include_router(nodes_router)
 app.include_router(settings_router)
 app.include_router(ws_router)
-# diagnostics_router убери отсюда — выше уже есть
 
 # ── Static assets ─────────────────────────────────────────────────────────────────────────
 

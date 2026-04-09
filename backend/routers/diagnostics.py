@@ -29,7 +29,7 @@ from services.ssh_client import SSHClient
 from config import settings
 
 router = APIRouter(
-    prefix="/api/clusters/{cluster_id}",
+    prefix="/clusters/{cluster_id}",
     tags=["diagnostics"],
     dependencies=[Depends(require_auth)],
 )
