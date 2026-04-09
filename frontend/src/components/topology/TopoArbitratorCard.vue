@@ -37,11 +37,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
 import type { TopoArbitrator } from '@/api/topology'
 
 // Размеры — ромб вписан в прямоугольник 80x56
-export const ARB_W = 80
-export const ARB_H = 56
 const CX = ARB_W / 2
 const CY = ARB_H / 2
 

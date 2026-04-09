@@ -45,8 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import TopoNodeCard, { CARD_W, CARD_H } from './TopoNodeCard.vue'
-import TopoArbitratorCard, { ARB_W, ARB_H } from './TopoArbitratorCard.vue'
+import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
 import type { TopoDatacenter, TopoNode } from '@/api/topology'
 
 const PADDING = 16

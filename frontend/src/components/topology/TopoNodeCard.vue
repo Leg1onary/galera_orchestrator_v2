@@ -91,11 +91,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
 import type { TopoNode } from '@/api/topology'
 
 // Card dimensions — константы для вычисления позиций линий снаружи
-export const CARD_W = 160
-export const CARD_H = 48
 
 const W = CARD_W
 const H = CARD_H

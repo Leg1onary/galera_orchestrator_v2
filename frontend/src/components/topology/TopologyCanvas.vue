@@ -58,8 +58,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import DCZone from './DCZone.vue'
-import { CARD_W, CARD_H } from './TopoNodeCard.vue'
-import { ARB_W, ARB_H } from './TopoArbitratorCard.vue'
+import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
 import type { TopologyData, TopoNode, TopoDatacenter } from '@/api/topology'
 
 const PADDING = 16
