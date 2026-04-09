@@ -16,7 +16,6 @@ metadata = MetaData()
 
 # ---------------------------------------------------------------------------
 # contours
-# Static lookup: 'test' | 'prod'
 # ---------------------------------------------------------------------------
 contours = Table(
     "contours",
@@ -49,6 +48,7 @@ clusters = Table(
         ForeignKey("contours.id", ondelete="RESTRICT"),
         nullable=False,
     ),
+    Column("description", Text, nullable=False, server_default="''"),
 )
 
 # ---------------------------------------------------------------------------
@@ -65,7 +65,6 @@ nodes = Table(
     Column("ssh_port", Integer, nullable=False, server_default="22"),
     Column("ssh_user", Text, nullable=False, server_default="'root'"),
     Column("db_user", Text, nullable=True),
-    # Stored as Fernet-encrypted ciphertext. Never store plaintext.
     Column("db_password", Text, nullable=True),
     Column(
         "cluster_id",
@@ -74,7 +73,7 @@ nodes = Table(
         nullable=False,
     ),
     Column(
-        "dc_id",
+        "datacenter_id",
         Integer,
         ForeignKey("datacenters.id", ondelete="SET NULL"),
         nullable=True,
@@ -85,7 +84,6 @@ nodes = Table(
 
 # ---------------------------------------------------------------------------
 # arbitrators
-# No db_user/db_password — garbd has no MariaDB connection
 # ---------------------------------------------------------------------------
 arbitrators = Table(
     "arbitrators",
@@ -102,7 +100,7 @@ arbitrators = Table(
         nullable=False,
     ),
     Column(
-        "dc_id",
+        "datacenter_id",
         Integer,
         ForeignKey("datacenters.id", ondelete="SET NULL"),
         nullable=True,
@@ -112,8 +110,6 @@ arbitrators = Table(
 
 # ---------------------------------------------------------------------------
 # cluster_operations
-# Used for long-running: recovery_bootstrap, recovery_rejoin,
-# rolling_restart, node_action
 # ---------------------------------------------------------------------------
 cluster_operations = Table(
     "cluster_operations",
@@ -125,9 +121,7 @@ cluster_operations = Table(
         ForeignKey("clusters.id", ondelete="CASCADE"),
         nullable=False,
     ),
-    # recovery_bootstrap | recovery_rejoin | rolling_restart | node_action
     Column("type", Text, nullable=False),
-    # pending | running | success | failed | cancel_requested | cancelled
     Column("status", Text, nullable=False),
     Column("started_at", DateTime, nullable=True),
     Column("finished_at", DateTime, nullable=True),
@@ -138,15 +132,12 @@ cluster_operations = Table(
         ForeignKey("nodes.id", ondelete="SET NULL"),
         nullable=True,
     ),
-    # JSON string: arbitrary operation details
     Column("details_json", Text, nullable=True),
     Column("error_message", Text, nullable=True),
 )
 
 # ---------------------------------------------------------------------------
 # event_logs
-# source: system | ui | diagnostics | ws | ssh | auth | recovery | maintenance
-# level:  INFO | WARN | ERROR
 # ---------------------------------------------------------------------------
 event_logs = Table(
     "event_logs",
@@ -158,8 +149,8 @@ event_logs = Table(
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     ),
-    Column("level", Text, nullable=False),   # INFO | WARN | ERROR
-    Column("source", Text, nullable=False),  # see docstring above
+    Column("level", Text, nullable=False),
+    Column("source", Text, nullable=False),
     Column("message", Text, nullable=False),
     Column(
         "node_id",
