@@ -106,12 +106,18 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
                 detail={"node_id": node["id"], "node_name": node["name"], "step": "enter_maintenance"},
             )
 
-            # a. Enter maintenance (read_only=ON)
-            try:
-                await asyncio.to_thread(_set_read_only, node, on=True)
-                await asyncio.to_thread(_set_node_maintenance_flag, node["id"], True)
-            except (DBError, SSHError) as exc:
-                logger.warning("[%s] Enter maintenance failed: %s (continuing restart anyway)", node["name"], exc)
+            # a. Enter maintenance только если нода не была в maintenance
+            entered_maintenance = False
+            if not node.get("maintenance"):
+                try:
+                    await asyncio.to_thread(_set_read_only, node, on=True)
+                    await asyncio.to_thread(_set_node_maintenance_flag, node["id"], True)
+                    entered_maintenance = True
+                except (DBError, SSHError) as exc:
+                    logger.warning("[%s] Enter maintenance failed: %s (continuing)", node["name"], exc)
+            else:
+                logger.info("[%s] Already in maintenance, skipping enter", node["name"])
+                entered_maintenance = True  # считаем что вошли (для exit в конце)
 
             # b. Restart
             await _broadcast_progress(

@@ -442,7 +442,7 @@ def _load_cluster_nodes(cluster_id: int) -> list[dict]:
         rows = conn.execute(
             text(
                 """
-                SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password, maintenance
                 FROM nodes
                 WHERE cluster_id = :cid AND enabled = 1
                 ORDER BY id
