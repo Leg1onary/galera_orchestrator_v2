@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -10,18 +11,12 @@ from models import event_logs
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# STUB — partially implemented
-#
-# log_event() is a thin wrapper that inserts into event_logs table.
-# It is used throughout the application (auth, SSH actions, recovery, etc.)
-#
-# The function is synchronous (uses a passed Connection) because most
-# callers already have a DB connection in scope.
-#
-# For async contexts (WebSocket, poller), Phase 1 will add an async variant
-# that opens its own connection from the engine.
-# ---------------------------------------------------------------------------
+
+ALLOWED_LEVELS = frozenset({"INFO", "WARN", "ERROR"})
+ALLOWED_SOURCES = frozenset({
+    "system", "ui", "diagnostics", "ws",
+    "ssh", "auth", "recovery", "maintenance",
+})
 
 
 def log_event(
@@ -52,17 +47,11 @@ def log_event(
     Raises:
         ValueError: if level or source is not in the allowed set.
     """
-    allowed_levels = {"INFO", "WARN", "ERROR"}
-    allowed_sources = {
-        "system", "ui", "diagnostics", "ws",
-        "ssh", "auth", "recovery", "maintenance",
-    }
-
-    if level not in allowed_levels:
-        raise ValueError(f"Invalid event level: {level!r}. Must be one of {allowed_levels}")
-    if source not in allowed_sources:
+    if level not in ALLOWED_LEVELS:
+        raise ValueError(f"Invalid event level: {level!r}. Must be one of {ALLOWED_LEVELS}")
+    if source not in ALLOWED_SOURCES:
         raise ValueError(
-            f"Invalid event source: {source!r}. Must be one of {allowed_sources}"
+            f"Invalid event source: {source!r}. Must be one of {ALLOWED_SOURCES}"
         )
 
     conn.execute(
@@ -94,8 +83,8 @@ async def log_event_async(
     Used from the polling loop and WebSocket handlers where no
     Connection is passed in from a request context.
 
-    STUB — implement in Phase 1 once poller is active.
     Uses run_in_executor to avoid blocking the event loop on SQLite I/O.
+    get_running_loop() is used instead of deprecated get_event_loop().
     """
     from database import get_connection  # avoid circular import at module level
 
@@ -112,6 +101,5 @@ async def log_event_async(
                 operation_id=operation_id,
             )
 
-    import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _write)

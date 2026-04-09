@@ -240,3 +240,21 @@ class DBClient:
             "DB test_connection %s:%s OK — %.1f ms", self.host, self.port, latency_ms
         )
         return round(latency_ms, 2)
+
+    def execute(self, sql: str) -> None:
+        """Execute a non-SELECT statement (SET GLOBAL, etc.)."""
+        if self._conn is None:
+            raise DBError("Not connected — call connect() first")
+
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(sql)
+            self._conn.commit()
+        except pymysql.Error as exc:
+            raise DBError(
+                f"Execute failed on {self.host}:{self.port}: {exc}\nSQL: {sql}"
+            ) from exc
+        except Exception as exc:
+            raise DBError(
+                f"Unexpected error executing on {self.host}:{self.port}: {exc}"
+            ) from exc
