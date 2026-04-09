@@ -1,0 +1,83 @@
+# Galera Orchestrator v2 — single-container deployment
+# Per ТЗ раздел 3.1: one container, volume /data, SSH key read-only bind mount
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Build arg lets CI override the image tag
+      args:
+        BUILDKIT_INLINE_CACHE: "1"
+
+    image: galera-orchestrator-v2:latest
+
+    container_name: galera-orchestrator
+
+    restart: unless-stopped
+
+    ports:
+      # Host port 8000 → container port 8000
+      # Change left side to expose on a different host port, e.g. "80:8000"
+      - "${HOST_PORT:-8000}:8000"
+
+    volumes:
+      # Per ТЗ раздел 2: SQLite database persisted on a named volume
+      - orchestrator-data:/data
+
+      # Per ТЗ раздел 3.2: SSH private key mounted read-only
+      # The host path must exist and contain a valid private key.
+      # Backend reads it via settings.SSH_KEY_PATH = /root/.ssh/id_rsa
+      - ${SSH_KEY_PATH:-~/.ssh/id_rsa}:/root/.ssh/id_rsa:ro
+
+    environment:
+      # Per ТЗ раздел 3.3: all secrets via environment variables
+      # Copy .env.example → .env and fill in real values before first run
+
+      # SQLite path inside the container (on the /data volume)
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////data/orchestrator.db}
+
+      # Admin credentials
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+
+      # JWT signing secret — MUST be changed in production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-jwt-secret}
+
+      # Fernet key for encrypting node db_password at rest
+      # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - FERNET_SECRET_KEY=${FERNET_SECRET_KEY:-change-me-fernet-secret}
+
+      # Path to SSH key inside the container (matches the bind mount target above)
+      - SSH_KEY_PATH=${SSH_KEY_PATH_CONTAINER:-/root/.ssh/id_rsa}
+
+    # Resource limits — conservative defaults for a management panel
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    healthcheck:
+      test: >
+        python -c "
+        import urllib.request, urllib.error, sys;
+        try:
+          urllib.request.urlopen('http://localhost:8000/api/auth/me', timeout=4)
+          sys.exit(0)
+        except urllib.error.HTTPError as e:
+          sys.exit(0 if e.code == 401 else 1)
+        except Exception:
+          sys.exit(1)
+        "
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  # Named volume for SQLite database
+  # Data survives container restarts and image updates
+  orchestrator-data:
+    driver: local
