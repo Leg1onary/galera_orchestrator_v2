@@ -13,7 +13,7 @@ import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 
 import 'primeicons/primeicons.css'
-import './assets/main.css'
+//import './assets/main.css'
 import App from './App.vue'
 import router from './router'
 

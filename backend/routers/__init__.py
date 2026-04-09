@@ -1,17 +1,17 @@
-# Routers package
-# Import all routers here for convenient access in main.py
-from routers.auth import router as auth_router
-from routers.clusters import router as clusters_router
-from routers.diagnostics import router as diagnostics_router
-from routers.maintenance import router as maintenance_router
-from routers.nodes import router as nodes_router
-from routers.recovery import router as recovery_router
-from routers.settings import router as settings_router
-from routers.ws import router as ws_router
+from .auth        import router as auth_router
+from .clusters    import router as clusters_router
+from .contours    import router as contours_router   # ← добавь
+from .diagnostics import router as diagnostics_router
+from .maintenance import router as maintenance_router
+from .nodes       import router as nodes_router
+from .recovery    import router as recovery_router
+from .settings    import router as settings_router
+from .ws          import router as ws_router
 
 __all__ = [
     "auth_router",
     "clusters_router",
+    "contours_router",      # ← добавь
     "diagnostics_router",
     "maintenance_router",
     "nodes_router",

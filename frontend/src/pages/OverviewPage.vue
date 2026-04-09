@@ -139,7 +139,6 @@ onWsEvent((event) => {
   margin-bottom: 0.75rem;
 }
 
-/* ТЗ 10.4: grid для NodeCard -->
 .node-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

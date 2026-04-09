@@ -11,6 +11,7 @@ from database import init_db
 from routers import (
     auth_router,
     clusters_router,
+    contours_router,
     diagnostics_router,
     maintenance_router,
     nodes_router,
@@ -48,18 +49,19 @@ app = FastAPI(
 #   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
 #   - Если роутер имеет prefix="/auth" / "/diagnostics" и т.д. → include_router c prefix="/api"
 #
-# Phase 1 routers (префикс без /api внутри):
-app.include_router(auth_router,        prefix="/api")   # /auth/...        → /api/auth/...
-app.include_router(diagnostics_router, prefix="/api")   # /diagnostics/... → /api/diagnostics/...
-app.include_router(recovery_router,    prefix="/api")   # /recovery/...    → /api/recovery/...
-app.include_router(maintenance_router, prefix="/api")   # /maintenance/... → /api/maintenance/...
+# Phase 1 routers
+app.include_router(auth_router,        prefix="/api")
+app.include_router(diagnostics_router, prefix="/api")   # только один раз
+app.include_router(recovery_router,    prefix="/api")
+app.include_router(maintenance_router, prefix="/api")
 
-# Phase 2 routers (уже имеют /api/... внутри — не добавляем prefix):
-app.include_router(clusters_router)   # prefix="/api/clusters" внутри
-app.include_router(nodes_router)      # prefix="/api/clusters" внутри
-app.include_router(settings_router)   # prefix="/api/settings" внутри
-app.include_router(ws_router)         # /ws/...
-app.include_router(diagnostics_router)
+# Phase 2 routers
+app.include_router(clusters_router)
+app.include_router(contours_router)    # ← добавь
+app.include_router(nodes_router)
+app.include_router(settings_router)
+app.include_router(ws_router)
+# diagnostics_router убери отсюда — выше уже есть
 
 # ── Static assets ─────────────────────────────────────────────────────────────────────────
 

@@ -107,3 +107,10 @@ function _clearReconnectTimer() {
         reconnectTimer = null
     }
 }
+
+// Хелпер для использования в компонентах через onMounted/onUnmounted
+// Эквивалентен useWsStore().on(handler)
+export function onWsEvent(handler: WsHandler): () => void {
+    const wsStore = useWsStore()
+    return wsStore.on(handler)
+}
