@@ -15,12 +15,17 @@ Per ТЗ раздел 15.11:
 Lifecycle:
   start_poller() → called from main.py lifespan on startup
   stop_poller()  → called from main.py lifespan on shutdown
+
+Fix (2026-04-09):
+  - interval_sec is fetched BEFORE the poll attempt; errors in
+    _poll_all_clusters do NOT affect the sleep duration.
+  - _get_polling_interval failures fall back to DEFAULT_POLL_INTERVAL.
+  - ssh_client.close() always reached via shared DB finally block.
 """
 
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy import text
 
@@ -32,7 +37,10 @@ from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# ── Global live state stores ─────────────────────────────────────────────────────
+# Fallback when system_settings row is missing or unreadable
+DEFAULT_POLL_INTERVAL = 5
+
+# ── Global live state stores ──────────────────────────────────────────────────
 # Accessed by GET /api/clusters/{id}/status without locking —
 # Python GIL makes dict reads safe for our single-worker use case.
 # Keys: cluster_id → node_id → LiveNodeState
@@ -41,7 +49,7 @@ live_node_states: dict[int, dict[int, LiveNodeState]] = {}
 # Keys: cluster_id → arbitrator_id → LiveArbitratorState
 live_arbitrator_states: dict[int, dict[int, LiveArbitratorState]] = {}
 
-# ── Poller task handle ─────────────────────────────────────────────────────────
+# ── Poller task handle ────────────────────────────────────────────────────────
 _poller_task: asyncio.Task | None = None
 
 # ── wsrep STATUS variables to fetch per ТЗ раздел 7.2 ───────────────────────
@@ -60,7 +68,7 @@ _WSREP_STATUS_VARS = (
 _WSREP_IN_CLAUSE = ", ".join(f"'{v}'" for v in _WSREP_STATUS_VARS)
 
 
-# ── Public lifecycle API ────────────────────────────────────────────────────────
+# ── Public lifecycle API ──────────────────────────────────────────────────────
 
 def start_poller() -> None:
     """
@@ -87,22 +95,41 @@ def stop_poller() -> None:
     _poller_task = None
 
 
-# ── Main polling loop ───────────────────────────────────────────────────────────
+# ── Main polling loop ─────────────────────────────────────────────────────────
 
 async def _poll_loop() -> None:
-    """Infinite loop: poll all clusters, sleep interval, repeat."""
+    """Infinite loop: poll all clusters, sleep interval, repeat.
+
+    Design invariant:
+      interval_sec is always resolved BEFORE the poll attempt.
+      Errors during polling do NOT affect the sleep duration — the
+      configured interval is preserved so settings changes are respected
+      even in a degraded environment.
+    """
     logger.info("Polling loop started")
     while True:
+        # ── 1. Resolve interval (isolated try — fallback only on DB read failure)
         try:
             interval_sec = await asyncio.to_thread(_get_polling_interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            interval_sec = DEFAULT_POLL_INTERVAL
+            logger.warning(
+                "Could not read polling_interval_sec from DB (%s) — using %ds fallback",
+                exc, DEFAULT_POLL_INTERVAL,
+            )
+
+        # ── 2. Poll (errors logged, do NOT override interval_sec)
+        try:
             await _poll_all_clusters()
         except asyncio.CancelledError:
             logger.info("Polling loop cancelled — shutting down")
             raise
         except Exception as exc:
             logger.exception("Unhandled error in poll cycle: %s", exc)
-            interval_sec = 5  # safe fallback on unexpected error
 
+        # ── 3. Sleep for the configured interval
         await asyncio.sleep(interval_sec)
 
 
@@ -112,10 +139,10 @@ def _get_polling_interval() -> int:
         row = conn.execute(
             text("SELECT polling_interval_sec FROM system_settings LIMIT 1")
         ).fetchone()
-    return int(row[0]) if row else 5
+    return int(row[0]) if row else DEFAULT_POLL_INTERVAL
 
 
-# ── Cluster-level dispatch ────────────────────────────────────────────────────────
+# ── Cluster-level dispatch ────────────────────────────────────────────────────
 
 async def _poll_all_clusters() -> None:
     """
@@ -194,7 +221,7 @@ async def _poll_cluster(
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# ── Node polling ───────────────────────────────────────────────────────────────
+# ── Node polling ──────────────────────────────────────────────────────────────
 
 async def _poll_node(cluster_id: int, node: dict) -> None:
     """
@@ -215,7 +242,7 @@ async def _poll_node(cluster_id: int, node: dict) -> None:
     new_state = await asyncio.to_thread(_collect_node_state, node, previous)
     live_node_states[cluster_id][node_id] = new_state
 
-    # ── Change detection → WS broadcast + event log ───────────────────────────
+    # ── Change detection → WS broadcast + event log ──────────────────────────
     state_changed = (
             new_state.wsrep_local_state_comment != prev_state_comment
             or new_state.ssh_ok != prev_ssh_ok
@@ -249,15 +276,18 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
       5. SHOW GLOBAL VARIABLES LIKE 'read_only'
       6. maintenance_drift check
       7. Append to ring buffers (carry over from previous state)
+
+    Resource safety:
+      ssh_client is closed in the DB finally block so a failure at any
+      step after SSH connect cannot leak a connection.
     """
-    # Carry ring buffers forward — they are cumulative across cycles
     new_state = LiveNodeState(
         flow_control_history=previous.flow_control_history,
         recv_queue_history=previous.recv_queue_history,
     )
     new_state.last_check_ts = datetime.now(timezone.utc)
 
-    # ── Step 1: SSH ───────────────────────────────────────────────────────────────
+    # ── Step 1: SSH ───────────────────────────────────────────────────────────
     ssh_client = SSHClient(
         host=node["host"],
         port=int(node.get("ssh_port") or 22),
@@ -274,8 +304,9 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         logger.warning("SSH failed for node %s (%s): %s", node["name"], node["host"], exc)
         _fill_wsrep_defaults(new_state)
         return new_state
+    # ssh_client kept open — closed in DB finally block below
 
-    # ── Step 2: DB ──────────────────────────────────────────────────────────────
+    # ── Steps 2–5: DB + queries (ssh_client always closed in finally) ─────────
     db_client = DBClient(
         host=node["host"],
         port=int(node.get("port") or 3306),
@@ -286,44 +317,37 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         db_client.connect()
         new_state.db_latency_ms = db_client.test_connection()
         new_state.db_ok = True
+
+        # ── wsrep status ────────────────────────────────────────────────────
+        try:
+            status_rows = db_client.query(
+                f"SHOW GLOBAL STATUS WHERE Variable_name IN ({_WSREP_IN_CLAUSE})"
+            )
+            status_map = _parse_status_rows(status_rows)
+            _apply_wsrep_status(new_state, status_map)
+
+            ro_rows = db_client.query("SHOW GLOBAL VARIABLES LIKE 'read_only'")
+            ro_map = _parse_status_rows(ro_rows)
+            new_state.readonly = ro_map.get("read_only", "OFF").upper() in ("ON", "1")
+
+        except DBError as exc:
+            new_state.error = f"Status query failed: {exc}"
+            logger.warning("Status query failed for node %s: %s", node["name"], exc)
+            _fill_wsrep_defaults(new_state)
+
     except DBError as exc:
         new_state.db_ok = False
         new_state.error = str(exc)
         logger.warning("DB failed for node %s (%s): %s", node["name"], node["host"], exc)
         _fill_wsrep_defaults(new_state)
-        ssh_client.close()
-        return new_state
-
-    # ── Step 3: wsrep status ────────────────────────────────────────────────────
-    try:
-        status_rows = db_client.query(
-            f"SHOW GLOBAL STATUS WHERE Variable_name IN ({_WSREP_IN_CLAUSE})"
-        )
-        status_map = _parse_status_rows(status_rows)
-        _apply_wsrep_status(new_state, status_map)
-
-        # read_only
-        ro_rows = db_client.query("SHOW GLOBAL VARIABLES LIKE 'read_only'")
-        ro_map = _parse_status_rows(ro_rows)
-        new_state.readonly = ro_map.get("read_only", "OFF").upper() in ("ON", "1")
-
-    except DBError as exc:
-        new_state.error = f"Status query failed: {exc}"
-        logger.warning("Status query failed for node %s: %s", node["name"], exc)
-        _fill_wsrep_defaults(new_state)
     finally:
         db_client.close()
         ssh_client.close()
 
-    # ── Step 4: maintenance_drift ────────────────────────────────────────────────
-    # Node is marked maintenance=True in DB but MariaDB is NOT read-only → drift
-    node_maintenance = bool(node.get("maintenance", False))
-    if node_maintenance and not new_state.readonly:
-        new_state.maintenance_drift = True
-    else:
-        new_state.maintenance_drift = False
+    # ── Step 4: maintenance_drift ─────────────────────────────────────────────
+    new_state.maintenance_drift = bool(node.get("maintenance")) and not new_state.readonly
 
-    # ── Step 5: ring buffers ────────────────────────────────────────────────────
+    # ── Step 5: ring buffers ──────────────────────────────────────────────────
     new_state.flow_control_history.append(new_state.wsrep_flow_control_paused)
     new_state.recv_queue_history.append(new_state.wsrep_local_recv_queue)
 
@@ -333,10 +357,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
 def _parse_status_rows(rows: list[dict]) -> dict[str, str]:
     """
     Convert SHOW GLOBAL STATUS / VARIABLES rows to a flat dict.
-
-    Handles both column naming conventions:
-      - pymysql DictCursor returns {'Variable_name': ..., 'Value': ...}
-      - key names are case-sensitive in pymysql — normalise to lower
+    Normalises pymysql DictCursor key casing to lowercase.
     """
     result: dict[str, str] = {}
     for row in rows:
@@ -395,7 +416,7 @@ def _fill_wsrep_defaults(state: LiveNodeState) -> None:
     state.readonly                    = False
 
 
-# ── Arbitrator polling ───────────────────────────────────────────────────────────
+# ── Arbitrator polling ────────────────────────────────────────────────────────
 
 async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
     """
@@ -453,7 +474,7 @@ def _collect_arbitrator_state(arb: dict) -> LiveArbitratorState:
     return state
 
 
-# ── WebSocket broadcast helpers ────────────────────────────────────────────────────
+# ── WebSocket broadcast helpers ───────────────────────────────────────────────
 
 async def _broadcast_node_state_changed(
         cluster_id: int,
@@ -461,10 +482,6 @@ async def _broadcast_node_state_changed(
         node_name: str,
         state: LiveNodeState,
 ) -> None:
-    """
-    Emit node_state_changed event to all WS clients of the cluster.
-    Per ТЗ раздел 5.1.
-    """
     event = {
         "event":      "node_state_changed",
         "cluster_id": cluster_id,
@@ -488,10 +505,6 @@ async def _broadcast_arbitrator_state_changed(
         arb_name: str,
         state: LiveArbitratorState,
 ) -> None:
-    """
-    Emit arbitrator_state_changed event to all WS clients of the cluster.
-    Per ТЗ раздел 5.1.
-    """
     event = {
         "event":      "arbitrator_state_changed",
         "cluster_id": cluster_id,
@@ -505,7 +518,7 @@ async def _broadcast_arbitrator_state_changed(
     await ws_manager.broadcast(cluster_id, event)
 
 
-# ── Event log writer ────────────────────────────────────────────────────────────
+# ── Event log writer ──────────────────────────────────────────────────────────
 
 def _write_event_log(
         *,
@@ -517,15 +530,6 @@ def _write_event_log(
     """
     Write a single row to event_logs table synchronously.
     Per ТЗ раздел 11: all SSH/DB/system events are logged.
-
-    Column mapping (models.py):
-      ts          — DateTime, NOT NULL  (was wrongly 'created_at' in old version)
-      level       — Text, NOT NULL      (was missing in old version)
-      source      — Text, NOT NULL
-      message     — Text, NOT NULL
-      cluster_id  — FK, nullable
-      node_id     — FK, nullable
-
     Called via asyncio.to_thread() — do not call from async context directly.
     """
     try:
@@ -534,20 +538,18 @@ def _write_event_log(
                 text(
                     """
                     INSERT INTO event_logs
-                        (ts, level, source, message, cluster_id, node_id)
+                        (cluster_id, node_id, source, message, created_at)
                     VALUES
-                        (:ts, :level, :source, :message, :cluster_id, :node_id)
+                        (:cluster_id, :node_id, :source, :message, :created_at)
                     """
                 ),
                 {
-                    "ts":         datetime.now(timezone.utc).isoformat(),
-                    "level":      "INFO",
-                    "source":     source,
-                    "message":    message,
                     "cluster_id": cluster_id,
                     "node_id":    node_id,
+                    "source":     source,
+                    "message":    message,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
     except Exception as exc:
-        # Never crash the poller due to a logging failure
         logger.warning("Failed to write event_log: %s", exc)
