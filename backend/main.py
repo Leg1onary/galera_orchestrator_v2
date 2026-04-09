@@ -22,24 +22,16 @@ from services.poller import start_poller, stop_poller
 
 logger = logging.getLogger(__name__)
 
-# ── Lifespan (replaces @app.on_event) ─────────────────────────────────────────
-# Combines init_db() (sync) and poller start/stop (async) in one place.
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ───────────────────────────────────────────────────────────────
-    init_db()          # synchronous — creates tables + seeds contours/settings
-    start_poller()     # schedules asyncio background task
+    init_db()
+    start_poller()
     logger.info("Galera Orchestrator v2 started")
-
-    yield  # application runs here
-
-    # ── Shutdown ──────────────────────────────────────────────────────────────
+    yield
     stop_poller()
     logger.info("Galera Orchestrator v2 stopped")
 
-
-# ── App factory ───────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Galera Orchestrator v2",
@@ -50,22 +42,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── API routers ───────────────────────────────────────────────────────────────
+# ── API routers ─────────────────────────────────────────────────────────────────────────
+#
+# Стратегия prefix:
+#   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
+#   - Если роутер имеет prefix="/auth" / "/diagnostics" и т.д. → include_router c prefix="/api"
+#
+# Phase 1 routers (префикс без /api внутри):
+app.include_router(auth_router,        prefix="/api")   # /auth/...        → /api/auth/...
+app.include_router(diagnostics_router, prefix="/api")   # /diagnostics/... → /api/diagnostics/...
+app.include_router(recovery_router,    prefix="/api")   # /recovery/...    → /api/recovery/...
+app.include_router(maintenance_router, prefix="/api")   # /maintenance/... → /api/maintenance/...
 
-app.include_router(auth_router,        prefix="/api")
-app.include_router(clusters_router)    # у него prefix="/api/clusters" уже внутри
-app.include_router(nodes_router,       prefix="/api")
-app.include_router(settings_router,    prefix="/api")
-app.include_router(diagnostics_router, prefix="/api")
-app.include_router(recovery_router,    prefix="/api")
-app.include_router(maintenance_router, prefix="/api")
-app.include_router(ws_router)
+# Phase 2 routers (уже имеют /api/... внутри — не добавляем prefix):
+app.include_router(clusters_router)   # prefix="/api/clusters" внутри
+app.include_router(nodes_router)      # prefix="/api/clusters" внутри
+app.include_router(settings_router)   # prefix="/api/settings" внутри
+app.include_router(ws_router)         # /ws/...
 
-# Phase 2+ routers added here:
-# from routers import clusters, nodes, settings_router, recovery, maintenance, diagnostics
-# app.include_router(clusters.router, prefix="/api", tags=["clusters"])
-
-# ── Static assets ─────────────────────────────────────────────────────────────
+# ── Static assets ─────────────────────────────────────────────────────────────────────────
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -74,7 +69,7 @@ if STATIC_DIR.is_dir():
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-# ── SPA fallback ──────────────────────────────────────────────────────────────
+# ── SPA fallback ─────────────────────────────────────────────────────────────────────────
 
 _SPA_EXCLUDED_PREFIXES = (
     "/api/",
