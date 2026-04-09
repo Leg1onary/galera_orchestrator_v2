@@ -30,23 +30,6 @@ def log_event(
         cluster_id: Optional[int] = None,
         operation_id: Optional[int] = None,
 ) -> None:
-    """
-    Insert an event into event_logs.
-
-    Args:
-        conn:           Active SQLAlchemy Core Connection (with open transaction).
-        level:          'INFO' | 'WARN' | 'ERROR'
-        source:         'system' | 'ui' | 'diagnostics' | 'ws' |
-                        'ssh' | 'auth' | 'recovery' | 'maintenance'
-        message:        Human-readable description.
-        node_id:        Optional FK to nodes.id
-        arbitrator_id:  Optional FK to arbitrators.id
-        cluster_id:     Optional FK to clusters.id
-        operation_id:   Optional FK to cluster_operations.id
-
-    Raises:
-        ValueError: if level or source is not in the allowed set.
-    """
     if level not in ALLOWED_LEVELS:
         raise ValueError(f"Invalid event level: {level!r}. Must be one of {ALLOWED_LEVELS}")
     if source not in ALLOWED_SOURCES:
@@ -78,15 +61,7 @@ async def log_event_async(
         cluster_id: Optional[int] = None,
         operation_id: Optional[int] = None,
 ) -> None:
-    """
-    Async variant of log_event — opens its own DB connection.
-    Used from the polling loop and WebSocket handlers where no
-    Connection is passed in from a request context.
-
-    Uses run_in_executor to avoid blocking the event loop on SQLite I/O.
-    get_running_loop() is used instead of deprecated get_event_loop().
-    """
-    from database import get_connection  # avoid circular import at module level
+    from database import get_connection
 
     def _write() -> None:
         with get_connection() as conn:
@@ -103,3 +78,39 @@ async def log_event_async(
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _write)
+
+
+def write_event(
+        *,
+        message: str,
+        source: str = "ui",
+        level: str = "INFO",
+        cluster_id: Optional[int] = None,
+        node_id: Optional[int] = None,
+        arbitrator_id: Optional[int] = None,
+        operation_id: Optional[int] = None,
+) -> None:
+    """
+    Convenience wrapper used by Phase 2 routers (nodes, settings, operations).
+    Opens its own DB connection, no need to pass conn explicitly.
+    Falls back silently on error to avoid breaking the calling request.
+    """
+    from database import get_connection
+
+    if source not in ALLOWED_SOURCES:
+        source = "system"
+
+    try:
+        with get_connection() as conn:
+            log_event(
+                conn,
+                level=level,
+                source=source,
+                message=message,
+                cluster_id=cluster_id,
+                node_id=node_id,
+                arbitrator_id=arbitrator_id,
+                operation_id=operation_id,
+            )
+    except Exception:
+        logger.exception("write_event failed silently: %s", message)
