@@ -32,7 +32,7 @@ from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# ── Global live state stores ──────────────────────────────────────────────────
+# ── Global live state stores ─────────────────────────────────────────────────────
 # Accessed by GET /api/clusters/{id}/status without locking —
 # Python GIL makes dict reads safe for our single-worker use case.
 # Keys: cluster_id → node_id → LiveNodeState
@@ -41,7 +41,7 @@ live_node_states: dict[int, dict[int, LiveNodeState]] = {}
 # Keys: cluster_id → arbitrator_id → LiveArbitratorState
 live_arbitrator_states: dict[int, dict[int, LiveArbitratorState]] = {}
 
-# ── Poller task handle ────────────────────────────────────────────────────────
+# ── Poller task handle ─────────────────────────────────────────────────────────
 _poller_task: asyncio.Task | None = None
 
 # ── wsrep STATUS variables to fetch per ТЗ раздел 7.2 ───────────────────────
@@ -60,7 +60,7 @@ _WSREP_STATUS_VARS = (
 _WSREP_IN_CLAUSE = ", ".join(f"'{v}'" for v in _WSREP_STATUS_VARS)
 
 
-# ── Public lifecycle API ──────────────────────────────────────────────────────
+# ── Public lifecycle API ────────────────────────────────────────────────────────
 
 def start_poller() -> None:
     """
@@ -87,7 +87,7 @@ def stop_poller() -> None:
     _poller_task = None
 
 
-# ── Main polling loop ─────────────────────────────────────────────────────────
+# ── Main polling loop ───────────────────────────────────────────────────────────
 
 async def _poll_loop() -> None:
     """Infinite loop: poll all clusters, sleep interval, repeat."""
@@ -115,7 +115,7 @@ def _get_polling_interval() -> int:
     return int(row[0]) if row else 5
 
 
-# ── Cluster-level dispatch ────────────────────────────────────────────────────
+# ── Cluster-level dispatch ────────────────────────────────────────────────────────
 
 async def _poll_all_clusters() -> None:
     """
@@ -194,7 +194,7 @@ async def _poll_cluster(
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# ── Node polling ──────────────────────────────────────────────────────────────
+# ── Node polling ───────────────────────────────────────────────────────────────
 
 async def _poll_node(cluster_id: int, node: dict) -> None:
     """
@@ -215,7 +215,7 @@ async def _poll_node(cluster_id: int, node: dict) -> None:
     new_state = await asyncio.to_thread(_collect_node_state, node, previous)
     live_node_states[cluster_id][node_id] = new_state
 
-    # ── Change detection → WS broadcast + event log ──────────────────────────
+    # ── Change detection → WS broadcast + event log ───────────────────────────
     state_changed = (
             new_state.wsrep_local_state_comment != prev_state_comment
             or new_state.ssh_ok != prev_ssh_ok
@@ -257,7 +257,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
     )
     new_state.last_check_ts = datetime.now(timezone.utc)
 
-    # ── Step 1: SSH ───────────────────────────────────────────────────────────
+    # ── Step 1: SSH ───────────────────────────────────────────────────────────────
     ssh_client = SSHClient(
         host=node["host"],
         port=int(node.get("ssh_port") or 22),
@@ -275,7 +275,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         _fill_wsrep_defaults(new_state)
         return new_state
 
-    # ── Step 2: DB ────────────────────────────────────────────────────────────
+    # ── Step 2: DB ──────────────────────────────────────────────────────────────
     db_client = DBClient(
         host=node["host"],
         port=int(node.get("port") or 3306),
@@ -294,7 +294,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         ssh_client.close()
         return new_state
 
-    # ── Step 3: wsrep status ──────────────────────────────────────────────────
+    # ── Step 3: wsrep status ────────────────────────────────────────────────────
     try:
         status_rows = db_client.query(
             f"SHOW GLOBAL STATUS WHERE Variable_name IN ({_WSREP_IN_CLAUSE})"
@@ -315,7 +315,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         db_client.close()
         ssh_client.close()
 
-    # ── Step 4: maintenance_drift ─────────────────────────────────────────────
+    # ── Step 4: maintenance_drift ────────────────────────────────────────────────
     # Node is marked maintenance=True in DB but MariaDB is NOT read-only → drift
     node_maintenance = bool(node.get("maintenance", False))
     if node_maintenance and not new_state.readonly:
@@ -323,7 +323,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
     else:
         new_state.maintenance_drift = False
 
-    # ── Step 5: ring buffers ──────────────────────────────────────────────────
+    # ── Step 5: ring buffers ────────────────────────────────────────────────────
     new_state.flow_control_history.append(new_state.wsrep_flow_control_paused)
     new_state.recv_queue_history.append(new_state.wsrep_local_recv_queue)
 
@@ -340,7 +340,6 @@ def _parse_status_rows(rows: list[dict]) -> dict[str, str]:
     """
     result: dict[str, str] = {}
     for row in rows:
-        # Normalise key casing from pymysql DictCursor
         normalised = {k.lower(): v for k, v in row.items()}
         name = normalised.get("variable_name", "")
         value = normalised.get("value", "")
@@ -379,7 +378,6 @@ def _apply_wsrep_status(state: LiveNodeState, status_map: dict[str, str]) -> Non
     except ValueError:
         state.wsrep_flow_control_paused = 0.0
 
-    # If Galera is not installed, wsrep_local_state_comment will be empty string
     if not state.wsrep_local_state_comment:
         state.wsrep_local_state_comment = "OFFLINE"
 
@@ -397,7 +395,7 @@ def _fill_wsrep_defaults(state: LiveNodeState) -> None:
     state.readonly                    = False
 
 
-# ── Arbitrator polling ────────────────────────────────────────────────────────
+# ── Arbitrator polling ───────────────────────────────────────────────────────────
 
 async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
     """
@@ -415,7 +413,6 @@ async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
     new_state = await asyncio.to_thread(_collect_arbitrator_state, arb)
     live_arbitrator_states[cluster_id][arb_id] = new_state
 
-    # ── Change detection → WS broadcast ──────────────────────────────────────
     state_changed = (
             new_state.ssh_ok != prev_ssh_ok
             or new_state.garbd_running != prev_garbd_running
@@ -456,7 +453,7 @@ def _collect_arbitrator_state(arb: dict) -> LiveArbitratorState:
     return state
 
 
-# ── WebSocket broadcast helpers ───────────────────────────────────────────────
+# ── WebSocket broadcast helpers ────────────────────────────────────────────────────
 
 async def _broadcast_node_state_changed(
         cluster_id: int,
@@ -508,7 +505,7 @@ async def _broadcast_arbitrator_state_changed(
     await ws_manager.broadcast(cluster_id, event)
 
 
-# ── Event log writer ──────────────────────────────────────────────────────────
+# ── Event log writer ────────────────────────────────────────────────────────────
 
 def _write_event_log(
         *,
@@ -521,6 +518,14 @@ def _write_event_log(
     Write a single row to event_logs table synchronously.
     Per ТЗ раздел 11: all SSH/DB/system events are logged.
 
+    Column mapping (models.py):
+      ts          — DateTime, NOT NULL  (was wrongly 'created_at' in old version)
+      level       — Text, NOT NULL      (was missing in old version)
+      source      — Text, NOT NULL
+      message     — Text, NOT NULL
+      cluster_id  — FK, nullable
+      node_id     — FK, nullable
+
     Called via asyncio.to_thread() — do not call from async context directly.
     """
     try:
@@ -529,17 +534,18 @@ def _write_event_log(
                 text(
                     """
                     INSERT INTO event_logs
-                        (cluster_id, node_id, source, message, created_at)
+                        (ts, level, source, message, cluster_id, node_id)
                     VALUES
-                        (:cluster_id, :node_id, :source, :message, :created_at)
+                        (:ts, :level, :source, :message, :cluster_id, :node_id)
                     """
                 ),
                 {
-                    "cluster_id": cluster_id,
-                    "node_id":    node_id,
+                    "ts":         datetime.now(timezone.utc).isoformat(),
+                    "level":      "INFO",
                     "source":     source,
                     "message":    message,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "cluster_id": cluster_id,
+                    "node_id":    node_id,
                 },
             )
     except Exception as exc:
