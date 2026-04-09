@@ -1,20 +1,24 @@
 # Galera Orchestrator v2
 
-Self-hosted management panel for MariaDB Galera clusters.
-Monitors node state in real-time, executes recovery/maintenance operations,
+Self-hosted management panel for **MariaDB Galera** clusters.  
+Monitors node state in real-time, runs recovery/maintenance operations,
 and provides diagnostics — all from a single Docker container.
+
+---
 
 ## Requirements
 
-| Dependency | Version |
-|---|---|
-| Docker | 24+ |
-| Docker Compose | v2 (plugin) |
-| SSH key | RSA or Ed25519, passwordless, with access to all managed nodes |
+| Dependency        | Version   |
+|-------------------|-----------|
+| Docker            | 24+       |
+| Docker Compose    | v2 plugin |
+| SSH key           | RSA / Ed25519, passwordless, access to all nodes |
+
+---
 
 ## Quick Start
 
-### 1. Clone and configure
+### 1 — Clone and configure
 
 ```bash
 git clone https://github.com/your-org/galera-orchestrator-v2.git
@@ -22,138 +26,174 @@ cd galera-orchestrator-v2
 cp .env.example .env
 ```
 
-Edit `.env` — set at minimum:
+Edit `.env`:
 
 ```env
 ADMIN_PASSWORD=your-strong-password
-JWT_SECRET_KEY=<random 32+ char string>
-FERNET_SECRET_KEY=<output of: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
-SSH_KEY_PATH=~/.ssh/id_rsa
+
+# openssl rand -hex 32
+JWT_SECRET_KEY=<random 32+ chars>
+
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FERNET_SECRET_KEY=<fernet key>
+
+SSH_KEY_HOST_PATH=~/.ssh/id_rsa
 ```
 
-
-### 2. Start
+### 2 — Start
 
 ```bash
 docker compose up -d
 ```
 
-The panel is available at **http://localhost:8000**.
-Default login: `admin` / the password you set in `.env`.
+Panel: **http://localhost:8000**  
+Default login: `admin` / password from `.env`.
 
-### 3. Stop
+### 3 — Stop (data preserved)
 
 ```bash
 docker compose down
 ```
 
-Data is preserved in the `orchestrator-data` Docker volume.
-
 ---
 
-## Configuration
+## Configuration Reference
 
-All configuration is via environment variables (`.env` file).
-
-
-| Variable | Default | Description |
-| :-- | :-- | :-- |
-| `DATABASE_URL` | `sqlite:////data/orchestrator.db` | SQLite path inside container |
-| `ADMIN_USERNAME` | `admin` | Admin login |
-| `ADMIN_PASSWORD` | `changeme` | Admin password — **change this** |
-| `JWT_SECRET_KEY` | `change-me-jwt-secret` | JWT signing secret — **change this** |
-| `FERNET_SECRET_KEY` | `change-me-fernet-secret` | Fernet key for node password encryption — **change this** |
-| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | Host path to SSH private key (bind-mounted read-only) |
-| `HOST_PORT` | `8000` | Host port to expose the panel on |
-
-### Generating a Fernet key
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
+| Variable              | Default                              | Required | Description |
+|-----------------------|--------------------------------------|----------|-------------|
+| `ADMIN_USERNAME`      | `admin`                              | —        | Admin login |
+| `ADMIN_PASSWORD`      | `changeme`                           | ✅ change | Admin password |
+| `JWT_SECRET_KEY`      | `change-me-jwt-secret-min-32-chars`  | ✅ change | JWT signing secret (min 32 chars) |
+| `FERNET_SECRET_KEY`   | `change-me-fernet-key`               | ✅ change | Fernet key for node password encryption |
+| `DATABASE_URL`        | `sqlite:////data/orchestrator.db`    | —        | SQLite path inside container |
+| `SSH_KEY_HOST_PATH`   | `~/.ssh/id_rsa`                      | ✅        | Host path to SSH private key |
+| `HOST_PORT`           | `8000`                               | —        | Host port to expose |
+| `SSH_CONNECT_TIMEOUT` | `5`                                  | —        | SSH connect timeout (sec) |
+| `SSH_COMMAND_TIMEOUT` | `10`                                 | —        | SSH command timeout (sec) |
+| `DB_CONNECT_TIMEOUT`  | `3`                                  | —        | MariaDB connect timeout (sec) |
 
 ---
 
 ## SSH Key
 
-The SSH private key is mounted **read-only** into the container at `/root/.ssh/id_rsa`.
-The key must be passwordless and have access to all nodes and arbitrators
-configured in the panel.
+One global SSH key is used for all nodes and arbitrators.  
+It is **bind-mounted read-only** into the container — never stored in the database.
 
 ```bash
-# Verify key works for a node
+# Verify the key reaches a node
 ssh -i ~/.ssh/id_rsa -p 22 root@<node-host> "hostname"
 ```
 
-The key is never stored in the database or transmitted over the API.
+The key must be passwordless. If your key is at a non-standard path:
+
+```env
+# .env
+SSH_KEY_HOST_PATH=/home/user/.ssh/galera_key
+```
 
 ---
 
 ## Data Persistence
 
-SQLite database is stored at `/data/orchestrator.db` inside the container,
-backed by the `orchestrator-data` Docker named volume.
+SQLite lives at `/data/orchestrator.db` inside the container, backed by the
+`orchestrator-data` Docker named volume. Data survives container restarts
+and image upgrades.
+
+### Backup
 
 ```bash
-# Backup the database
 docker run --rm \
   -v orchestrator-data:/data \
-  -v $(pwd):/backup \
-  alpine tar czf /backup/orchestrator-db-$(date +%Y%m%d).tar.gz /data
-
-# Restore
-docker run --rm \
-  -v orchestrator-data:/data \
-  -v $(pwd):/backup \
-  alpine tar xzf /backup/orchestrator-db-YYYYMMDD.tar.gz -C /
+  -v "$(pwd)":/backup \
+  alpine \
+  tar czf /backup/orchestrator-db-$(date +%Y%m%d-%H%M%S).tar.gz /data
 ```
 
+### Restore
+
+```bash
+docker compose down
+docker run --rm \
+  -v orchestrator-data:/data \
+  -v "$(pwd)":/backup \
+  alpine \
+  sh -c "cd / && tar xzf /backup/orchestrator-db-YYYYMMDD-HHMMSS.tar.gz"
+docker compose up -d
+```
+
+### Upgrade image (data preserved)
+
+```bash
+docker compose pull        # or: docker compose build
+docker compose up -d       # recreates container, volume untouched
+```
+
+---
+
+## Ports
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8000 | HTTP     | Web panel + REST API + WebSocket |
+
+To expose on port 80: set `HOST_PORT=80` in `.env`.
+
+---
+
+## Running E2E Tests
+
+```bash
+# Install test deps
+pip install pytest httpx pytest-asyncio websockets
+
+# Run against local container
+E2E_BASE_URL=http://localhost:8000 \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD=your-password \
+pytest tests/e2e/ -v
+
+# Run specific path group
+pytest tests/e2e/ -v -k "TestAuth"
+pytest tests/e2e/ -v -k "TestWebSocket"
+```
+
+Tests cover (without real Galera nodes):
+- SPA fallback + OpenAPI schema
+- Auth: login, logout, httpOnly cookie, wrong password
+- All cluster-scoped endpoint contracts + status structure
+- Settings CRUD (cluster, datacenter, node validation)
+- Node action schema + cluster lock 409
+- Recovery / Maintenance endpoint contracts
+- Diagnostics endpoint contracts
+- WebSocket auth + event structure
+- Security headers + CORS
 
 ---
 
 ## Development
 
-### Backend (FastAPI)
+### Backend
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Run with auto-reload
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-
-### Frontend (Vue 3 + Vite)
+### Frontend
 
 ```bash
 cd frontend
 npm install
-
-# Dev server with proxy to backend on :8000
-npm run dev
+npm run dev        # Vite dev server on :5173, proxies /api → :8000
 ```
 
-Vite proxies `/api` and `/ws` to `localhost:8000` automatically.
-
-### Build frontend into backend/static/
-
-```bash
-cd frontend
-npm run build
-# Output: ../backend/static/
-```
-
-
-### Run with Docker (full stack)
+### Full stack (Docker)
 
 ```bash
 docker compose up --build
 ```
-
 
 ---
 
@@ -162,29 +202,43 @@ docker compose up --build
 ```
 galera-orchestrator-v2/
 ├── backend/
-│   ├── main.py               # FastAPI app, SPA fallback, startup
-│   ├── config.py             # Settings from env vars
-│   ├── database.py           # SQLAlchemy engine, init_db, get_connection
-│   ├── models.py             # SQLAlchemy Core table definitions
-│   ├── auth.py               # JWT helpers, password verification
-│   ├── dependencies.py       # FastAPI Depends helpers
-│   ├── requirements.txt
-│   ├── routers/
-│   │   └── auth.py           # POST /api/auth/login, logout, GET /me
-│   └── static/               # Built frontend (gitignored, generated by Vite)
+│ ├── main.py # FastAPI app, SPA fallback, lifespan
+│ ├── config.py # Settings (pydantic-settings from env)
+│ ├── database.py # SQLAlchemy Core engine, init_db
+│ ├── models.py # Table definitions (8 tables)
+│ ├── auth.py # JWT helpers, Fernet encrypt/decrypt
+│ ├── ssh_client.py # paramiko wrapper, global key
+│ ├── db_client.py # pymysql wrapper, Fernet decrypt
+│ ├── polling.py # asyncio background polling loop
+│ ├── websocket.py # WS manager, broadcast, auth
+│ ├── dependencies.py # FastAPI Depends (get_current_user, etc.)
+│ ├── requirements.txt
+│ └── routers/
+│ ├── auth.py # POST /login, /logout, GET /me
+│ ├── clusters.py # GET /clusters, /contours, /status, /log
+│ ├── nodes.py # GET/PATCH nodes, actions, test-connection
+│ ├── arbitrators.py # GET arbitrators, test-connection, log
+│ ├── recovery.py # GET/POST recovery/*
+│ ├── maintenance.py # GET/POST maintenance/*
+│ ├── diagnostics.py # GET/POST diagnostics/*
+│ └── settings.py # CRUD clusters/nodes/arbitrators/dc/system
 ├── frontend/
-│   ├── src/
-│   │   ├── main.js
-│   │   ├── App.vue
-│   │   ├── router/index.js   # Vue Router, navigation guard
-│   │   ├── stores/           # Pinia: auth, cluster, ws
-│   │   ├── api/              # axios client, auth API
-│   │   ├── pages/            # LoginPage, PlaceholderPage, NotFoundPage
-│   │   ├── layouts/          # AppLayout (header + sidebar + footer)
-│   │   └── components/       # AppHeader, AppSidebar
-│   ├── index.html
-│   ├── vite.config.js
-│   └── package.json
+│ ├── src/
+│ │ ├── main.ts
+│ │ ├── App.vue
+│ │ ├── router/index.ts
+│ │ ├── stores/ # auth, ws, cluster
+│ │ ├── api/ # axios client + typed API modules
+│ │ ├── data/docs.ts # static docs content (no API)
+│ │ ├── pages/ # 9 page components
+│ │ ├── layouts/
+│ │ └── components/ # feature components by page
+│ ├── index.html
+│ ├── vite.config.ts
+│ └── package.json
+├── tests/
+│ └── e2e/
+│ └── test_critical_paths.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
@@ -195,27 +249,39 @@ galera-orchestrator-v2/
 
 ---
 
-## Acceptance Criteria (Phase 0)
+## Security Notes
 
-After `docker compose up --build`:
-
-
-| Check | Expected |
-| :-- | :-- |
-| `curl http://localhost:8000/` | `200` + `index.html` |
-| `curl http://localhost:8000/recovery` | `200` + `index.html` |
-| `curl http://localhost:8000/api/nonexistent` | `404` + JSON `{"detail": "Not found: ..."}` |
-| `curl http://localhost:8000/openapi.json` | `200` + OpenAPI schema JSON |
-| `curl http://localhost:8000/api/auth/me` | `401` + JSON |
-| `curl -X POST http://localhost:8000/api/auth/login -d '{"username":"admin","password":"changeme"}'` | `200` + cookie |
-
+| Concern | Mitigation |
+|---------|-----------|
+| Admin password | Change `ADMIN_PASSWORD` before first deploy |
+| JWT secret | Generate random 32+ char string, store in `.env` only |
+| Fernet key rotation | Changing `FERNET_SECRET_KEY` invalidates all stored node passwords — re-enter them in Settings |
+| SSH key | Mounted `:ro` — container cannot modify or exfiltrate |
+| Credentials in JS | JWT lives only in httpOnly cookie — inaccessible to JavaScript |
+| No mock mode | All SSH/SQL actions are real — use a test cluster for experiments |
 
 ---
 
-## Security Notes
+## Troubleshooting
 
-- Change `ADMIN_PASSWORD`, `JWT_SECRET_KEY`, and `FERNET_SECRET_KEY` before any non-local deployment
-- The SSH key bind mount is **read-only** (`:ro`) — the container cannot modify or exfiltrate the key
-- JWT tokens live only in `httpOnly` cookies — inaccessible to JavaScript
-- Node database passwords are encrypted at rest with Fernet symmetric encryption
-- No mock mode — all data is real; the panel executes real SSH and SQL commands
+**Panel unreachable after start**
+```bash
+docker compose logs orchestrator
+docker compose ps
+```
+
+**`401` after login (cookie not sent)**  
+Check that you access the panel on the same host/port as configured.
+httpOnly cookies are not sent cross-origin.
+
+**Node shows `OFFLINE` immediately**  
+Verify SSH key access:
+```bash
+ssh -i ~/.ssh/id_rsa -p <ssh_port> <ssh_user>@<node_host> "hostname"
+```
+
+**`FERNET_SECRET_KEY` changed — node passwords broken**  
+Go to Settings → Nodes → re-enter `db_password` for affected nodes.
+
+**WebSocket `Disconnected` in footer**  
+Check container is running, no firewall blocks port 8000 for WS upgrade.
