@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import sys
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Корень проекта = родитель папки backend/
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),      # абсолютный путь, не зависит от CWD
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
