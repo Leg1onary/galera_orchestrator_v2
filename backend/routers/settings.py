@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 
@@ -32,9 +32,9 @@ router = APIRouter(
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # DATACENTERS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 class DatacenterCreate(BaseModel):
     name: str
@@ -84,9 +84,8 @@ async def update_datacenter(dc_id: int, body: DatacenterCreate) -> dict:
 
 
 @router.delete("/datacenters/{dc_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_datacenter(dc_id: int) -> None:
+async def delete_datacenter(dc_id: int) -> Response:
     _get_datacenter_or_404(dc_id)
-    # Check for references in nodes/arbitrators
     with engine.connect() as conn:
         usage = conn.execute(
             text(
@@ -104,6 +103,7 @@ async def delete_datacenter(dc_id: int) -> None:
         )
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM datacenters WHERE id = :id"), {"id": dc_id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_datacenter_or_404(dc_id: int) -> dict:
@@ -129,9 +129,9 @@ def _assert_datacenter_name_unique(name: str, exclude_id: int | None = None) -> 
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # CLUSTERS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 class ClusterCreate(BaseModel):
     name: str
@@ -189,12 +189,12 @@ async def update_cluster(cluster_id: int, body: ClusterCreate) -> dict:
 
 
 @router.delete("/clusters/{cluster_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_cluster(cluster_id: int) -> None:
+async def delete_cluster(cluster_id: int) -> Response:
     _get_cluster_or_404(cluster_id)
-    # CASCADE handles nodes + arbitrators + cluster_operations + event_logs
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM clusters WHERE id = :id"), {"id": cluster_id})
     write_event(source="ui", message=f"Cluster id={cluster_id} deleted")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_cluster_or_404(cluster_id: int) -> dict:
@@ -220,9 +220,9 @@ def _assert_contour_exists(contour_id: int) -> None:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # NODES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 class NodeCreate(BaseModel):
     name: str
@@ -231,7 +231,7 @@ class NodeCreate(BaseModel):
     ssh_port: int = 22
     ssh_user: str = "root"
     db_user: str | None = None
-    db_password: str | None = None   # plaintext, encrypted before storage
+    db_password: str | None = None
     datacenter_id: int | None = None
     enabled: bool = True
 
@@ -266,7 +266,7 @@ async def list_nodes(cluster_id: int) -> list[dict]:
                        n.db_user, n.enabled, n.maintenance, n.datacenter_id,
                        d.name AS datacenter_name
                 FROM nodes n
-                         LEFT JOIN datacenters d ON d.id = n.datacenter_id
+                LEFT JOIN datacenters d ON d.id = n.datacenter_id
                 WHERE n.cluster_id = :cid
                 ORDER BY n.name
                 """
@@ -290,8 +290,8 @@ async def create_node(cluster_id: int, body: NodeCreate) -> dict:
             text(
                 """
                 INSERT INTO nodes
-                (name, host, port, ssh_port, ssh_user, db_user, db_password,
-                 cluster_id, datacenter_id, enabled, maintenance)
+                    (name, host, port, ssh_port, ssh_user, db_user, db_password,
+                     cluster_id, datacenter_id, enabled, maintenance)
                 VALUES
                     (:name, :host, :port, :ssh_port, :ssh_user, :db_user, :db_password,
                      :cluster_id, :datacenter_id, :enabled, 0)
@@ -328,20 +328,19 @@ async def update_node(cluster_id: int, node_id: int, body: NodeUpdate) -> dict:
     if body.datacenter_id:
         _get_datacenter_or_404(body.datacenter_id)
 
-    # Only re-encrypt if password was explicitly provided in the request
     if body.db_password is not None:
         encrypted_pw = encrypt_password(body.db_password) if body.db_password else None
     else:
-        encrypted_pw = node["db_password"]  # keep existing encrypted value
+        encrypted_pw = node["db_password"]
 
     with engine.begin() as conn:
         conn.execute(
             text(
                 """
                 UPDATE nodes SET
-                                 name=:name, host=:host, port=:port, ssh_port=:ssh_port,
-                                 ssh_user=:ssh_user, db_user=:db_user, db_password=:db_password,
-                                 datacenter_id=:datacenter_id, enabled=:enabled
+                    name=:name, host=:host, port=:port, ssh_port=:ssh_port,
+                    ssh_user=:ssh_user, db_user=:db_user, db_password=:db_password,
+                    datacenter_id=:datacenter_id, enabled=:enabled
                 WHERE id=:id AND cluster_id=:cluster_id
                 """
             ),
@@ -367,7 +366,7 @@ async def update_node(cluster_id: int, node_id: int, body: NodeUpdate) -> dict:
 
 
 @router.delete("/clusters/{cluster_id}/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_node(cluster_id: int, node_id: int) -> None:
+async def delete_node(cluster_id: int, node_id: int) -> Response:
     _get_node_or_404(cluster_id, node_id)
     with engine.begin() as conn:
         conn.execute(
@@ -378,6 +377,7 @@ async def delete_node(cluster_id: int, node_id: int) -> None:
         cluster_id=cluster_id, node_id=None, source="ui",
         message=f"Node id={node_id} deleted from cluster {cluster_id}",
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_node_or_404(cluster_id: int, node_id: int) -> dict:
@@ -408,9 +408,9 @@ def _assert_node_host_port_unique(
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # ARBITRATORS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 class ArbitratorCreate(BaseModel):
     name: str
@@ -438,7 +438,7 @@ async def list_arbitrators(cluster_id: int) -> list[dict]:
                 SELECT a.id, a.name, a.host, a.ssh_port, a.ssh_user,
                        a.enabled, a.datacenter_id, d.name AS datacenter_name
                 FROM arbitrators a
-                         LEFT JOIN datacenters d ON d.id = a.datacenter_id
+                LEFT JOIN datacenters d ON d.id = a.datacenter_id
                 WHERE a.cluster_id=:cid ORDER BY a.name
                 """
             ),
@@ -489,8 +489,8 @@ async def update_arbitrator(cluster_id: int, arb_id: int, body: ArbitratorCreate
             text(
                 """
                 UPDATE arbitrators SET
-                                       name=:name, host=:host, ssh_port=:ssh_port, ssh_user=:ssh_user,
-                                       datacenter_id=:datacenter_id, enabled=:enabled
+                    name=:name, host=:host, ssh_port=:ssh_port, ssh_user=:ssh_user,
+                    datacenter_id=:datacenter_id, enabled=:enabled
                 WHERE id=:id AND cluster_id=:cid
                 """
             ),
@@ -513,7 +513,7 @@ async def update_arbitrator(cluster_id: int, arb_id: int, body: ArbitratorCreate
 
 
 @router.delete("/clusters/{cluster_id}/arbitrators/{arb_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_arbitrator(cluster_id: int, arb_id: int) -> None:
+async def delete_arbitrator(cluster_id: int, arb_id: int) -> Response:
     _get_arbitrator_or_404(cluster_id, arb_id)
     with engine.begin() as conn:
         conn.execute(
@@ -524,6 +524,7 @@ async def delete_arbitrator(cluster_id: int, arb_id: int) -> None:
         cluster_id=cluster_id, source="ui",
         message=f"Arbitrator id={arb_id} deleted from cluster {cluster_id}",
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_arbitrator_or_404(cluster_id: int, arb_id: int) -> dict:
@@ -537,9 +538,9 @@ def _get_arbitrator_or_404(cluster_id: int, arb_id: int) -> dict:
     return dict(row)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 # SYSTEM SETTINGS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════════
 
 class SystemSettingsUpdate(BaseModel):
     polling_interval_sec: int = 5
@@ -582,10 +583,10 @@ async def update_system_settings(body: SystemSettingsUpdate) -> dict:
             text(
                 """
                 UPDATE system_settings SET
-                                           polling_interval_sec = :interval,
-                                           event_log_limit      = :log_limit,
-                                           timezone             = :tz,
-                                           updated_at           = :now
+                    polling_interval_sec = :interval,
+                    event_log_limit      = :log_limit,
+                    timezone             = :tz,
+                    updated_at           = :now
                 WHERE id = 1
                 """
             ),
