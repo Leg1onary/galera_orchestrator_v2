@@ -59,6 +59,7 @@ app.include_router(clusters_router)   # prefix="/api/clusters" внутри
 app.include_router(nodes_router)      # prefix="/api/clusters" внутри
 app.include_router(settings_router)   # prefix="/api/settings" внутри
 app.include_router(ws_router)         # /ws/...
+app.include_router(diagnostics_router)
 
 # ── Static assets ─────────────────────────────────────────────────────────────────────────
 
