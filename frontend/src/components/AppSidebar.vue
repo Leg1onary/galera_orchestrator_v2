@@ -1,102 +1,124 @@
+<!-- ТЗ 6.3: навигация + активный маршрут + collapse -->
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { useOperationsStore } from '@/stores/operations'
+import { useClusterStore } from '@/stores/cluster'
+
+const route = useRoute()
+const operationsStore = useOperationsStore()
+const clusterStore = useClusterStore()
+
+const collapsed = ref(false)
+
+const navItems = [
+  { name: 'overview',     label: 'Overview',     icon: 'pi pi-home' },
+  { name: 'nodes',        label: 'Nodes',        icon: 'pi pi-server' },
+  { name: 'topology',     label: 'Topology',     icon: 'pi pi-sitemap' },
+  { name: 'recovery',     label: 'Recovery',     icon: 'pi pi-replay' },
+  { name: 'maintenance',  label: 'Maintenance',  icon: 'pi pi-wrench' },
+  { name: 'diagnostics',  label: 'Diagnostics',  icon: 'pi pi-chart-bar' },
+  { name: 'settings',     label: 'Settings',     icon: 'pi pi-cog' },
+  { name: 'docs',         label: 'Docs',         icon: 'pi pi-book' },
+]
+
+// Показываем spinner на recovery/maintenance когда есть активная операция
+const hasActiveOp = computed(() =>
+    clusterStore.selectedClusterId
+        ? operationsStore.isLocked(clusterStore.selectedClusterId)
+        : false
+)
+
+function isActive(name: string) {
+  return route.name === name
+}
+</script>
+
 <template>
-  <nav class="sidebar" aria-label="Main navigation">
-    <ul class="sidebar__nav" role="list">
-      <li v-for="item in navItems" :key="item.name" class="sidebar__item">
-        <RouterLink
-            :to="item.to"
-            class="sidebar__link"
-            :aria-label="item.label"
-            :title="item.label"
+  <nav :class="['app-sidebar', { collapsed }]">
+    <button class="collapse-btn" @click="collapsed = !collapsed" :title="collapsed ? 'Expand' : 'Collapse'">
+      <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'" />
+    </button>
+
+    <ul class="nav-list">
+      <li v-for="item in navItems" :key="item.name">
+        <router-link
+            :to="{ name: item.name }"
+            :class="['nav-item', { active: isActive(item.name) }]"
+            :title="collapsed ? item.label : undefined"
         >
-          <span class="sidebar__icon" aria-hidden="true">{{ item.icon }}</span>
-          <span class="sidebar__label">{{ item.label }}</span>
-        </RouterLink>
+          <i :class="item.icon" />
+          <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+          <!-- Индикатор активной операции на recovery/maintenance -->
+          <span
+              v-if="!collapsed && hasActiveOp && ['recovery', 'maintenance'].includes(item.name)"
+              class="op-indicator"
+          />
+        </router-link>
       </li>
     </ul>
   </nav>
 </template>
 
-<script setup>
-/**
- * AppSidebar — navigation links for all 9 routes per ТЗ section 6.3.
- *
- * Phase 0: static links, no active state beyond router-link-active.
- * Phase 5: add cluster-status colour indicators on Recovery/Maintenance links.
- */
-
-const navItems = [
-  { name: 'overview',     to: '/',             icon: '⬡',  label: 'Overview' },
-  { name: 'nodes',        to: '/nodes',        icon: '◈',  label: 'Nodes' },
-  { name: 'topology',     to: '/topology',     icon: '⬡',  label: 'Topology' },
-  { name: 'recovery',     to: '/recovery',     icon: '↺',  label: 'Recovery' },
-  { name: 'maintenance',  to: '/maintenance',  icon: '⚙',  label: 'Maintenance' },
-  { name: 'diagnostics',  to: '/diagnostics',  icon: '⬥',  label: 'Diagnostics' },
-  { name: 'settings',     to: '/settings',     icon: '≡',  label: 'Settings' },
-  { name: 'docs',         to: '/docs',         icon: '?',  label: 'Documentation' },
-]
-</script>
-
 <style scoped>
-.sidebar {
-  width: var(--sidebar-width);
-  height: 100%;
-  background-color: var(--color-surface);
-  border-right: 1px solid var(--color-border);
-  padding: var(--space-4) 0;
-  overflow-y: auto;
-}
-
-.sidebar__nav {
-  list-style: none;
+.app-sidebar {
+  width: 220px;
+  background: var(--surface-card);
+  border-right: 1px solid var(--surface-border);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-3);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
 }
 
-.sidebar__item {
-  /* Each item is full width */
-}
+.app-sidebar.collapsed { width: 56px; }
 
-.sidebar__link {
+.collapse-btn {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  justify-content: center;
+  height: 40px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--surface-border);
+  cursor: pointer;
+  color: var(--text-color-secondary);
+  transition: color 0.15s;
+}
+.collapse-btn:hover { color: var(--primary-color); }
+
+.nav-list {
+  list-style: none;
+  padding: 0.5rem 0;
+  margin: 0;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  color: var(--text-color-secondary);
   text-decoration: none;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-  white-space: nowrap;
-  overflow: hidden;
+  font-size: 0.875rem;
+  border-radius: 6px;
+  margin: 2px 6px;
+  transition: background 0.15s, color 0.15s;
+  position: relative;
 }
+.nav-item:hover { background: var(--surface-hover); color: var(--text-color); }
+.nav-item.active { background: var(--primary-50); color: var(--primary-color); font-weight: 600; }
 
-.sidebar__link:hover {
-  background-color: var(--color-surface-2);
-  color: var(--color-text);
-}
+.nav-label { white-space: nowrap; overflow: hidden; }
 
-/* Active state — applied by Vue Router when route matches */
-.sidebar__link.router-link-active,
-.sidebar__link.router-link-exact-active {
-  background-color: var(--color-primary-dim);
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.sidebar__icon {
-  width: 20px;
-  text-align: center;
-  font-size: var(--text-base);
+.op-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yellow-400);
+  margin-left: auto;
   flex-shrink: 0;
-  /* Prevent emoji/symbol from scaling weirdly */
-  line-height: 1;
-}
-
-.sidebar__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 </style>

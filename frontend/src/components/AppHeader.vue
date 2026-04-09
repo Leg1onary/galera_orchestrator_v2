@@ -1,216 +1,154 @@
+<!-- ТЗ 6.2: лого, выбор контура, выбор кластера, статус кластера, logout -->
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { api } from '@/api/client'
+import type { Contour, Cluster } from '@/stores/cluster'
+
+const props = defineProps<{
+  username: string | null
+  contours: Contour[]
+  clusters: Cluster[]
+  selectedContourId: number | null
+  selectedClusterId: number | null
+}>()
+
+const emit = defineEmits<{
+  (e: 'select-contour', id: number): void
+  (e: 'select-cluster', id: number): void
+  (e: 'logout'): void
+}>()
+
+// Статус выбранного кластера для индикатора в хедере
+const { data: clusterStatus } = useQuery({
+  queryKey: computed(() => ['cluster', props.selectedClusterId, 'status']),
+  queryFn: () =>
+      api
+          .get(`/api/clusters/${props.selectedClusterId}/status`)
+          .then((r) => r.data),
+  enabled: computed(() => !!props.selectedClusterId),
+  refetchInterval: 10_000,
+  staleTime: 5_000,
+})
+
+const statusClass = computed(() => {
+  const s = clusterStatus.value?.status
+  if (s === 'healthy') return 'status-healthy'
+  if (s === 'degraded') return 'status-degraded'
+  if (s === 'critical') return 'status-critical'
+  return 'status-unknown'
+})
+</script>
+
 <template>
-  <header class="header">
-    <!-- Left: logo + app name -->
-    <div class="header__brand">
-      <svg
-          class="header__logo"
-          width="28"
-          height="28"
-          viewBox="0 0 40 40"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-      >
-        <rect width="40" height="40" rx="8" fill="#1e2436"/>
-        <circle cx="20" cy="10" r="4" fill="#38b2ac"/>
-        <circle cx="10" cy="28" r="4" fill="#38b2ac"/>
-        <circle cx="30" cy="28" r="4" fill="#38b2ac"/>
-        <line x1="20" y1="14" x2="10" y2="24" stroke="#38b2ac" stroke-width="1.5" stroke-opacity="0.7"/>
-        <line x1="20" y1="14" x2="30" y2="24" stroke="#38b2ac" stroke-width="1.5" stroke-opacity="0.7"/>
-        <line x1="14" y1="28" x2="26" y2="28" stroke="#38b2ac" stroke-width="1.5" stroke-opacity="0.7"/>
-      </svg>
-      <span class="header__title">Galera Orchestrator</span>
+  <header class="app-header">
+    <!-- Лого -->
+    <div class="header-logo">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">Galera Orchestrator</span>
     </div>
 
-    <!-- Centre: contour + cluster selectors — STUB Phase 5 -->
-    <div class="header__selectors">
-      <div class="selector-stub" title="Contour selector — Phase 5">
-        <span class="selector-label">Contour</span>
-        <span class="selector-value text-muted">—</span>
-      </div>
-      <span class="selector-divider" aria-hidden="true">/</span>
-      <div class="selector-stub" title="Cluster selector — Phase 5">
-        <span class="selector-label">Cluster</span>
-        <span class="selector-value text-muted">—</span>
-      </div>
-      <!-- Cluster status indicator — STUB Phase 1 -->
-      <span class="cluster-status-badge cluster-status-badge--unknown" title="Cluster status — Phase 1">
-        –
+    <!-- Выбор контура -->
+    <div class="header-selectors">
+      <Dropdown
+          :options="contours"
+          :model-value="selectedContourId"
+          option-label="name"
+          option-value="id"
+          placeholder="Контур"
+          class="selector-contour"
+          @change="(e: any) => emit('select-contour', e.value)"
+      />
+
+      <!-- Выбор кластера -->
+      <Dropdown
+          :options="clusters"
+          :model-value="selectedClusterId"
+          option-label="name"
+          option-value="id"
+          placeholder="Кластер"
+          class="selector-cluster"
+          @change="(e: any) => emit('select-cluster', e.value)"
+      />
+
+      <!-- Статус индикатор (ТЗ 6.2) -->
+      <span v-if="clusterStatus" :class="['cluster-status-badge', statusClass]">
+        {{ clusterStatus.status }}
       </span>
     </div>
 
-    <!-- Right: user info + logout -->
-    <div class="header__actions">
-      <span v-if="authStore.username" class="header__username">
-        {{ authStore.username }}
-      </span>
-      <button
-          class="btn-logout"
-          :disabled="loggingOut"
-          @click="handleLogout"
-          aria-label="Log out"
-      >
-        <span v-if="loggingOut" class="btn-spinner-sm" aria-hidden="true" />
-        <span>{{ loggingOut ? 'Logging out…' : 'Logout' }}</span>
-      </button>
+    <!-- Пользователь и logout -->
+    <div class="header-user">
+      <span class="username">{{ username }}</span>
+      <Button
+          label="Logout"
+          severity="secondary"
+          size="small"
+          text
+          @click="emit('logout')"
+      />
     </div>
   </header>
 </template>
 
-<script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth.js'
-
-const router = useRouter()
-const authStore = useAuthStore()
-const loggingOut = ref(false)
-
-async function handleLogout() {
-  loggingOut.value = true
-  try {
-    await authStore.logout()
-    await router.push({ name: 'login' })
-  } finally {
-    loggingOut.value = false
-  }
-}
-</script>
-
 <style scoped>
-.header {
+.app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  height: var(--header-height);
-  padding: 0 var(--space-6);
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+  padding: 0 1.5rem;
+  height: 56px;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-border);
+  flex-shrink: 0;
+  z-index: 100;
 }
 
-/* Brand */
-.header__brand {
+.header-logo {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  flex-shrink: 0;
-}
-
-.header__logo {
-  flex-shrink: 0;
-}
-
-.header__title {
-  font-size: var(--text-base);
+  gap: 0.5rem;
   font-weight: 600;
-  color: var(--color-text);
+  font-size: 1rem;
   white-space: nowrap;
+  color: var(--primary-color);
 }
 
-/* Selectors — centre section */
-.header__selectors {
+.logo-icon { font-size: 1.25rem; }
+
+.header-selectors {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 0.75rem;
   flex: 1;
-  justify-content: center;
-  min-width: 0;
 }
 
-.selector-stub {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  background-color: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
+.selector-contour { width: 160px; }
+.selector-cluster  { width: 200px; }
 
-.selector-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.selector-value {
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-
-.selector-divider {
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-}
-
-/* Cluster status badge */
 .cluster-status-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full, 9999px);
-  font-size: var(--text-xs);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.cluster-status-badge--unknown {
-  background-color: var(--color-surface-3);
-  color: var(--color-text-faint);
-  border: 1px solid var(--color-border);
-}
+.status-healthy  { background: #d1fae5; color: #065f46; }
+.status-degraded { background: #fef3c7; color: #92400e; }
+.status-critical { background: #fee2e2; color: #991b1b; }
+.status-unknown  { background: var(--surface-200); color: var(--text-color-secondary); }
 
-/* Actions — right section */
-.header__actions {
+.header-user {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  flex-shrink: 0;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
-.header__username {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-}
-
-.btn-logout {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background-color: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-}
-
-.btn-logout:hover:not(:disabled) {
-  border-color: var(--color-error);
-  color: #fca5a5;
-}
-
-.btn-logout:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-spinner-sm {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid rgba(255,255,255,0.3);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.username {
+  font-size: 0.875rem;
+  color: var(--text-color-secondary);
 }
 </style>

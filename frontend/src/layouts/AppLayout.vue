@@ -1,144 +1,146 @@
+<!-- ТЗ раздел 6.2–6.4: Header + Sidebar + Footer + <slot> -->
+<!-- Монтирует WS при выборе кластера, инвалидирует Vue Query при смене -->
+<script setup lang="ts">
+import { onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useAuthStore } from '@/stores/auth'
+import { useClusterStore } from '@/stores/cluster'
+import { useWsStore, onWsEvent } from '@/stores/ws'
+import { useOperationsStore } from '@/stores/operations'
+import { useEventsStore } from '@/stores/events'
+import { useSettingsStore } from '@/stores/settings'
+import AppHeader from '@/components/AppHeader.vue'
+import AppSidebar from '@/components/AppSidebar.vue'
+import AppFooter from '@/components/AppFooter.vue'
+
+const auth = useAuthStore()
+const clusterStore = useClusterStore()
+const wsStore = useWsStore()
+const operationsStore = useOperationsStore()
+const eventsStore = useEventsStore()
+const settingsStore = useSettingsStore()
+const queryClient = useQueryClient()
+const router = useRouter()
+
+// Загружаем контуры + системные настройки при монтировании layout
+onMounted(async () => {
+  await Promise.all([
+    clusterStore.loadContours(),
+    settingsStore.load(),
+  ])
+})
+
+// При смене кластера: WS переподключение + инвалидация Vue Query
+watch(
+    () => clusterStore.selectedClusterId,
+    (clusterId, prevId) => {
+      if (!clusterId) return
+
+      // Инвалидируем все cluster-scoped запросы (ТЗ 6.2)
+      queryClient.invalidateQueries({ queryKey: ['cluster', prevId] })
+      queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] })
+
+      // Переподключаем WS на новый кластер
+      wsStore.connect(clusterId)
+
+      // Загружаем event log для нового кластера
+      eventsStore.load(clusterId)
+    },
+    { immediate: true }
+)
+
+// Глобальный WS handler — роутит события в нужные stores
+onWsEvent((event) => {
+  if (!clusterStore.selectedClusterId) return
+
+  switch (event.event) {
+    case 'operation_started':
+    case 'operation_progress':
+    case 'operation_finished':
+      operationsStore.handleWsEvent(event)
+      break
+
+    case 'log_entry':
+      eventsStore.appendFromWs(event.payload as any)
+      break
+
+      // node_state_changed и arbitrator_state_changed инвалидируют status-запрос
+    case 'node_state_changed':
+    case 'arbitrator_state_changed':
+      queryClient.invalidateQueries({
+        queryKey: ['cluster', clusterStore.selectedClusterId, 'status'],
+      })
+      break
+  }
+})
+
+async function handleLogout() {
+  wsStore.disconnect()
+  await auth.logout()
+  router.push({ name: 'login' })
+}
+</script>
+
 <template>
   <div class="app-layout">
-    <!-- Fixed top header -->
-    <AppHeader class="app-layout__header" />
+    <AppHeader
+        :username="auth.username"
+        :contours="clusterStore.contours"
+        :clusters="clusterStore.clustersForContour"
+        :selected-contour-id="clusterStore.selectedContourId"
+        :selected-cluster-id="clusterStore.selectedClusterId"
+        @select-contour="clusterStore.selectContour"
+        @select-cluster="(id) => clusterStore.selectCluster(id, queryClient)"
+        @logout="handleLogout"
+    />
 
-    <div class="app-layout__body">
-      <!-- Fixed left sidebar -->
-      <AppSidebar class="app-layout__sidebar" />
+    <div class="app-body">
+      <AppSidebar />
 
-      <!-- Main content area — all page content renders here -->
-      <main class="app-layout__main" id="main-content">
-        <RouterView />
+      <main class="app-main">
+        <!-- Не рендерим контент пока кластер не выбран -->
+        <template v-if="clusterStore.selectedClusterId">
+          <router-view />
+        </template>
+        <template v-else>
+          <div class="no-cluster">
+            <p>Выберите кластер в шапке</p>
+          </div>
+        </template>
       </main>
     </div>
 
-    <!-- Footer — always visible at bottom -->
-    <footer class="app-layout__footer">
-      <span class="footer-version">
-        Galera Orchestrator v{{ appVersion }}
-      </span>
-      <span class="footer-ws-status">
-        <span
-            class="footer-ws-dot"
-            :style="{ backgroundColor: wsStore.statusColor }"
-            :aria-label="'WebSocket: ' + wsStore.statusLabel"
-            role="status"
-        />
-        <span class="footer-ws-label">{{ wsStore.statusLabel }}</span>
-      </span>
-    </footer>
+    <AppFooter :ws-status="wsStore.connectionStatus" />
   </div>
 </template>
-
-<script setup>
-import { useWsStore } from '@/stores/ws.js'
-import { useAuthStore } from '@/stores/auth.js'
-import AppHeader from '@/components/AppHeader.vue'
-import AppSidebar from '@/components/AppSidebar.vue'
-
-const wsStore = useWsStore()
-const authStore = useAuthStore()
-
-// App version shown in footer — hardcoded for Phase 0,
-// Phase 1 will read this from GET /api/settings/system or a config endpoint
-const appVersion = '2.0.0'
-</script>
 
 <style scoped>
 .app-layout {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
-  background-color: var(--color-bg);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--surface-ground);
 }
 
-/* Fixed header at top */
-.app-layout__header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--header-height);
-  z-index: 100;
-}
-
-/* Body: sidebar + main side by side, below header */
-.app-layout__body {
+.app-body {
   display: flex;
   flex: 1;
-  margin-top: var(--header-height);
-  /* Reserve space for footer */
-  margin-bottom: 36px;
+  overflow: hidden;
 }
 
-/* Fixed left sidebar */
-.app-layout__sidebar {
-  position: fixed;
-  top: var(--header-height);
-  left: 0;
-  bottom: 36px; /* footer height */
-  width: var(--sidebar-width);
-  z-index: 90;
-  overflow-y: auto;
-}
-
-/* Scrollable main content */
-.app-layout__main {
+.app-main {
   flex: 1;
-  margin-left: var(--sidebar-width);
-  padding: var(--space-6);
   overflow-y: auto;
-  min-height: calc(100dvh - var(--header-height) - 36px);
+  padding: 1.5rem;
 }
 
-/* Footer bar */
-.app-layout__footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 36px;
+.no-cluster {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-4);
-  background-color: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  z-index: 100;
-}
-
-.footer-version {
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-}
-
-.footer-ws-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.footer-ws-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  transition: background-color var(--transition-normal);
-}
-
-.footer-ws-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
-/* Responsive: collapse sidebar on narrow screens */
-@media (max-width: 768px) {
-  .app-layout__sidebar {
-    display: none;
-  }
-  .app-layout__main {
-    margin-left: 0;
-  }
+  justify-content: center;
+  height: 100%;
+  color: var(--text-color-secondary);
 }
 </style>
