@@ -1,7 +1,7 @@
 <template>
   <div class="panel-toolbar">
     <div class="toolbar-left">
-      <h2 class="toolbar-title">{{ title }}</h2>
+      <span class="toolbar-title">{{ title }}</span>
       <span v-if="fetchedAt" class="toolbar-ts">
         <i class="pi pi-clock" />
         {{ fetchedAt }}
@@ -9,10 +9,8 @@
     </div>
 
     <div class="toolbar-right">
-      <!-- slot: node select, filters, etc. -->
       <slot />
 
-      <!-- auto-refresh toggle -->
       <div class="auto-row">
         <ToggleSwitch
             :model-value="autoRefresh"
@@ -22,22 +20,20 @@
         <span class="auto-label">Auto</span>
       </div>
 
-      <!-- manual refresh -->
-      <Button
-          icon="pi pi-refresh"
-          text
-          rounded
-          size="small"
-          :loading="loading"
+      <button
+          class="toolbar-btn"
+          :class="{ 'toolbar-btn--spinning': loading }"
+          :disabled="loading"
           v-tooltip="'Refresh now'"
           @click="emit('refresh')"
-      />
+      >
+        <i class="pi pi-refresh" />
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import Button       from 'primevue/button'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 defineProps<{
@@ -48,7 +44,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  refresh:      []
+  refresh:       []
   'toggle-auto': [value: boolean]
 }>()
 </script>
@@ -58,12 +54,13 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-offset);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   gap: var(--space-4);
   flex-wrap: wrap;
+  min-height: 40px;
 }
 
 .toolbar-left {
@@ -71,12 +68,15 @@ const emit = defineEmits<{
   align-items: center;
   gap: var(--space-3);
 }
+
 .toolbar-title {
-  font-size: var(--text-base);
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--color-text);
   letter-spacing: -0.01em;
+  font-family: var(--font-mono);
 }
+
 .toolbar-ts {
   display: flex;
   align-items: center;
@@ -84,8 +84,12 @@ const emit = defineEmits<{
   font-size: var(--text-xs);
   color: var(--color-text-faint);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
-.toolbar-ts .pi { font-size: 0.65rem; }
+
+.toolbar-ts .pi {
+  font-size: 0.6rem;
+}
 
 .toolbar-right {
   display: flex;
@@ -99,9 +103,46 @@ const emit = defineEmits<{
   align-items: center;
   gap: var(--space-2);
 }
+
 .auto-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.toolbar-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--color-surface-3);
+  border-color: var(--color-border-hover);
+  color: var(--color-text);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-btn--spinning .pi {
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

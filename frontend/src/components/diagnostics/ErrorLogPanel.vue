@@ -1,7 +1,7 @@
 <template>
   <div class="diag-panel">
     <PanelToolbar
-        title="Error log"
+        title="error_log"
         :loading="isLoading"
         :fetched-at="fetchedAt"
         :auto-refresh="autoRefresh"
@@ -31,15 +31,17 @@
 
     <div v-if="error" class="error-alert">
       <i class="pi pi-exclamation-circle" />
-      {{ error.message }}
+      <span>{{ error.message }}</span>
     </div>
 
     <template v-else-if="data">
-      <!-- LEGEND -->
-      <div class="log-legend">
-        <span class="legend-item legend-item--error"><i class="pi pi-circle-fill" /> Error</span>
-        <span class="legend-item legend-item--warn"><i class="pi pi-circle-fill" /> Warning</span>
-        <span class="legend-item legend-item--note"><i class="pi pi-circle-fill" /> Note</span>
+      <div class="log-meta">
+        <div class="log-legend">
+          <span class="legend-dot legend-dot--error" /><span class="legend-label">Error</span>
+          <span class="legend-dot legend-dot--warn" /><span class="legend-label">Warning</span>
+          <span class="legend-dot legend-dot--note" /><span class="legend-label">Note</span>
+        </div>
+        <span class="log-total">{{ data.lines.length }} lines</span>
       </div>
 
       <div class="log-wrap">
@@ -52,6 +54,9 @@
             class="log-line"
             :class="lineClass(line)"
         >
+          <span class="log-gutter">
+            <span class="log-bar" />
+          </span>
           <span class="log-num">{{ data.lines.length - idx }}</span>
           <span class="log-text">{{ line }}</span>
         </div>
@@ -98,8 +103,8 @@ const fetchedAt = computed(() =>
 function lineClass(line: string): string {
   const l = line.toLowerCase()
   if (l.includes('[error]') || l.includes('[fatal]')) return 'log-line--error'
-  if (l.includes('[warning]') || l.includes('[warn]'))  return 'log-line--warn'
-  if (l.includes('[note]'))                              return 'log-line--note'
+  if (l.includes('[warning]') || l.includes('[warn]')) return 'log-line--warn'
+  if (l.includes('[note]'))                            return 'log-line--note'
   return ''
 }
 </script>
@@ -107,74 +112,125 @@ function lineClass(line: string): string {
 <style scoped>
 .diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.node-select  { width: 180px; }
-.lines-input  { width: 110px; }
+.node-select { width: 180px; }
+.lines-input { width: 110px; }
 
-/* LEGEND */
+/* META ROW */
+.log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
 .log-legend {
   display: flex;
-  gap: var(--space-4);
   align-items: center;
+  gap: var(--space-3);
 }
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+
+.legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.legend-dot--error { background: var(--color-error); }
+.legend-dot--warn  { background: var(--color-warning); }
+.legend-dot--note  { background: var(--color-primary); }
+
+.legend-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+  margin-right: var(--space-2);
 }
-.legend-item .pi { font-size: 0.5rem; }
-.legend-item--error .pi { color: var(--color-error); }
-.legend-item--warn  .pi { color: var(--color-warning); }
-.legend-item--note  .pi { color: var(--color-primary); }
 
-/* LOG */
+.log-total {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* LOG BODY */
 .log-wrap {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  max-height: 560px;
+  background: #0a0b0e;
+  max-height: 580px;
   overflow-y: auto;
 }
+
+.log-wrap::-webkit-scrollbar       { width: 4px; }
+.log-wrap::-webkit-scrollbar-track { background: transparent; }
+.log-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
 .log-line {
   display: flex;
-  gap: var(--space-3);
-  padding: 3px var(--space-4);
-  border-bottom: 1px solid var(--color-divider);
-  line-height: 1.6;
-  transition: background 100ms ease;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  line-height: 1.65;
+  transition: background 80ms ease;
 }
+
 .log-line:last-child { border-bottom: none; }
-.log-line:hover { background: var(--color-surface-dynamic); }
+.log-line:hover { background: rgba(255,255,255,0.03); }
+
+/* LEFT GUTTER with colored bar */
+.log-gutter {
+  width: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.log-bar {
+  width: 2px;
+  background: transparent;
+  margin: 3px 1px;
+  border-radius: 1px;
+  transition: background var(--transition-fast);
+}
+
+.log-line--error .log-bar { background: var(--color-error); }
+.log-line--warn  .log-bar { background: var(--color-warning); }
+.log-line--note  .log-bar { background: var(--color-primary); }
 
 .log-num {
   flex-shrink: 0;
-  width: 40px;
+  width: 44px;
+  padding: 3px var(--space-2) 3px var(--space-3);
   text-align: right;
   color: var(--color-text-faint);
   user-select: none;
   font-variant-numeric: tabular-nums;
+  border-right: 1px solid rgba(255,255,255,0.04);
+  font-size: 0.6rem;
+  opacity: 0.6;
 }
+
 .log-text {
   flex: 1;
-  color: var(--color-text-muted);
+  padding: 3px var(--space-4);
+  color: #8b949e;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.log-line--error { background: color-mix(in oklch, var(--color-error) 8%, transparent); }
-.log-line--error .log-text { color: var(--color-error); }
-.log-line--warn  { background: color-mix(in oklch, var(--color-warning) 7%, transparent); }
-.log-line--warn  .log-text { color: var(--color-warning); }
-.log-line--note  .log-text { color: var(--color-primary); }
+.log-line--error .log-text { color: #f87171; }
+.log-line--warn  .log-text { color: #fbbf24; }
+.log-line--note  .log-text { color: #7dcfad; }
 
 .log-empty {
   display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-  padding: var(--space-8);
+  padding: var(--space-10);
   color: var(--color-text-faint); font-size: var(--text-sm);
 }
 
@@ -183,19 +239,22 @@ function lineClass(line: string): string {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: color-mix(in oklch, var(--color-error) 10%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-error) 25%, transparent);
+  background: rgba(248,113,113,0.08);
+  border: 1px solid rgba(248,113,113,0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 
+/* EMPTY */
 .empty-state {
   display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
   padding: var(--space-12);
   color: var(--color-text-muted); font-size: var(--text-sm); text-align: center;
 }
+
 .empty-icon {
-  width: 48px; height: 48px; border-radius: var(--radius-full);
+  width: 44px; height: 44px; border-radius: var(--radius-full);
   display: flex; align-items: center; justify-content: center;
-  background: var(--color-surface-offset); color: var(--color-text-faint); font-size: 1.2rem;
+  background: var(--color-surface-3); border: 1px solid var(--color-border);
+  color: var(--color-text-faint); font-size: 1.1rem;
 }
 </style>

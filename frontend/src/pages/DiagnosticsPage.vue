@@ -17,12 +17,12 @@ watch(
 )
 
 const TABS = [
-  { value: 'processes',     label: 'Process list',     icon: 'pi-list' },
-  { value: 'slow-queries',  label: 'Slow queries',     icon: 'pi-clock' },
-  { value: 'galera-vars',   label: 'Galera variables',  icon: 'pi-sliders-h' },
-  { value: 'galera-status', label: 'Galera status',    icon: 'pi-chart-bar' },
-  { value: 'innodb',        label: 'InnoDB status',    icon: 'pi-database' },
-  { value: 'errorlog',      label: 'Error log',        icon: 'pi-file-edit' },
+  { value: 'processes',     label: 'Process list',    icon: 'pi-list' },
+  { value: 'slow-queries',  label: 'Slow queries',    icon: 'pi-clock' },
+  { value: 'galera-vars',   label: 'Galera variables', icon: 'pi-sliders-h' },
+  { value: 'galera-status', label: 'Galera status',   icon: 'pi-chart-bar' },
+  { value: 'innodb',        label: 'InnoDB status',   icon: 'pi-database' },
+  { value: 'errorlog',      label: 'Error log',       icon: 'pi-file-edit' },
 ]
 </script>
 
@@ -30,25 +30,25 @@ const TABS = [
   <div class="diagnostics-page anim-fade-in">
 
     <div class="pg-head">
-      <div class="pg-head-inner">
-        <div class="pg-head-icon"><i class="pi pi-search" /></div>
-        <div>
-          <h1 class="pg-title">Diagnostics</h1>
-          <p class="pg-desc">Live database and system diagnostics for all cluster nodes.</p>
-        </div>
+      <div class="pg-head-icon">
+        <i class="pi pi-search" />
+      </div>
+      <div class="pg-head-text">
+        <h1 class="pg-title">Diagnostics</h1>
+        <p class="pg-desc">Live database and system diagnostics for all cluster nodes.</p>
       </div>
     </div>
 
     <div v-if="!clusterStore.selectedClusterId" class="pg-empty">
       <div class="pg-empty-icon"><i class="pi pi-server" /></div>
-      <p>No cluster selected</p>
+      <span class="pg-empty-label">No cluster selected</span>
     </div>
 
-    <Tabs v-else v-model:value="activeTab" lazy>
+    <Tabs v-else v-model:value="activeTab" lazy class="diag-tabs">
       <TabList class="diag-tablist">
         <Tab v-for="t in TABS" :key="t.value" :value="t.value" class="diag-tab">
-          <i :class="'pi ' + t.icon" class="tab-icon" />
-          {{ t.label }}
+          <i :class="['pi', t.icon]" class="tab-icon" />
+          <span>{{ t.label }}</span>
         </Tab>
       </TabList>
 
@@ -83,70 +83,119 @@ const TABS = [
   gap: var(--space-5);
 }
 
-/* PAGE HEADER */
+/* ── PAGE HEADER ── */
 .pg-head {
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-}
-.pg-head-inner {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
+
 .pg-head-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in oklch, var(--color-primary) 12%, transparent);
+  background: var(--color-primary-dim);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: var(--radius-md);
   color: var(--color-primary);
-  font-size: 1rem;
-  flex-shrink: 0;
+  font-size: 0.875rem;
 }
+
 .pg-title {
   font-size: var(--text-xl);
   font-weight: 700;
   color: var(--color-text);
   letter-spacing: -0.02em;
-}
-.pg-desc {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  margin-top: 2px;
+  line-height: 1.2;
 }
 
-/* EMPTY */
+.pg-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+}
+
+/* ── EMPTY ── */
 .pg-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  padding: var(--space-16);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  padding: var(--space-12) var(--space-8);
 }
+
 .pg-empty-icon {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-surface-offset);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
   color: var(--color-text-faint);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
 }
 
-/* TABS */
+.pg-empty-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ── TABS ── */
+.diag-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .diag-tablist {
-  border-bottom: 1px solid var(--color-border);
   gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
 }
-.diag-tab { gap: var(--space-2); }
-.tab-icon { font-size: 0.78rem; }
 
-:deep(.diag-panels) { padding: var(--space-5) 0 0; }
+.diag-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  color: var(--color-text-muted);
+  border: 1px solid transparent;
+  border-bottom: none;
+  transition: color var(--transition-normal), background var(--transition-normal);
+  margin-bottom: -1px;
+}
+
+.diag-tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+
+:deep(.p-tab[data-p-active='true'].diag-tab) {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-bottom-color: var(--color-surface);
+}
+
+.tab-icon {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+:deep(.diag-panels) {
+  padding: var(--space-5) 0 0;
+  background: transparent;
+}
 </style>

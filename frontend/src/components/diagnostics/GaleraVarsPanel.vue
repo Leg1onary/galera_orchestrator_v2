@@ -1,7 +1,7 @@
 <template>
   <div class="diag-panel">
     <PanelToolbar
-        title="Galera variables"
+        title="galera_variables"
         :loading="isLoading"
         :fetched-at="fetchedAt"
         :auto-refresh="autoRefresh"
@@ -11,11 +11,10 @@
 
     <div v-if="error" class="error-alert">
       <i class="pi pi-exclamation-circle" />
-      {{ error.message }}
+      <span>{{ error.message }}</span>
     </div>
 
     <template v-else-if="data && data.length">
-      <!-- SEARCH -->
       <div class="search-wrap">
         <InputText v-model="search" placeholder="Filter variables…" size="small" class="search-input" />
         <span class="search-count">{{ filteredCount }} variables</span>
@@ -23,7 +22,9 @@
 
       <div v-for="node in data" :key="node.node_id" class="node-block">
         <div class="node-block-header">
+          <div class="node-dot" />
           <span class="node-block-name">{{ node.node_name }}</span>
+          <span class="node-sep">/</span>
           <span class="node-block-host">{{ node.host }}</span>
         </div>
         <div class="vars-table">
@@ -32,7 +33,10 @@
               :key="key"
               class="vars-row"
           >
-            <span class="vars-key">{{ key }}</span>
+            <span class="vars-key">
+              <span v-if="search" v-html="highlight(String(key))" />
+              <span v-else>{{ key }}</span>
+            </span>
             <span class="vars-val">{{ val }}</span>
           </div>
           <div v-if="!Object.keys(filteredVars(node.variables)).length" class="vars-empty">
@@ -89,6 +93,12 @@ const filteredCount = computed(() => {
   if (!data.value?.length) return 0
   return Object.keys(filteredVars(data.value[0].variables ?? {})).length
 })
+
+function highlight(text: string): string {
+  if (!search.value.trim()) return text
+  const escaped = search.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>')
+}
 </script>
 
 <style scoped>
@@ -99,38 +109,58 @@ const filteredCount = computed(() => {
   align-items: center;
   gap: var(--space-3);
 }
+
 .search-input { width: 280px; }
+
 .search-count {
   font-size: var(--text-xs);
+  font-family: var(--font-mono);
   color: var(--color-text-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .node-block {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
+
 .node-block-header {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-offset);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
 }
-.node-block-name { font-size: var(--text-sm); font-weight: 700; color: var(--color-text); }
-.node-block-host  { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-muted); }
+
+.node-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.node-block-name { font-size: var(--text-sm); font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
+.node-sep        { color: var(--color-text-faint); font-size: var(--text-xs); }
+.node-block-host { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-muted); }
 
 .vars-table { display: flex; flex-direction: column; }
+
 .vars-row {
   display: flex;
   align-items: baseline;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-border-muted);
+  transition: background var(--transition-fast);
 }
+
 .vars-row:last-child { border-bottom: none; }
+.vars-row:nth-child(even) { background: rgba(255,255,255,0.015); }
+.vars-row:hover { background: var(--color-surface-3); }
+
 .vars-key {
   flex: 0 0 280px;
   font-size: var(--text-xs);
@@ -138,25 +168,35 @@ const filteredCount = computed(() => {
   color: var(--color-text-muted);
   word-break: break-all;
 }
+
 .vars-val {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
   color: var(--color-text);
   word-break: break-all;
 }
+
 .vars-empty {
-  padding: var(--space-4);
+  padding: var(--space-5);
   text-align: center;
   font-size: var(--text-xs);
   color: var(--color-text-faint);
+}
+
+/* Search highlight */
+:deep(mark) {
+  background: rgba(45,212,191,0.25);
+  color: var(--color-primary);
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .error-alert {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: color-mix(in oklch, var(--color-error) 10%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-error) 25%, transparent);
+  background: rgba(248,113,113,0.08);
+  border: 1px solid rgba(248,113,113,0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 
@@ -165,9 +205,11 @@ const filteredCount = computed(() => {
   padding: var(--space-12);
   color: var(--color-text-muted); font-size: var(--text-sm);
 }
+
 .empty-icon {
-  width: 48px; height: 48px; border-radius: var(--radius-full);
+  width: 44px; height: 44px; border-radius: var(--radius-full);
   display: flex; align-items: center; justify-content: center;
-  background: var(--color-surface-offset); color: var(--color-text-faint); font-size: 1.2rem;
+  background: var(--color-surface-3); border: 1px solid var(--color-border);
+  color: var(--color-text-faint); font-size: 1.1rem;
 }
 </style>
