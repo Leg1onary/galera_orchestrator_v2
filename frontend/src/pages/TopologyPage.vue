@@ -34,12 +34,22 @@ interface DCGroup {
   arbs: ArbLive[]
 }
 
+// layout constants — все размеры в SVG-единицах
+const DC_W   = 200   // ширина DC-зоны
+const DC_PAD = 12    // отступ между DC-зонами
+const B_W    = 80    // ширина бейджа
+const B_H    = 62    // высота бейджа ноды
+const B_ARB_H= 48    // высота бейджа арбитратора
+const B_GAP  = 8     // зазор между бейджами
+const TOP_OFF= 14    // верхний отступ внутри DC-зоны (DC label)
+const SIDE   = 10   // боковой паддинг DC-зоны
+
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
 const { data, isLoading } = useClusterStatus(clusterId)
 
-const nodes       = computed<NodeLive[]>(() => (data.value?.nodes       ?? []) as NodeLive[])
-const arbitrators = computed<ArbLive[]>(() => (data.value?.arbitrators  ?? []) as ArbLive[])
+const nodes       = computed<NodeLive[]>(() => (data.value?.nodes      ?? []) as NodeLive[])
+const arbitrators = computed<ArbLive[]>(() => (data.value?.arbitrators ?? []) as ArbLive[])
 
 const dcGroups = computed<DCGroup[]>(() => {
   const map = new Map<string, DCGroup>()
@@ -56,7 +66,34 @@ const dcGroups = computed<DCGroup[]>(() => {
   return Array.from(map.values())
 })
 
-const svgWidth = computed(() => Math.max(dcGroups.value.length, 1) * 340 + 40)
+// Высота DC-зоны = label + строки нод + строки арбитраторов + padding
+function dcHeight(dc: DCGroup): number {
+  const nodeRows = Math.ceil(dc.nodes.length / 2)
+  const nodesH   = nodeRows  * (B_H    + B_GAP)
+  const arbsH    = dc.arbs.length * (B_ARB_H + B_GAP)
+  return TOP_OFF + 6 + nodesH + arbsH + SIDE
+}
+
+const svgViewH = computed(() =>
+  Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [120])) + 16
+)
+const svgViewW = computed(() =>
+  dcGroups.value.length * (DC_W + DC_PAD) + DC_PAD
+)
+
+function dcX(di: number) { return DC_PAD + di * (DC_W + DC_PAD) }
+
+// Позиция бейджа ноды внутри DC-зоны
+function badgeX(di: number, ni: number): number {
+  return dcX(di) + SIDE + (ni % 2) * (B_W + B_GAP)
+}
+function badgeY(ni: number): number {
+  return TOP_OFF + 8 + Math.floor(ni / 2) * (B_H + B_GAP)
+}
+function arbBadgeY(dc: DCGroup, ai: number): number {
+  const nodeRows = Math.ceil(dc.nodes.length / 2)
+  return TOP_OFF + 8 + nodeRows * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
+}
 
 function nodeColor(n: NodeLive): string {
   const s = (n.wsrep_local_state_comment ?? '').toUpperCase()
@@ -67,34 +104,27 @@ function nodeColor(n: NodeLive): string {
   if (s === 'DONOR' || s === 'JOINER' || s === 'DESYNCED') return 'var(--color-donor)'
   return 'var(--color-text-faint)'
 }
-
 function arbColor(a: ArbLive): string {
   if (!a.is_reachable)  return 'var(--color-offline)'
   if (!a.garbd_running) return 'var(--color-degraded)'
   return 'var(--color-synced)'
 }
-
 function nodeStatLabel(n: NodeLive): string {
   const s = (n.wsrep_local_state_comment ?? '').toUpperCase()
   if (!n.ssh_ok)           return 'OFFLINE'
   if (n.wsrep_ready === 'OFF') return 'DEGRADED'
   return s || '—'
 }
-
 function arbStatLabel(a: ArbLive): string {
   if (!a.is_reachable)  return 'OFFLINE'
   if (!a.garbd_running) return 'DEGRADED'
   return 'ONLINE'
 }
 
-function nodeBadgeX(di: number, ni: number) { return di * 340 + 44 + (ni % 2) * 148 }
-function nodeBadgeY(ni: number)             { return 68 + Math.floor(ni / 2) * 108 }
-function arbBadgeY(dc: DCGroup, ai: number) { return 68 + Math.ceil(dc.nodes.length / 2) * 108 + ai * 72 }
-
 const tooltip = ref<{ node?: NodeLive; arb?: ArbLive; x: number; y: number } | null>(null)
 function showNodeTip(e: MouseEvent, n: NodeLive) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
-function showArbTip(e: MouseEvent,  a: ArbLive)  { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
-function hideTip() { tooltip.value = null }
+function showArbTip (e: MouseEvent, a: ArbLive)  { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
+function hideTip()   { tooltip.value = null }
 </script>
 
 <template>
@@ -117,80 +147,93 @@ function hideTip() { tooltip.value = null }
           <svg
             class="topo-svg"
             xmlns="http://www.w3.org/2000/svg"
-            :viewBox="`0 0 ${svgWidth} 340`"
+            :viewBox="`0 0 ${svgViewW} ${svgViewH}`"
             preserveAspectRatio="xMidYMid meet"
           >
             <defs>
-              <filter id="glow-synced" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              <filter id="glow-synced"  x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
-              <filter id="glow-offline" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
-                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              <filter id="glow-offline" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
             </defs>
 
             <!-- DC zones -->
             <g v-for="(dc, di) in dcGroups" :key="di">
-              <rect :x="di * 340 + 20" :y="20" :width="310" :height="300"
-                rx="12" ry="12" class="dc-zone-rect" />
-              <text :x="di * 340 + 34" :y="44" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
+              <!-- zone bg -->
+              <rect
+                :x="dcX(di)" y="4"
+                :width="DC_W" :height="dcHeight(dc)"
+                rx="8" ry="8" class="dc-zone-rect"
+              />
+              <!-- DC label -->
+              <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
               <!-- Node badges -->
               <g
                 v-for="(node, ni) in dc.nodes" :key="node.id"
-                :transform="`translate(${nodeBadgeX(di, ni)}, ${nodeBadgeY(ni)})`"
+                :transform="`translate(${badgeX(di, ni)}, ${badgeY(ni)})`"
                 class="topo-badge"
                 @mouseenter="(e) => showNodeTip(e, node)"
                 @mouseleave="hideTip"
               >
-                <rect x="0" y="0" width="128" height="80" rx="8" class="badge-bg" />
-                <rect x="0" y="0" width="128" height="4" rx="4"
+                <rect x="0" y="0" :width="B_W" :height="B_H" rx="5" class="badge-bg" />
+                <!-- accent top bar -->
+                <rect x="0" y="0" :width="B_W" height="3" rx="2"
                   :fill="nodeColor(node)"
                   :filter="node.ssh_ok && node.wsrep_local_state_comment?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <circle cx="14" cy="22" r="5"
+                <!-- dot -->
+                <circle cx="9" cy="14" r="4"
                   :fill="nodeColor(node)"
                   :filter="!node.ssh_ok ? 'url(#glow-offline)' : undefined"
                 />
-                <text x="24" y="26" class="badge-name">{{ node.name }}</text>
-                <text x="8"  y="42" class="badge-host">{{ node.host }}:{{ node.port }}</text>
-                <text x="8"  y="57" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
-                <rect x="8" y="63" width="30" height="12" rx="3"
-                  :fill="node.readonly ? 'rgba(234,179,8,0.15)' : 'rgba(74,222,128,0.12)'" />
-                <text x="23" y="73" class="badge-mode"
+                <!-- name -->
+                <text x="16" y="18" class="badge-name">{{ node.name }}</text>
+                <!-- host -->
+                <text x="4"  y="30" class="badge-host">{{ node.host }}:{{ node.port }}</text>
+                <!-- state -->
+                <text x="4"  y="42" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
+                <!-- RW/RO pill -->
+                <rect x="4" y="48" width="22" height="10" rx="2"
+                  :fill="node.readonly ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
+                <text x="15" y="56" class="badge-pill"
                   :fill="node.readonly ? 'var(--color-readonly)' : 'var(--color-synced)'">
                   {{ node.readonly ? 'RO' : 'RW' }}
                 </text>
-                <rect v-if="node.maintenance" x="42" y="63" width="52" height="12" rx="3" fill="rgba(249,115,22,0.15)" />
-                <text v-if="node.maintenance" x="68" y="73" class="badge-mode" fill="var(--color-degraded)">MAINT</text>
-                <circle v-if="node.maintenance_drift" cx="118" cy="70" r="5" fill="var(--color-offline)" />
+                <!-- MAINT pill -->
+                <rect v-if="node.maintenance" x="29" y="48" width="28" height="10" rx="2" fill="rgba(249,115,22,.15)" />
+                <text v-if="node.maintenance" x="43" y="56" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
+                <!-- drift dot -->
+                <circle v-if="node.maintenance_drift" :cx="B_W - 6" :cy="B_H - 6" r="3" fill="var(--color-offline)" />
               </g>
 
               <!-- Arbitrator badges -->
               <g
                 v-for="(arb, ai) in dc.arbs" :key="`arb-${arb.id}`"
-                :transform="`translate(${di * 340 + 44}, ${arbBadgeY(dc, ai)})`"
+                :transform="`translate(${dcX(di) + SIDE}, ${arbBadgeY(dc, ai)})`"
                 class="topo-badge topo-badge--arb"
                 @mouseenter="(e) => showArbTip(e, arb)"
                 @mouseleave="hideTip"
               >
-                <rect x="0" y="0" width="128" height="58" rx="8" class="badge-bg badge-bg--arb" />
-                <rect x="0" y="0" width="128" height="3" rx="3" :fill="arbColor(arb)" />
-                <circle cx="14" cy="20" r="4" :fill="arbColor(arb)" />
-                <text x="10" y="36" class="badge-arb-ico">◈</text>
-                <text x="24" y="22" class="badge-name">{{ arb.name }}</text>
-                <text x="24" y="36" class="badge-host">{{ arb.host }}</text>
-                <text x="8"  y="50" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
+                <rect x="0" y="0" :width="B_W" :height="B_ARB_H" rx="5" class="badge-bg badge-bg--arb" />
+                <rect x="0" y="0" :width="B_W" height="2" rx="2" :fill="arbColor(arb)" />
+                <circle cx="9" cy="14" r="3" :fill="arbColor(arb)" />
+                <text x="3" y="26" class="badge-arb-ico">◈</text>
+                <text x="16" y="18" class="badge-name">{{ arb.name }}</text>
+                <text x="16" y="28" class="badge-host">{{ arb.host }}</text>
+                <text x="4"  y="40" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
               </g>
 
               <!-- intra-DC lines -->
               <g v-if="dc.nodes.length > 1">
                 <line
                   v-for="(_, ni) in dc.nodes.slice(0, -1)" :key="`ln-${ni}`"
-                  :x1="nodeBadgeX(di, ni) + 64"      :y1="nodeBadgeY(ni) + 40"
-                  :x2="nodeBadgeX(di, ni + 1) + 64"  :y2="nodeBadgeY(ni + 1) + 40"
+                  :x1="badgeX(di, ni) + B_W / 2"     :y1="badgeY(ni) + B_H / 2"
+                  :x2="badgeX(di, ni + 1) + B_W / 2" :y2="badgeY(ni + 1) + B_H / 2"
                   class="topo-line"
                 />
               </g>
@@ -200,8 +243,8 @@ function hideTip() { tooltip.value = null }
             <g v-if="dcGroups.length > 1">
               <line
                 v-for="di in dcGroups.length - 1" :key="`dcl-${di}`"
-                :x1="(di - 1) * 340 + 334" y1="170"
-                :x2="di * 340 + 20"         y2="170"
+                :x1="dcX(di - 1) + DC_W" :y1="svgViewH / 2"
+                :x2="dcX(di)"            :y2="svgViewH / 2"
                 class="topo-line topo-line--dc"
               />
             </g>
@@ -222,7 +265,7 @@ function hideTip() { tooltip.value = null }
 
         <!-- Nodes table -->
         <div class="topo-table-wrap">
-          <DataTable :value="nodes" size="small" class="topo-table">
+          <DataTable :value="nodes" size="small">
             <Column field="name" header="Name">
               <template #body="{ data: n }">
                 <span class="font-medium">{{ n.name }}</span>
@@ -283,7 +326,9 @@ function hideTip() { tooltip.value = null }
             </Column>
             <Column header="Latency">
               <template #body="{ data: a }">
-                <span class="text-mono text-xs text-muted">{{ a.latency_ssh_ms != null ? `${a.latency_ssh_ms} ms` : '—' }}</span>
+                <span class="text-mono text-xs text-muted">
+                  {{ a.latency_ssh_ms != null ? `${a.latency_ssh_ms} ms` : '—' }}
+                </span>
               </template>
             </Column>
           </DataTable>
@@ -352,42 +397,58 @@ function hideTip() { tooltip.value = null }
   justify-content:center; font-size:var(--text-sm);
 }
 
+/* Canvas: фиксированная высота, overflow-x если DC много */
 .topo-canvas-wrap {
-  background:var(--color-surface);
-  border:1px solid var(--color-border);
-  border-radius:var(--radius-lg);
-  padding:var(--space-4);
-  overflow-x:auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.topo-svg { width:100%; min-height:200px; display:block; overflow:visible; }
 
-.dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:1; }
-.dc-zone-label { fill:var(--color-text-faint); font-size:9px; font-weight:700; letter-spacing:.1em; font-family:var(--font-body,sans-serif); }
+/* SVG занимает ровно столько места сколько нужно под контент, но не больше 200px */
+.topo-svg {
+  display: block;
+  max-height: 200px;   /* !главное ограничение */
+  height: auto;
+  width: auto;         /* ширина = пропорциональна высоте */
+  min-width: 100%;     /* не сжимаемся если DC много */
+}
 
-.topo-badge      { cursor:default; }
-.badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:1; transition:fill .18s; }
+.dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:.8; }
+.dc-zone-label {
+  fill: var(--color-text-faint);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  font-family: var(--font-body, sans-serif);
+}
+
+.topo-badge      { cursor: default; }
+.badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:.6; transition:fill .18s; }
 .topo-badge:hover .badge-bg { fill:var(--color-surface-dynamic); }
-.badge-bg--arb   { opacity:.8; }
+.badge-bg--arb   { opacity: .8; }
 
-.badge-name  { fill:var(--color-text);       font-size:11px; font-weight:600; font-family:var(--font-body,sans-serif); }
-.badge-host  { fill:var(--color-text-muted); font-size:9px;  font-family:var(--font-mono,monospace); }
-.badge-state { font-size:9px; font-weight:700; letter-spacing:.06em; font-family:var(--font-body,sans-serif); }
-.badge-mode  { font-size:8px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
-.badge-arb-ico { fill:var(--color-text-faint); font-size:10px; }
+.badge-name  { fill:var(--color-text);       font-size:7px;  font-weight:600; font-family:var(--font-body,sans-serif); }
+.badge-host  { fill:var(--color-text-muted); font-size:5.5px; font-family:var(--font-mono,monospace); }
+.badge-state { font-size:6px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
+.badge-pill  { font-size:5px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
+.badge-arb-ico { fill:var(--color-text-faint); font-size:7px; }
 
-.topo-line       { stroke:var(--color-border); stroke-width:1.5; stroke-dasharray:4 3; opacity:.6; }
-.topo-line--dc   { stroke:var(--color-primary); stroke-dasharray:6 4; opacity:.35; }
+.topo-line     { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
+.topo-line--dc { stroke:var(--color-primary); stroke-dasharray:5 3; opacity:.3; }
 
 .topo-legend {
   display:flex; flex-wrap:wrap; align-items:center;
-  gap:var(--space-3) var(--space-6);
+  gap:var(--space-2) var(--space-5);
   background:var(--color-surface); border:1px solid var(--color-border);
-  border-radius:var(--radius-md); padding:var(--space-3) var(--space-5);
+  border-radius:var(--radius-md); padding:var(--space-2) var(--space-4);
 }
 .legend-title { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; color:var(--color-text-faint); font-weight:600; }
-.legend-items { display:flex; flex-wrap:wrap; gap:var(--space-3) var(--space-5); }
+.legend-items { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); }
 .legend-item  { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); }
-.legend-dot   { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.legend-dot   { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
 
 .topo-table-wrap { overflow:hidden; border-radius:var(--radius-lg); display:flex; flex-direction:column; gap:var(--space-2); }
 .section-subtitle { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; color:var(--color-text-faint); font-weight:600; }
