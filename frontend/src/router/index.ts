@@ -1,10 +1,16 @@
 // ТЗ раздел 6.1, 4.2: все роуты кроме /login требуют auth.
 // Guard: один вызов checkAuth() до первого resolved, потом смотрим isAuthenticated.
 // Lazy-load всех страниц кроме Login (она маленькая и нужна сразу).
-// router/index.ts
+// Персистентность: последний роут сохраняется в localStorage (go2-last-route).
+// После auth-редиректа восстанавливается если нет явного ?redirect= параметра.
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginPage from '@/pages/LoginPage.vue'
+
+const LS_LAST_ROUTE = 'go2-last-route'
+
+// Роуты, которые не нужно запоминать как «последний посещённый»
+const SKIP_PERSIST = new Set(['/', '/login'])
 
 const router = createRouter({
     history: createWebHistory(),
@@ -18,7 +24,6 @@ const router = createRouter({
         {
             path: '/',
             component: () => import('@/layouts/AppLayout.vue'),
-            // meta на родителе — явная семантика, что все дочерние защищены
             meta: { requiresAuth: true },
             children: [
                 {
@@ -63,7 +68,6 @@ const router = createRouter({
                 },
             ],
         },
-        // NotFoundPage — всегда публичная, без auth
         {
             path: '/:pathMatch(.*)*',
             name: 'not-found',
@@ -74,30 +78,41 @@ const router = createRouter({
 })
 
 // ТЗ раздел 4.2: guard через GET /api/auth/me
-// authChecked гарантирует что checkAuth() вызывается только один раз за сессию
 router.beforeEach(async (to) => {
     const auth = useAuthStore()
 
-    // Один вызов checkAuth за сессию — с защитой от сетевых ошибок
     if (!auth.authChecked) {
         try {
             await auth.checkAuth()
         } catch {
-            // Сеть недоступна или 500 — считаем неавторизованным,
-            // authChecked всё равно должен быть выставлен в auth.ts в finally
+            // Сеть недоступна или 500 — authChecked выставлен в auth.ts
         }
     }
 
-    // Авторизованный юзер на /login → редирект на overview
     if (to.meta.public) {
         if (auth.isAuthenticated && to.name === 'login') {
-            return { name: 'overview' }
+            // Авторизованный идёт на /login — редиректим на последний роут или overview
+            const last = localStorage.getItem(LS_LAST_ROUTE)
+            return (last && !SKIP_PERSIST.has(last)) ? last : { name: 'overview' }
         }
         return true
     }
 
     if (!auth.isAuthenticated) {
         return { name: 'login', query: { redirect: to.fullPath } }
+    }
+
+    // Авторизован, идёт на корень '/' — восстанавливаем последний роут
+    if (to.path === '/') {
+        const last = localStorage.getItem(LS_LAST_ROUTE)
+        if (last && !SKIP_PERSIST.has(last)) return last
+    }
+})
+
+// Сохраняем текущий роут после каждой навигации (кроме /login и /)
+router.afterEach((to) => {
+    if (!to.meta.public && !SKIP_PERSIST.has(to.path)) {
+        localStorage.setItem(LS_LAST_ROUTE, to.fullPath)
     }
 })
 
