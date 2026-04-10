@@ -1,27 +1,41 @@
 import { api } from '@/api/client'
 
+// ТЗ п.2.8: допустимые статусы операций
+export type OperationStatus =
+    | 'pending'
+    | 'running'
+    | 'success'           // [BLOCKER FIX] было 'finished'
+    | 'failed'
+    | 'cancel_requested'  // [MAJOR FIX] отсутствовало
+    | 'cancelled'
+
+// NodeGrastate — не в ТЗ явно, но соответствует логике Step 1 Recovery wizard (ТЗ п.13.7)
+// Читается из grastate.dat через SSH
 export type NodeGrastate = {
     node_id: number
     node_name: string
     host: string
-    reachable: boolean           // SSH доступна
+    reachable: boolean
     safe_to_bootstrap: 0 | 1
-    seqno: number                // -1 если нода запущена или не читается
+    seqno: number             // -1 если нода запущена или не читается
     uuid: string | null
-    error: string | null         // если SSH упала
+    error: string | null
 }
 
+// Данные для отображения Step 1 wizard
+// Формируются на фронте из GET /status + NodeGrastate данных
 export type RecoveryScanResult = {
     nodes: NodeGrastate[]
-    recommended_bootstrap_node_id: number | null  // id с safe_to_bootstrap=1 и max seqno
-    cluster_is_healthy: boolean  // если true — recovery не нужен
+    recommended_bootstrap_node_id: number | null
+    cluster_is_healthy: boolean
 }
 
+// ТЗ п.9.1: формат ответа GET /recovery/status -> active_operation
 export type RecoveryOperationStatus = {
-    operation_id: string
-    state: 'pending' | 'running' | 'finished' | 'failed' | 'cancelled'
-    current_step: string | null
-    progress_pct: number         // 0–100
+    operation_id: number       // [BLOCKER FIX] number, не string
+    state: OperationStatus
+    current_step?: string | null  // не в ТЗ — уточнить с бэком
+    progress_pct: number          // 0–100
     message: string | null
     started_at: string | null
     finished_at: string | null
@@ -33,25 +47,40 @@ export type RejoinPayload = {
 }
 
 export const recoveryApi = {
-    scan: (clusterId: number) =>
-        api.post<RecoveryScanResult>(`/api/clusters/${clusterId}/recovery/scan`)
+    // [MAJOR FIX] scan() удалён — endpoint отсутствует в ТЗ п.9.1.
+    // Step 1 wizard читает кластерный /status и NodeListItem из /nodes.
+    // Grastate данные приходят из backend при запуске bootstrap.
+
+    // ТЗ п.9.1: POST /api/clusters/{cluster_id}/recovery/bootstrap
+    bootstrap: (clusterId: number, nodeId: number) =>
+        api
+            .post<{ accepted: boolean; operation_id: number }>(
+                `/api/clusters/${clusterId}/recovery/bootstrap`,
+                { node_id: nodeId }
+                // [MAJOR FIX] force убран — не в ТЗ п.9.1
+            )
             .then((r) => r.data),
 
-    bootstrap: (clusterId: number, nodeId: number, force = false) =>
-        api.post<{ operation_id: string }>(`/api/clusters/${clusterId}/recovery/bootstrap`, {
-            node_id: nodeId,
-            force,
-        }).then((r) => r.data),
-
+    // ТЗ п.9.1: POST /api/clusters/{cluster_id}/recovery/rejoin
     rejoin: (clusterId: number, nodeId: number) =>
-        api.post<{ operation_id: string }>(`/api/clusters/${clusterId}/recovery/rejoin`, {
-            node_id: nodeId,
-        } satisfies RejoinPayload).then((r) => r.data),
+        api
+            .post<{ accepted: boolean; operation_id: number }>(
+                `/api/clusters/${clusterId}/recovery/rejoin`,
+                { node_id: nodeId } satisfies RejoinPayload
+            )
+            .then((r) => r.data),
 
+    // ТЗ п.9.1: POST /api/clusters/{cluster_id}/recovery/cancel
     cancel: (clusterId: number) =>
-        api.post(`/api/clusters/${clusterId}/recovery/cancel`),
+        api
+            .post(`/api/clusters/${clusterId}/recovery/cancel`)
+            .then((r) => r.data), // [MINOR FIX] добавлен unwrap
 
+    // ТЗ п.9.1: GET /api/clusters/{cluster_id}/recovery/status
     getStatus: (clusterId: number) =>
-        api.get<RecoveryOperationStatus>(`/api/clusters/${clusterId}/recovery/status`)
+        api
+            .get<{ active_operation: RecoveryOperationStatus | null }>(
+                `/api/clusters/${clusterId}/recovery/status`
+            )
             .then((r) => r.data),
 }
