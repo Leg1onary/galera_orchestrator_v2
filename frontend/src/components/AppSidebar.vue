@@ -43,7 +43,11 @@ const groups: { key: string; label: string }[] = [
 ]
 
 function isActive(item: NavItem)  { return route.name === item.key }
-function navigate(item: NavItem)  { if (item.to) router.push(item.to()) }
+function navigate(item: NavItem)  {
+  // guard: locked ops items must not trigger navigation
+  if (isItemLocked(item)) return
+  if (item.to) router.push(item.to())
+}
 
 // ── Cluster health ────────────────────────────────────────────────────────────
 const clusterStatus = computed(() => clusterStore.selectedCluster?.status ?? null)
@@ -56,7 +60,7 @@ const statusColor = computed(() => {
   return '#52525b'
 })
 
-// ── Active operation ──────────────────────────────────────────────────────────
+// ── Active operation ───────────────────────────────────────────────────────────
 const activeOp = computed(() =>
   clusterId.value ? opsStore.activeOperation(clusterId.value) : null
 )
@@ -74,15 +78,25 @@ const opLabel = computed(() =>
   activeOp.value ? (OP_LABELS[activeOp.value.type] ?? activeOp.value.type) : ''
 )
 
-// ── Node count ───────────────────────────────────────────────────────────────
-// Пока nodes store не есть в sidebar — берём кол-во кластеров в контуре как пример
+/*
+  showOpBar drives v-show (NOT <Transition>+v-if) on the progress bar.
+
+  Why v-show and not <Transition>+v-if:
+  Vue's <Transition> holds the element in the DOM during the leave-animation.
+  If router.push() fires during that window Vue tries to patch a node the
+  router has already removed → "Cannot read properties of null (reading
+  'parentNode')". v-show never removes the node from the DOM, so the race
+  condition cannot happen. Visual hide/show is handled via CSS opacity.
+*/
+const showOpBar = computed(() => isLocked.value && !props.collapsed)
+
+// ── Cluster count (footer) ───────────────────────────────────────────────────────
 const clusterCount = computed(() => clusterStore.clustersForContour.length)
 
 // ── WS ───────────────────────────────────────────────────────────────────────
 const wsStatus = computed(() => wsStore.connectionStatus)
 
 // ── Lock check per item ───────────────────────────────────────────────────────
-// ops-группа блокируется при активной операции
 function isItemLocked(item: NavItem) {
   return isLocked.value && item.group === 'ops'
 }
@@ -103,7 +117,6 @@ function isItemLocked(item: NavItem) {
             <circle cx="11" cy="11" r="10" stroke="#2dd4bf" stroke-width="1.5" opacity="0.25"/>
             <circle cx="11" cy="11" r="6.5" stroke="#2dd4bf" stroke-width="1.5" opacity="0.5"/>
             <circle cx="11" cy="11" r="3" fill="#2dd4bf" opacity="0.9"/>
-            <!-- орбитальные точки -->
             <circle cx="11" cy="1.5" r="1.2" fill="#2dd4bf" opacity="0.4"/>
             <circle cx="11" cy="20.5" r="1.2" fill="#2dd4bf" opacity="0.4"/>
             <circle cx="1.5" cy="11" r="1.2" fill="#2dd4bf" opacity="0.4"/>
@@ -139,11 +152,9 @@ function isItemLocked(item: NavItem) {
       ]"
       :title="collapsed ? clusterName ?? '' : undefined"
     >
-      <!-- collapsed: только статус-dot -->
       <template v-if="collapsed">
         <span class="cluster-dot" :style="{ background: statusColor, boxShadow: `0 0 7px ${statusColor}99` }" />
       </template>
-
       <template v-else>
         <div class="cluster-pill-row">
           <span class="cluster-pill__label">cluster</span>
@@ -161,23 +172,20 @@ function isItemLocked(item: NavItem) {
     </div>
 
     <!-- ══ OPERATION PROGRESS BAR ═══════════════════════════════════════════ -->
-    <Transition name="op-bar">
-      <div v-if="isLocked && !collapsed" class="op-progress-wrap">
-        <div class="op-progress-label">
-          <i class="pi pi-spin pi-spinner" />
-          {{ opLabel }}
-        </div>
-        <div class="op-progress-track">
-          <div class="op-progress-fill" />
-        </div>
+    <!-- v-show intentional: avoids Transition+v-if parentNode crash on router.push -->
+    <div v-show="showOpBar" class="op-progress-wrap">
+      <div class="op-progress-label">
+        <i class="pi pi-spin pi-spinner" />
+        {{ opLabel }}
       </div>
-    </Transition>
+      <div class="op-progress-track">
+        <div class="op-progress-fill" />
+      </div>
+    </div>
 
     <!-- ══ NAV ══════════════════════════════════════════════════════════ -->
     <div class="sidebar-nav">
       <template v-for="group in groups" :key="group.key">
-
-        <!-- group header -->
         <div v-if="!collapsed" class="nav-section-head">
           <span class="nav-section-line" />
           <span class="nav-section-label">{{ group.label }}</span>
@@ -185,7 +193,6 @@ function isItemLocked(item: NavItem) {
         </div>
         <div v-else class="nav-section-sep" />
 
-        <!-- items -->
         <button
           v-for="item in navItems.filter(i => i.group === group.key)"
           :key="item.key"
@@ -199,30 +206,18 @@ function isItemLocked(item: NavItem) {
           :aria-label="item.label"
           :aria-current="isActive(item) ? 'page' : undefined"
         >
-          <!-- glow sweep bg (active only) -->
           <span v-if="isActive(item)" class="nav-glow-sweep" aria-hidden="true" />
-
           <i :class="'pi ' + item.icon" class="nav-icon" />
           <span class="nav-label" v-show="!collapsed">{{ item.label }}</span>
-
-          <!-- lock icon on ops items when cluster is locked -->
-          <i
-            v-if="isItemLocked(item) && !collapsed"
-            class="pi pi-lock nav-lock-icon"
-            aria-hidden="true"
-          />
-
-          <!-- active right-edge bar -->
+          <i v-if="isItemLocked(item) && !collapsed" class="pi pi-lock nav-lock-icon" aria-hidden="true" />
           <span v-if="isActive(item)" class="nav-active-bar" aria-hidden="true" />
         </button>
-
       </template>
     </div>
 
     <!-- ══ FOOTER ═════════════════════════════════════════════════════════ -->
     <div class="sidebar-footer" :class="{ 'sidebar-footer--collapsed': collapsed }">
       <template v-if="!collapsed">
-        <!-- WS status row -->
         <div class="footer-ws-row">
           <span :class="['footer-ws-dot', `footer-ws-dot--${wsStatus}`]" />
           <span class="footer-ws-label">
@@ -232,13 +227,8 @@ function isItemLocked(item: NavItem) {
             {{ clusterCount }} cluster{{ clusterCount !== 1 ? 's' : '' }}
           </span>
         </div>
-        <!-- brand -->
-        <div class="footer-brand">
-          <span>Galera Orchestrator</span>
-        </div>
+        <div class="footer-brand"><span>Galera Orchestrator</span></div>
       </template>
-
-      <!-- collapsed: только WS dot -->
       <template v-else>
         <span
           :class="['footer-ws-dot', `footer-ws-dot--${wsStatus}`, 'footer-ws-dot--solo']"
@@ -281,7 +271,6 @@ function isItemLocked(item: NavItem) {
   gap: var(--space-2);
   min-width: 0;
 }
-
 .sidebar-logo {
   display: flex;
   align-items: center;
@@ -290,9 +279,7 @@ function isItemLocked(item: NavItem) {
   min-width: 0;
   overflow: hidden;
 }
-
 .logo-icon { flex-shrink: 0; display: flex; align-items: center; }
-
 .logo-text-group {
   display: flex;
   flex-direction: column;
@@ -315,7 +302,6 @@ function isItemLocked(item: NavItem) {
   color: #52525b;
   white-space: nowrap;
 }
-
 .logo-version {
   font-size: 0.62rem;
   font-weight: 700;
@@ -330,7 +316,6 @@ function isItemLocked(item: NavItem) {
   align-self: flex-start;
   margin-top: 2px;
 }
-
 .toggle-btn {
   flex-shrink: 0;
   width: 28px; height: 28px;
@@ -363,14 +348,10 @@ function isItemLocked(item: NavItem) {
   position: relative;
   overflow: hidden;
 }
-
-/* subtle side-glow matching health status */
 .cluster-pill--healthy  { border-color: rgba(45,212,191,0.18); }
 .cluster-pill--degraded { border-color: rgba(251,191,36,0.18); }
 .cluster-pill--critical { border-color: rgba(248,113,113,0.22); }
 .cluster-pill--locked   { border-color: rgba(251,191,36,0.22); }
-
-/* left accent bar */
 .cluster-pill::before {
   content: '';
   position: absolute;
@@ -384,7 +365,6 @@ function isItemLocked(item: NavItem) {
 .cluster-pill--degraded::before { color: #fbbf24; }
 .cluster-pill--critical::before { color: #f87171; }
 .cluster-pill--unknown::before  { color: #3f3f46; }
-
 .cluster-pill--collapsed {
   margin: var(--space-3) auto 0;
   width: 36px; height: 36px;
@@ -395,17 +375,13 @@ function isItemLocked(item: NavItem) {
   border-radius: 50%;
   flex-direction: row;
 }
-
 .cluster-pill-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
-.cluster-pill-row--name {
-  gap: 6px;
-}
-
+.cluster-pill-row--name { gap: 6px; }
 .cluster-pill__label {
   font-size: 0.6rem;
   text-transform: uppercase;
@@ -413,7 +389,6 @@ function isItemLocked(item: NavItem) {
   color: #52525b;
   font-weight: 600;
 }
-
 .cluster-pill__name {
   font-size: 0.82rem;
   font-weight: 600;
@@ -425,19 +400,8 @@ function isItemLocked(item: NavItem) {
   flex: 1;
   min-width: 0;
 }
-
-.cluster-pill-icon {
-  font-size: 0.7rem;
-  color: #52525b;
-  flex-shrink: 0;
-}
-
-.cluster-lock-icon {
-  font-size: 0.7rem;
-  color: #fbbf24;
-  flex-shrink: 0;
-}
-
+.cluster-pill-icon { font-size: 0.7rem; color: #52525b; flex-shrink: 0; }
+.cluster-lock-icon { font-size: 0.7rem; color: #fbbf24; flex-shrink: 0; }
 .cluster-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -447,8 +411,6 @@ function isItemLocked(item: NavItem) {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
 }
-
-/* health status badge inside pill */
 .cluster-status-badge {
   display: flex;
   align-items: center;
@@ -462,24 +424,15 @@ function isItemLocked(item: NavItem) {
   border: 1px solid transparent;
   white-space: nowrap;
 }
-.cluster-status-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
+.cluster-status-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .cluster-status-badge--healthy  { background: rgba(45,212,191,0.08);  border-color: rgba(45,212,191,0.2);  color: #2dd4bf; }
 .cluster-status-badge--healthy .cluster-status-dot  { background: #2dd4bf; box-shadow: 0 0 4px rgba(45,212,191,0.7); }
-
 .cluster-status-badge--degraded { background: rgba(251,191,36,0.08);  border-color: rgba(251,191,36,0.2);  color: #fbbf24; }
 .cluster-status-badge--degraded .cluster-status-dot { background: #fbbf24; animation: blink 1.8s ease-in-out infinite; }
-
 .cluster-status-badge--critical { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.22); color: #f87171; }
 .cluster-status-badge--critical .cluster-status-dot { background: #f87171; animation: blink 0.9s ease-in-out infinite; }
-
 .cluster-status-badge--unknown  { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); color: #52525b; }
 .cluster-status-badge--unknown .cluster-status-dot  { background: #3f3f46; }
-
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.2; }
@@ -487,6 +440,7 @@ function isItemLocked(item: NavItem) {
 
 /* ════════════════════════════════════════════════════════
    OPERATION PROGRESS BAR
+   v-show intentional — never unmounts, avoids parentNode crash on router.push
 ════════════════════════════════════════════════════════ */
 .op-progress-wrap {
   margin: 6px var(--space-3) 0;
@@ -497,8 +451,9 @@ function isItemLocked(item: NavItem) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: hidden;
+  transition: opacity 220ms ease;
 }
-
 .op-progress-label {
   display: flex;
   align-items: center;
@@ -509,14 +464,12 @@ function isItemLocked(item: NavItem) {
   font-weight: 500;
 }
 .op-progress-label .pi { font-size: 0.65rem; }
-
 .op-progress-track {
   height: 3px;
   background: rgba(251,191,36,0.1);
   border-radius: 99px;
   overflow: hidden;
 }
-
 .op-progress-fill {
   height: 100%;
   width: 40%;
@@ -528,12 +481,6 @@ function isItemLocked(item: NavItem) {
   0%   { transform: translateX(-150%); }
   100% { transform: translateX(350%); }
 }
-
-/* transition */
-.op-bar-enter-active { transition: opacity 250ms ease, transform 250ms cubic-bezier(0.16,1,0.3,1); }
-.op-bar-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
-.op-bar-enter-from   { opacity: 0; transform: translateY(-6px); }
-.op-bar-leave-to     { opacity: 0; transform: translateY(-4px); }
 
 /* ════════════════════════════════════════════════════════
    NAV
@@ -549,8 +496,6 @@ function isItemLocked(item: NavItem) {
   scrollbar-width: none;
 }
 .sidebar-nav::-webkit-scrollbar { display: none; }
-
-/* group separator with gradient fade lines */
 .nav-section-head {
   display: flex;
   align-items: center;
@@ -577,8 +522,6 @@ function isItemLocked(item: NavItem) {
   background: rgba(255,255,255,0.04);
   margin: var(--space-2) var(--space-2);
 }
-
-/* nav item */
 .nav-item {
   position: relative;
   display: flex;
@@ -590,9 +533,7 @@ function isItemLocked(item: NavItem) {
   font-size: 0.855rem;
   font-weight: 450;
   cursor: pointer;
-  transition:
-    color 150ms ease,
-    background 150ms ease;
+  transition: color 150ms ease, background 150ms ease;
   width: 100%;
   text-align: left;
   white-space: nowrap;
@@ -601,62 +542,23 @@ function isItemLocked(item: NavItem) {
   background: transparent;
   font-family: inherit;
 }
-.nav-item:hover {
-  color: #a1a1aa;
-  background: rgba(255,255,255,0.04);
-}
-.nav-item:hover .nav-icon {
-  color: #d4d4d8;
-  transform: scale(1.1);
-}
-.nav-item:hover .nav-label {
-  transform: translateX(2px);
-}
-
-.nav-item--active {
-  color: #e4e4e7;
-  background: rgba(45,212,191,0.07);
-  font-weight: 550;
-}
-.nav-item--active:hover {
-  background: rgba(45,212,191,0.1);
-}
-.nav-item--active .nav-icon {
-  color: #2dd4bf;
-}
-
-/* locked ops items */
-.nav-item--locked {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.nav-item--locked:hover {
-  background: rgba(251,191,36,0.04);
-  color: #71717a;
-}
-.nav-item--locked:hover .nav-icon {
-  color: #71717a;
-  transform: none;
-}
-
-/* glow sweep pseudo-element for active items */
+.nav-item:hover { color: #a1a1aa; background: rgba(255,255,255,0.04); }
+.nav-item:hover .nav-icon { color: #d4d4d8; transform: scale(1.1); }
+.nav-item:hover .nav-label { transform: translateX(2px); }
+.nav-item--active { color: #e4e4e7; background: rgba(45,212,191,0.07); font-weight: 550; }
+.nav-item--active:hover { background: rgba(45,212,191,0.1); }
+.nav-item--active .nav-icon { color: #2dd4bf; }
+.nav-item--locked { opacity: 0.45; cursor: not-allowed; }
+.nav-item--locked:hover { background: rgba(251,191,36,0.04); color: #71717a; }
+.nav-item--locked:hover .nav-icon { color: #71717a; transform: none; }
 .nav-glow-sweep {
   position: absolute;
   inset: 0;
   border-radius: 7px;
-  background: linear-gradient(90deg,
-    rgba(45,212,191,0.12) 0%,
-    rgba(45,212,191,0.04) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, rgba(45,212,191,0.12) 0%, rgba(45,212,191,0.04) 50%, transparent 100%);
   pointer-events: none;
 }
-
-.sidebar--collapsed .nav-item {
-  justify-content: center;
-  padding: 8px;
-}
-
+.sidebar--collapsed .nav-item { justify-content: center; padding: 8px; }
 .nav-icon {
   font-size: 0.875rem;
   flex-shrink: 0;
@@ -664,23 +566,13 @@ function isItemLocked(item: NavItem) {
   text-align: center;
   transition: color 150ms ease, transform 150ms cubic-bezier(0.16,1,0.3,1);
 }
-
 .nav-label {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: transform 150ms cubic-bezier(0.16,1,0.3,1);
 }
-
-.nav-lock-icon {
-  font-size: 0.65rem;
-  color: #fbbf24;
-  opacity: 0.7;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-/* active right-edge glow bar */
+.nav-lock-icon { font-size: 0.65rem; color: #fbbf24; opacity: 0.7; flex-shrink: 0; margin-left: auto; }
 .nav-active-bar {
   position: absolute;
   right: 0; top: 50%;
@@ -702,55 +594,19 @@ function isItemLocked(item: NavItem) {
   flex-direction: column;
   gap: 3px;
 }
-.sidebar-footer--collapsed {
-  padding: var(--space-3);
-  align-items: center;
-}
-
-.footer-ws-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.footer-ws-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.footer-ws-dot--solo {
-  width: 7px; height: 7px;
-  cursor: default;
-}
+.sidebar-footer--collapsed { padding: var(--space-3); align-items: center; }
+.footer-ws-row { display: flex; align-items: center; gap: 6px; }
+.footer-ws-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.footer-ws-dot--solo { width: 7px; height: 7px; cursor: default; }
 .footer-ws-dot--connected    { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.65); animation: ws-glow 2.5s ease-in-out infinite; }
 .footer-ws-dot--reconnecting { background: #fbbf24; animation: blink 0.9s ease-in-out infinite; }
 .footer-ws-dot--connecting   { background: #fbbf24; animation: blink 1.2s ease-in-out infinite; }
 .footer-ws-dot--disconnected { background: #3f3f46; }
-
 @keyframes ws-glow {
   0%, 100% { box-shadow: 0 0 5px rgba(74,222,128,0.65); }
   50%       { box-shadow: 0 0 2px rgba(74,222,128,0.2); }
 }
-
-.footer-ws-label {
-  font-size: 0.68rem;
-  color: #52525b;
-  font-family: var(--font-mono, monospace);
-  letter-spacing: 0.02em;
-}
-
-.footer-cluster-count {
-  margin-left: auto;
-  font-size: 0.65rem;
-  color: #3f3f46;
-  font-family: var(--font-mono, monospace);
-  letter-spacing: 0.02em;
-}
-
-.footer-brand {
-  font-size: 0.6rem;
-  color: #2d2d2d;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
+.footer-ws-label { font-size: 0.68rem; color: #52525b; font-family: var(--font-mono, monospace); letter-spacing: 0.02em; }
+.footer-cluster-count { margin-left: auto; font-size: 0.65rem; color: #3f3f46; font-family: var(--font-mono, monospace); letter-spacing: 0.02em; }
+.footer-brand { font-size: 0.6rem; color: #2d2d2d; letter-spacing: 0.04em; white-space: nowrap; }
 </style>
