@@ -2,15 +2,16 @@
 // Guard: один вызов checkAuth() до первого resolved, потом смотрим isAuthenticated.
 // Lazy-load всех страниц кроме Login (она маленькая и нужна сразу).
 // Персистентность: последний роут сохраняется в localStorage (go2-last-route).
-// После auth-редиректа восстанавливается если нет явного ?redirect= параметра.
+// Overview — дефолтный маршрут, не персистируется (всегда доступен напрямую).
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginPage from '@/pages/LoginPage.vue'
 
 const LS_LAST_ROUTE = 'go2-last-route'
 
-// Роуты, которые не нужно запоминать как «последний посещённый»
-const SKIP_PERSIST = new Set(['/', '/login'])
+// Роуты по имени, которые НЕ сохраняем в localStorage.
+// overview — дефолт, всегда доступен без persist.
+const SKIP_PERSIST = new Set<string>(['login', 'overview', 'not-found'])
 
 const router = createRouter({
     history: createWebHistory(),
@@ -85,7 +86,7 @@ router.beforeEach(async (to) => {
         try {
             await auth.checkAuth()
         } catch {
-            // Сеть недоступна или 500 — authChecked выставлен в auth.ts
+            // Сеть недоступна или 500 — authChecked выставлен в auth.ts в finally
         }
     }
 
@@ -93,7 +94,7 @@ router.beforeEach(async (to) => {
         if (auth.isAuthenticated && to.name === 'login') {
             // Авторизованный идёт на /login — редиректим на последний роут или overview
             const last = localStorage.getItem(LS_LAST_ROUTE)
-            return (last && !SKIP_PERSIST.has(last)) ? last : { name: 'overview' }
+            return last ? last : { name: 'overview' }
         }
         return true
     }
@@ -102,16 +103,19 @@ router.beforeEach(async (to) => {
         return { name: 'login', query: { redirect: to.fullPath } }
     }
 
-    // Авторизован, идёт на корень '/' — восстанавливаем последний роут
-    if (to.path === '/') {
+    // Авторизован и явно навигирует на overview (F5 на '/', клик по ссылке http://.../) —
+    // восстанавливаем последний роут если есть.
+    // Не перехватываем другие маршруты — иначе бы заблокировались навигация через sidebar.
+    if (to.name === 'overview') {
         const last = localStorage.getItem(LS_LAST_ROUTE)
-        if (last && !SKIP_PERSIST.has(last)) return last
+        if (last) return last
     }
 })
 
-// Сохраняем текущий роут после каждой навигации (кроме /login и /)
+// Сохраняем текущий роут после каждой навигации в пределах protectёд роутов
 router.afterEach((to) => {
-    if (!to.meta.public && !SKIP_PERSIST.has(to.path)) {
+    const name = String(to.name ?? '')
+    if (!to.meta.public && !SKIP_PERSIST.has(name)) {
         localStorage.setItem(LS_LAST_ROUTE, to.fullPath)
     }
 })
