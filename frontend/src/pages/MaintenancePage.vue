@@ -1,42 +1,53 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
+import MaintenancePanel from '@/components/maintenance/MaintenancePanel.vue'
+
+const clusterStore = useClusterStore()
+const clusterId    = computed(() => clusterStore.selectedClusterId)
+</script>
+
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h1 class="page-title">Maintenance</h1>
-      <p class="page-subtitle">
-        Manage per-node maintenance mode and perform rolling restarts.
-      </p>
+  <div class="maintenance-page anim-fade-in">
+
+    <div class="pg-head">
+      <div class="section-title">Maintenance</div>
+      <p class="pg-desc">Schedule and manage rolling maintenance operations across cluster nodes.</p>
     </div>
 
-    <div v-if="!clusterStore.selectedClusterId" class="empty-state">
-      <i class="pi pi-server empty-state-icon" />
-      <p>No cluster selected.</p>
+    <div v-if="!clusterId" class="pg-empty">
+      <i class="pi pi-server" /><span>No cluster selected</span>
     </div>
 
-    <template v-else>
-      <!-- Node maintenance table -->
-      <NodeMaintenanceTable />
-
-      <!-- Rolling restart wizard (Dialog) -->
-      <RollingRestartWizard />
-    </template>
+    <MaintenancePanel v-else :cluster-id="clusterId" />
   </div>
 </template>
 
-<script setup lang="ts">
-import { onUnmounted, watch } from 'vue'
-import { useClusterStore } from '@/stores/cluster'
-import { useMaintenanceStore } from '@/stores/maintenance'
-import NodeMaintenanceTable from '@/components/maintenance/NodeMaintenanceTable.vue'
-import RollingRestartWizard from '@/components/maintenance/RollingRestartWizard.vue'
+<style scoped>
+.maintenance-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
 
-const clusterStore = useClusterStore()
-const store = useMaintenanceStore()
+.pg-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 
-watch(
-    () => clusterStore.selectedClusterId,
-    (id) => { if (id) store.init(id) },
-    { immediate: true }
-)
+.pg-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
 
-onUnmounted(() => store.destroy())
-</script>
+.pg-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-12);
+  justify-content: center;
+  font-size: var(--text-sm);
+}
+</style>

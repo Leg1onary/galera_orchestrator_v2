@@ -1,40 +1,56 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
+import ProcessListPanel  from '@/components/diagnostics/ProcessListPanel.vue'
+import SlowQueryPanel    from '@/components/diagnostics/SlowQueryPanel.vue'
+import GaleraVarsPanel   from '@/components/diagnostics/GaleraVarsPanel.vue'
+import GaleraStatusPanel from '@/components/diagnostics/GaleraStatusPanel.vue'
+import InnodbStatusPanel from '@/components/diagnostics/InnodbStatusPanel.vue'
+import ErrorLogPanel     from '@/components/diagnostics/ErrorLogPanel.vue'
+
+const clusterStore = useClusterStore()
+const activeTab    = ref('processes')
+
+watch(
+  () => clusterStore.selectedClusterId,
+  (id, prev) => { if (id && prev && id !== prev) activeTab.value = 'processes' }
+)
+
+const TABS = [
+  { value: 'processes',    label: 'Process list',    icon: 'pi-list' },
+  { value: 'slow-queries', label: 'Slow queries',    icon: 'pi-clock' },
+  { value: 'galera-vars',  label: 'Galera variables', icon: 'pi-sliders-h' },
+  { value: 'galera-status',label: 'Galera status',   icon: 'pi-chart-bar' },
+  { value: 'innodb',       label: 'InnoDB status',   icon: 'pi-database' },
+  { value: 'errorlog',     label: 'Error log',       icon: 'pi-file-edit' },
+]
+</script>
+
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h1 class="page-title">Diagnostics</h1>
-      <p class="page-subtitle">
-        Live database and system diagnostics for all cluster nodes.
-      </p>
+  <div class="diagnostics-page anim-fade-in">
+
+    <div class="pg-head">
+      <div class="section-title">Diagnostics</div>
+      <p class="pg-desc">Live database and system diagnostics for all cluster nodes.</p>
     </div>
 
-    <div v-if="!clusterStore.selectedClusterId" class="empty-state">
-      <i class="pi pi-server empty-state-icon" />
-      <p>No cluster selected.</p>
+    <div v-if="!clusterStore.selectedClusterId" class="pg-empty">
+      <i class="pi pi-server" /><span>No cluster selected</span>
     </div>
 
     <Tabs v-else v-model:value="activeTab" lazy>
-      <TabList>
-        <Tab value="processes">
-          <i class="pi pi-list mr-2" />Process list
-        </Tab>
-        <Tab value="slow-queries">
-          <i class="pi pi-clock mr-2" />Slow queries
-        </Tab>
-        <Tab value="galera-vars">
-          <i class="pi pi-sliders-h mr-2" />Galera variables
-        </Tab>
-        <Tab value="galera-status">
-          <i class="pi pi-chart-bar mr-2" />Galera status
-        </Tab>
-        <Tab value="innodb">
-          <i class="pi pi-database mr-2" />InnoDB status
-        </Tab>
-        <Tab value="errorlog">
-          <i class="pi pi-file-edit mr-2" />Error log
+      <TabList class="diag-tablist">
+        <Tab
+          v-for="t in TABS"
+          :key="t.value"
+          :value="t.value"
+        >
+          <i :class="'pi ' + t.icon" class="tab-icon" />
+          {{ t.label }}
         </Tab>
       </TabList>
 
-      <TabPanels>
+      <TabPanels class="diag-panels">
         <TabPanel value="processes">
           <ProcessListPanel :active="activeTab === 'processes'" />
         </TabPanel>
@@ -58,38 +74,36 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, watch } from 'vue'
-import Tabs from 'primevue/tabs'
-import TabList from 'primevue/tablist'
-import Tab from 'primevue/tab'
-import TabPanels from 'primevue/tabpanels'
-import TabPanel from 'primevue/tabpanel'
-import { useClusterStore } from '@/stores/cluster'
-import ProcessListPanel   from '@/components/diagnostics/ProcessListPanel.vue'
-import SlowQueryPanel     from '@/components/diagnostics/SlowQueryPanel.vue'
-import GaleraVarsPanel    from '@/components/diagnostics/GaleraVarsPanel.vue'
-import GaleraStatusPanel  from '@/components/diagnostics/GaleraStatusPanel.vue'
-import InnodbStatusPanel  from '@/components/diagnostics/InnodbStatusPanel.vue'
-import ErrorLogPanel      from '@/components/diagnostics/ErrorLogPanel.vue'
-
-const clusterStore = useClusterStore()
-
-const activeTab = ref('processes')
-
-// При смене кластера — сбрасываем на первую вкладку
-// чтобы панели рефетчили данные нового кластера
-watch(
-    () => clusterStore.selectedClusterId,
-    (id, prevId) => {
-      if (id && prevId && id !== prevId) {
-        activeTab.value = 'processes'
-      }
-    }
-)
-</script>
-
 <style scoped>
-/* Убираем лишний padding TabPanel — панели сами управляют своим отступом */
-:deep(.p-tabpanels) { padding: var(--space-4) 0 0; }
+.diagnostics-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.pg-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.pg-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-12);
+  justify-content: center;
+  font-size: var(--text-sm);
+}
+
+.diag-tablist { border-bottom: 1px solid var(--color-border-muted); }
+.tab-icon { font-size: 0.75rem; margin-right: var(--space-2); }
+
+:deep(.diag-panels) { padding: var(--space-5) 0 0; }
 </style>

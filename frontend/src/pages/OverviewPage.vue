@@ -1,118 +1,76 @@
-<!-- ТЗ раздел 10: ClusterSummaryBar + NodeCard × N + ArbitratorCard × N + EventLog -->
 <script setup lang="ts">
-import { computed, onUnmounted } from 'vue'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { api } from '@/api/client'
+import { computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { useEventsStore } from '@/stores/events'
-import { useSettingsStore } from '@/stores/settings'
-import { onWsEvent } from '@/stores/ws'
+import { useClusterStatus } from '@/composables/useClusterStatus'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
 
 const clusterStore = useClusterStore()
-const eventsStore = useEventsStore()
-const settingsStore = useSettingsStore()
-const queryClient = useQueryClient()
-
 const clusterId = computed(() => clusterStore.selectedClusterId!)
+const { data, isLoading } = useClusterStatus(clusterId)
 
-// Главный запрос страницы — GET /api/clusters/{id}/status
-const { data: status, isLoading, isError } = useQuery({
-  queryKey: computed(() => ['cluster', clusterId.value, 'status']),
-  queryFn: () => {
-    if (!clusterId.value) return Promise.resolve(null)
-    return api.get(`/api/clusters/${clusterId.value}/status`).then((r) => r.data)
-  },
-  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
-  staleTime: 5_000,
-  enabled: computed(() => !!clusterId.value),
-})
+const nodes       = computed(() => data.value?.nodes ?? [])
+const arbitrators = computed(() => data.value?.arbitrators ?? [])
+const events      = computed(() => data.value?.recent_events ?? [])
 
-const unsubscribe = onWsEvent((event) => {
-  if (
-      event.cluster_id === clusterId.value &&
-      (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed')
-  ) {
-    queryClient.invalidateQueries({
-      queryKey: ['cluster', clusterId.value, 'status'],
-    })
-  }
-})
-
-onUnmounted(() => unsubscribe())
+const syncedCount = computed(() =>
+  nodes.value.filter(n => (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED').length
+)
 </script>
 
 <template>
-  <div class="overview-page">
-    <!-- Загрузка -->
-    <template v-if="isLoading && !status">
-      <div class="loading-state">
-        <ProgressSpinner style="width: 40px; height: 40px" />
-        <span>Загрузка данных кластера…</span>
-      </div>
-    </template>
+  <div class="overview-page anim-fade-in">
 
-    <!-- Ошибка -->
-    <template v-else-if="isError">
-      <Message severity="error" :closable="false">
-        Не удалось получить данные кластера. Проверьте подключение к backend.
-      </Message>
-    </template>
+    <div v-if="!clusterStore.selectedClusterId" class="pg-empty">
+      <i class="pi pi-server" />
+      <span>No cluster selected</span>
+    </div>
 
-    <template v-else-if="status">
-      <!-- ТЗ 10.3: ClusterSummaryBar -->
-      <ClusterSummaryBar :status="status" />
-
-      <!-- ТЗ 10.4: NodeCard × N -->
-      <section class="nodes-section">
-        <h2 class="section-title">Ноды</h2>
-        <div class="node-grid">
-          <NodeCard
-              v-for="node in status.nodes"
-              :key="node.id"
-              :node="node"
-              :cluster-id="clusterId"
-          />
-        </div>
-      </section>
-
-      <!-- Арбитраторы -->
-      <section v-if="status.arbitrators?.length" class="arbitrators-section">
-        <h2 class="section-title">Арбитраторы</h2>
-        <div class="arbitrator-grid">
-          <ArbitratorCard
-              v-for="arb in status.arbitrators"
-              :key="arb.id"
-              :arbitrator="arb"
-          />
-        </div>
-      </section>
-
-      <!-- ТЗ 10.5: EventLog -->
-      <section class="events-section">
-        <div class="section-header">
-          <h2 class="section-title">Event Log</h2>
-          <Button
-              label="Очистить"
-              severity="secondary"
-              size="small"
-              text
-              icon="pi pi-trash"
-              @click="eventsStore.clear(clusterId)"
-          />
-        </div>
-        <EventLog :entries="eventsStore.entries" :loading="eventsStore.loading" />
-      </section>
-    </template>
-
-    <!-- Нет данных -->
     <template v-else>
-      <div class="loading-state">
-        <span>Нет данных</span>
-      </div>
+      <!-- Summary bar -->
+      <ClusterSummaryBar
+        :total-nodes="nodes.length"
+        :synced-nodes="syncedCount"
+        :cluster-status="data?.cluster_status ?? null"
+        :cluster-size="nodes[0]?.wsrep_cluster_size ?? null"
+        :flow-control-paused="nodes[0]?.wsrep_flow_control_paused ?? null"
+        :is-loading="isLoading"
+      />
+
+      <!-- Nodes grid -->
+      <section class="overview-section">
+        <div class="section-title">Nodes</div>
+        <div v-if="isLoading" class="loading-state">
+          <i class="pi pi-spin pi-spinner" /><span>Loading&hellip;</span>
+        </div>
+        <div v-else class="nodes-grid">
+          <NodeCard
+            v-for="node in nodes"
+            :key="node.id"
+            :node="node"
+            :cluster-id="clusterId"
+          />
+        </div>
+      </section>
+
+      <!-- Arbitrators -->
+      <section v-if="arbitrators.length" class="overview-section">
+        <div class="section-title">Arbitrators</div>
+        <div class="arb-grid">
+          <ArbitratorCard
+            v-for="arb in arbitrators"
+            :key="arb.id"
+            :arbitrator="arb"
+          />
+        </div>
+      </section>
+
+      <!-- Event log -->
+      <section class="overview-section">
+        <EventLog :events="events" :is-loading="isLoading" />
+      </section>
     </template>
   </div>
 </template>
@@ -121,34 +79,34 @@ onUnmounted(() => unsubscribe())
 .overview-page {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--space-6);
 }
 
-.loading-state {
+.pg-empty {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  color: var(--p-text-muted-color);
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-12);
+  justify-content: center;
+  font-size: var(--text-sm);
 }
 
-.section-title  { color: var(--p-text-muted-color); }
-
-.section-header {
+.overview-section {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.node-grid {
+.nodes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
 }
 
-.arbitrator-grid {
+.arb-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
 }
 </style>

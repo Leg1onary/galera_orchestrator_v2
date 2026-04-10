@@ -1,129 +1,100 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
+import { useClusterStatus } from '@/composables/useClusterStatus'
+import NodeCard from '@/components/overview/NodeCard.vue'
+
+const clusterStore = useClusterStore()
+const clusterId    = computed(() => clusterStore.selectedClusterId!)
+const { data, isLoading, refetch } = useClusterStatus(clusterId)
+
+const nodes = computed(() => data.value?.nodes ?? [])
+</script>
+
 <template>
-  <div class="nodes-page">
-    <!-- Toolbar -->
-    <div class="page-toolbar">
-      <h1 class="page-title">Nodes</h1>
-      <div class="toolbar-right">
+  <div class="nodes-page anim-fade-in">
+
+    <div v-if="!clusterStore.selectedClusterId" class="pg-empty">
+      <i class="pi pi-server" />
+      <span>No cluster selected</span>
+    </div>
+
+    <template v-else>
+      <div class="pg-header">
+        <div class="section-title">Nodes
+          <span class="pg-count">{{ nodes.length }}</span>
+        </div>
         <Button
-            icon="pi pi-refresh"
-            text
-            rounded
-            size="small"
-            :loading="isFetching"
-            aria-label="Refresh"
-            @click="refetch"
+          icon="pi pi-refresh"
+          severity="secondary"
+          text
+          size="small"
+          :loading="isLoading"
+          @click="refetch()"
+          v-tooltip.left="'Refresh'"
+          aria-label="Refresh nodes"
         />
       </div>
-    </div>
 
-    <!-- Lock banner: active operation in progress -->
-    <<div v-if="opsStore.isLocked(clusterId.value)" class="lock-banner">
-      <i class="pi pi-lock" />
-      <span>An operation is in progress — node actions are disabled until it completes.</span>
-    </div>
+      <div v-if="isLoading" class="loading-state">
+        <i class="pi pi-spin pi-spinner" /><span>Loading nodes&hellip;</span>
+      </div>
 
-    <!-- Table -->
-    <div class="table-wrapper">
-      <NodeTable
-          :nodes="nodes"
-          :loading="isLoading"
+      <div v-else-if="nodes.length === 0" class="pg-empty">
+        <i class="pi pi-inbox" />
+        <span>No nodes registered for this cluster</span>
+      </div>
+
+      <div v-else class="nodes-grid">
+        <NodeCard
+          v-for="node in nodes"
+          :key="node.id"
+          :node="node"
           :cluster-id="clusterId"
-          @select="openDrawer"
-          @refresh="refetch"
-      />
-    </div>
-
-    <!-- Detail drawer -->
-    <NodeDetailDrawer
-        v-if="selectedNode"
-        :node="selectedNode"
-        :cluster-id="clusterId.value"
-        @close="selectedNode = null"
-    />
+        />
+      </div>
+    </template>
   </div>
 </template>
-
-<script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import Button from 'primevue/button'
-import NodeTable from '@/components/nodes/NodeTable.vue'
-import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
-import { nodesApi, type NodeListItem } from '@/api/nodes'
-import { useClusterStore } from '@/stores/cluster'
-import { useOperationsStore } from '@/stores/operations'
-import { onWsEvent } from '@/stores/ws'
-import { useSettingsStore } from '@/stores/settings'
-
-const settingsStore = useSettingsStore()
-const clusterStore = useClusterStore()
-const opsStore = useOperationsStore()
-const queryClient = useQueryClient()
-
-
-const selectedNode = ref<NodeListItem | null>(null)
-
-const { data, isLoading, isFetching, refetch } = useQuery({
-  queryKey: computed(() => ['cluster', clusterId.value, 'nodes']),
-  queryFn: () => {
-    if (!clusterId.value) return Promise.resolve([])
-    return nodesApi.list(clusterId.value)
-  },
-  enabled: computed(() => !!clusterId.value),
-  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
-})
-
-const nodes = computed(() => data.value ?? [])
-
-function openDrawer(node: NodeListItem) {
-  selectedNode.value = node
-}
-
-const unsubscribeWs = onWsEvent((event) => {
-  if (event.event === 'node_state_changed' && event.cluster_id === clusterId.value) {
-    queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
-  }
-})
-
-onUnmounted(() => unsubscribeWs())
-</script>
 
 <style scoped>
 .nodes-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden;
+  gap: var(--space-5);
 }
-.page-toolbar {
+
+.pg-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
 }
-.page-title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-text);
+
+.pg-count {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+  font-weight: 500;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  margin-left: var(--space-2);
 }
-.toolbar-right { display: flex; align-items: center; gap: var(--space-2); }
-.table-wrapper {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.lock-banner {
+
+.pg-empty {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-6);
-  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
-  color: var(--color-warning);
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-12);
+  justify-content: center;
   font-size: var(--text-sm);
-  border-bottom: 1px solid color-mix(in oklch, var(--color-warning) 25%, transparent);
-  flex-shrink: 0;
+}
+
+.nodes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
 }
 </style>

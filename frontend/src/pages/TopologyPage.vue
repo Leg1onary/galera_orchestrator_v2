@@ -1,171 +1,268 @@
-<template>
-  <div class="topology-page">
-
-    <!-- Toolbar -->
-    <div class="page-toolbar">
-      <h1 class="page-title">Topology</h1>
-      <div class="toolbar-right">
-        <Button
-            icon="pi pi-refresh"
-            text rounded size="small"
-            :loading="isFetching"
-            aria-label="Refresh"
-            @click="refetch"
-        />
-      </div>
-    </div>
-
-    <!-- Legend (ТЗ п.12.6) -->
-    <div class="legend">
-      <span v-for="item in LEGEND" :key="item.label" class="legend-item">
-        <span class="legend-dot" :style="{ background: item.color }" />
-        {{ item.label }}
-      </span>
-      <span class="legend-item">
-        <span class="legend-arb-icon">◇</span>
-        Arbitrator
-      </span>
-    </div>
-
-    <!-- Canvas -->
-    <div class="canvas-area">
-      <div v-if="isLoading" class="state-message">Loading topology…</div>
-      <div v-else-if="!topology" class="state-message">No data.</div>
-      <TopologyCanvas
-          v-else
-          :topology="topology"
-          @node-click="handleNodeClick"
-      />
-    </div>
-
-    <!-- Node detail drawer -->
-    <NodeDetailDrawer
-        v-if="selectedNode"
-        :node="selectedNode"
-        :cluster-id="clusterId"
-        @close="selectedNode = null"
-    />
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import Button from 'primevue/button'
-import TopologyCanvas from '@/components/topology/TopologyCanvas.vue'
-import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
-import { topologyApi } from '@/api/topology'
-import type { TopoNode } from '@/api/topology'
-import type { NodeListItem } from '@/api/nodes'
+import { computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { onWsEvent } from '@/stores/ws'
-import { useSettingsStore } from '@/stores/settings'
+import { useClusterStatus } from '@/composables/useClusterStatus'
 
-const clusterStore   = useClusterStore()
-const queryClient    = useQueryClient()
-const settingsStore  = useSettingsStore()
+const clusterStore = useClusterStore()
+const clusterId    = computed(() => clusterStore.selectedClusterId!)
+const { data, isLoading } = useClusterStatus(clusterId)
 
-// BLOCKER fix: clusterId объявлен
-const clusterId = computed(() => clusterStore.clusterId)
+const nodes       = computed(() => data.value?.nodes ?? [])
+const arbitrators = computed(() => data.value?.arbitrators ?? [])
 
-const selectedNode = ref<NodeListItem | null>(null)
-
-// BLOCKER fix: один LEGEND без дубля.
-// Цвета по ТЗ п.7.3 + легенда по ТЗ п.12.6
-const LEGEND = [
-  { label: 'Synced (RW)', color: '#437a22' },   // --color-success
-  { label: 'Synced (RO)', color: '#eab308' },   // yellow по ТЗ п.7.3
-  { label: 'Donor/Joiner', color: '#38bdf8' },  // sky по ТЗ п.7.3 — MAJOR fix
-  { label: 'Offline',      color: '#7a7974' },  // muted
-] as const
-
-const { data: topology, isLoading, isFetching, refetch } = useQuery({
-  queryKey: computed(() => ['cluster', clusterId.value, 'topology']),
-  queryFn: () => {
-    if (!clusterId.value) return Promise.resolve(null)
-    return topologyApi.get(clusterId.value)
-  },
-  enabled: computed(() => !!clusterId.value),
-  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
-})
-
-// MAJOR fix: имена событий по ТЗ п.5.2 — без underscore
-const unsubWs = onWsEvent((event) => {
-  if (
-      (event.event === 'nodestatechanged' || event.event === 'arbitratorstatechanged') &&
-      event.cluster_id === clusterId.value
-  ) {
-    queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'topology'] })
-  }
-})
-
-onUnmounted(() => unsubWs())
-
-// TopoNode → NodeListItem: добавляем поля которых нет в TopoNode
-function handleNodeClick(topoNode: TopoNode) {
-  selectedNode.value = {
-    ...topoNode,
-    wsrep_flow_control_paused:   null,
-    wsrep_local_recv_queue_avg:  null,
-    last_error:                  null,
-  } as NodeListItem
+function stateColor(comment: string | null, ready: string | null, sshOk: boolean): string {
+  const s = (comment ?? '').toUpperCase()
+  if (!sshOk || s === 'OFFLINE') return 'var(--color-offline)'
+  if (ready === 'OFF')           return 'var(--color-degraded)'
+  if (s === 'SYNCED')            return 'var(--color-synced)'
+  if (s === 'DONOR' || s === 'JOINER') return 'var(--color-donor)'
+  return 'var(--color-text-muted)'
 }
 </script>
+
+<template>
+  <div class="topology-page anim-fade-in">
+
+    <div v-if="!clusterStore.selectedClusterId" class="pg-empty">
+      <i class="pi pi-server" /><span>No cluster selected</span>
+    </div>
+
+    <template v-else>
+      <div class="section-title">Topology</div>
+
+      <div v-if="isLoading" class="loading-state">
+        <i class="pi pi-spin pi-spinner" /><span>Loading&hellip;</span>
+      </div>
+
+      <div v-else class="topo-layout">
+        <!-- Ring visualisation -->
+        <div class="topo-ring-wrap">
+          <div class="topo-ring">
+            <div class="ring-label">Galera Cluster</div>
+            <div class="ring-nodes">
+              <div
+                v-for="node in nodes"
+                :key="node.id"
+                class="ring-node"
+                :style="{ '--node-color': stateColor(node.wsrep_local_state_comment, node.wsrep_ready, node.ssh_ok) }"
+              >
+                <div class="rn-dot" />
+                <div class="rn-info">
+                  <span class="rn-name">{{ node.name }}</span>
+                  <span class="rn-host">{{ node.host }}</span>
+                  <span class="rn-dc" v-if="node.dc?.name">{{ node.dc.name }}</span>
+                </div>
+              </div>
+            </div>
+            <!-- Arbitrators -->
+            <div v-if="arbitrators.length" class="ring-arbitrators">
+              <div class="ring-arb-label">Arbitrators</div>
+              <div
+                v-for="arb in arbitrators"
+                :key="arb.id"
+                class="ring-node ring-node--arb"
+                :style="{ '--node-color': arb.is_reachable ? 'var(--color-synced)' : 'var(--color-offline)' }"
+              >
+                <div class="rn-dot" />
+                <div class="rn-info">
+                  <span class="rn-name">{{ arb.name }}</span>
+                  <span class="rn-host">{{ arb.host }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="topo-table-wrap">
+          <DataTable :value="nodes" size="small" class="topo-table">
+            <Column field="name" header="Name">
+              <template #body="{ data: n }">
+                <span class="font-medium">{{ n.name }}</span>
+              </template>
+            </Column>
+            <Column field="host" header="Host">
+              <template #body="{ data: n }">
+                <span class="text-mono text-muted">{{ n.host }}:{{ n.port }}</span>
+              </template>
+            </Column>
+            <Column header="State">
+              <template #body="{ data: n }">
+                <span
+                  class="topo-state"
+                  :style="{ color: stateColor(n.wsrep_local_state_comment, n.wsrep_ready, n.ssh_ok) }"
+                >
+                  {{ n.wsrep_local_state_comment ?? '—' }}
+                </span>
+              </template>
+            </Column>
+            <Column header="DC">
+              <template #body="{ data: n }">
+                <span class="text-muted text-xs">{{ n.dc?.name ?? '—' }}</span>
+              </template>
+            </Column>
+            <Column header="Mode">
+              <template #body="{ data: n }">
+                <span class="topo-mode" :class="n.readonly ? 'topo-mode--ro' : 'topo-mode--rw'">
+                  {{ n.readonly ? 'RO' : 'RW' }}
+                </span>
+              </template>
+            </Column>
+          </DataTable>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
 
 <style scoped>
 .topology-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-.page-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-.page-title { font-size: var(--text-lg); font-weight: 600; }
-.toolbar-right { display: flex; align-items: center; gap: var(--space-2); }
-
-.legend {
-  display: flex;
-  align-items: center;
   gap: var(--space-6);
-  padding: var(--space-2) var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-  flex-wrap: wrap;
 }
-.legend-item {
+
+.pg-empty {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
+  gap: var(--space-3);
   color: var(--color-text-muted);
+  padding: var(--space-12);
+  justify-content: center;
+  font-size: var(--text-sm);
 }
-.legend-dot {
+
+.topo-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .topo-layout { grid-template-columns: 1fr; }
+}
+
+/* Ring block */
+.topo-ring-wrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+.topo-ring {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ring-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+
+.ring-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ring-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-muted);
+  border-left: 3px solid var(--node-color, var(--color-text-faint));
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-normal);
+}
+
+.ring-node--arb {
+  opacity: 0.75;
+}
+
+.rn-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--node-color, var(--color-text-faint));
   flex-shrink: 0;
+  box-shadow: 0 0 6px var(--node-color, transparent);
 }
-.legend-arb-icon { font-size: 12px; color: var(--color-text-muted); }
 
-.canvas-area {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-}
-.state-message {
-  position: absolute;
-  inset: 0;
+.rn-info {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rn-name {
   font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rn-host {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
   color: var(--color-text-muted);
 }
+
+.rn-dc {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ring-arbitrators {
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ring-arb-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+
+/* Table */
+.topo-table-wrap {
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.topo-state {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.topo-mode {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.topo-mode--rw { background: rgba(74,222,128,0.10); color: var(--color-synced); }
+.topo-mode--ro { background: rgba(251,191,36,0.10);  color: var(--color-readonly); }
 </style>
