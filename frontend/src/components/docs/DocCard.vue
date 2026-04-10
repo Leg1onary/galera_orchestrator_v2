@@ -38,7 +38,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Tag, Button } from 'primevue'
-import { BADGE_CONFIG, type DocBadge } from '@/data/docs'
+import { type DocBadge } from '@/data/docs'
+
+// MINOR fix: severity type без `as any`
+type PrimeSeverity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast'
+
+export const BADGE_CONFIG: Record<DocBadge, { severity: PrimeSeverity; label: string }> = {
+  Safe:    { severity: 'success',   label: 'Safe' },
+  Danger:  { severity: 'danger',    label: 'Danger' },
+  Warning: { severity: 'warn',      label: 'Warning' },
+  Action:  { severity: 'info',      label: 'Action' },
+  Info:    { severity: 'secondary', label: 'Info' },
+}
 
 const props = defineProps<{
   title: string
@@ -50,15 +61,24 @@ const props = defineProps<{
 
 const copied = ref(false)
 
+// MINOR fix: fallback для non-HTTPS
 async function handleCopy() {
   if (!props.code) return
   try {
     await navigator.clipboard.writeText(props.code)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
   } catch {
-    // clipboard blocked (non-https dev) — fall back silently
+    // fallback: execCommand для HTTP/insecure context
+    const el = document.createElement('textarea')
+    el.value = props.code
+    el.style.position = 'fixed'
+    el.style.opacity = '0'
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
   }
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
 }
 </script>
 

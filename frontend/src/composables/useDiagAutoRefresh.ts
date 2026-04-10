@@ -1,21 +1,22 @@
-// Shared composable для auto-refresh логики всех диагностических панелей
-import { ref, computed, watch } from 'vue'
+// composables/useDiagAutoRefresh.ts
+import { ref, computed, watch, type Ref } from 'vue'
 
-const DEFAULT_INTERVAL_MS = 15_000
-
-export function useDiagAutoRefresh(props: { active: boolean }) {
+export function useDiagAutoRefresh(
+    // MAJOR fix: принимаем Ref<boolean> вместо plain object
+    active: Ref<boolean>,
+    // MAJOR fix: интервал из system_settings, не хардкод
+    intervalMs: Ref<number>,
+) {
     const autoRefresh = ref(false)
 
-    // Включаем интервал только если панель активна И autoRefresh включён
     const refetchInterval = computed(() =>
-        props.active && autoRefresh.value ? DEFAULT_INTERVAL_MS : false
+        active.value && autoRefresh.value ? intervalMs.value : false,
     )
 
-    // Выключаем autoRefresh при деактивации вкладки
-    watch(
-        () => props.active,
-        (active) => { if (!active) autoRefresh.value = false },
-    )
+    // MAJOR fix: reactive watch через Ref<boolean>
+    watch(active, (isActive) => {
+        if (!isActive) autoRefresh.value = false
+    })
 
     return { autoRefresh, refetchInterval }
 }
