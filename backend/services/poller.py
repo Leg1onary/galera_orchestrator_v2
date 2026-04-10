@@ -95,6 +95,23 @@ def stop_poller() -> None:
     _poller_task = None
 
 
+# ── Public one-shot poll ──────────────────────────────────────────────────────
+
+async def poll_single_node(cluster_id: int, node: dict) -> None:
+    """
+    Immediately poll one node outside the regular poll cycle and emit
+    node_state_changed via WebSocket if state has changed.
+
+    Called by node_action worker after async operations complete
+    (stop / start / restart / rejoin-force) so the frontend receives
+    the updated state without waiting for the next poller tick.
+
+    Per ТЗ п.5.2 — бэкенд должен эмитнуть node_state_changed после
+    завершения любой операции, влияющей на состояние ноды.
+    """
+    await _poll_node(cluster_id, node)
+
+
 # ── Main polling loop ─────────────────────────────────────────────────────────
 
 async def _poll_loop() -> None:
