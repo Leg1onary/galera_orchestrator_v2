@@ -19,39 +19,35 @@ const TABS = [
 
 <template>
   <div class="settings-page anim-fade-in">
-    <div class="section-title">Settings</div>
+    <!-- Page title -->
+    <div class="settings-page__title">Settings</div>
 
-    <Tabs v-model:value="activeTab" orientation="vertical" lazy class="settings-tabs">
-      <TabList class="settings-tablist">
-        <Tab
+    <!-- ── Horizontal tab bar ── -->
+    <div class="settings-page__tabbar-wrap">
+      <div class="settings-page__tabbar" role="tablist">
+        <button
           v-for="t in TABS"
           :key="t.value"
-          :value="t.value"
-          class="settings-tab"
+          role="tab"
+          :aria-selected="activeTab === t.value"
+          class="settings-page__tab"
+          :class="{ 'settings-page__tab--active': activeTab === t.value }"
+          @click="activeTab = t.value"
         >
-          <i :class="'pi ' + t.icon" class="tab-icon" />
-          {{ t.label }}
-        </Tab>
-      </TabList>
+          <i :class="'pi ' + t.icon" class="settings-page__tab-icon" />
+          <span>{{ t.label }}</span>
+        </button>
+      </div>
+    </div>
 
-      <TabPanels class="settings-panels">
-        <TabPanel value="clusters">
-          <ClustersTab />
-        </TabPanel>
-        <TabPanel value="nodes">
-          <NodesTab />
-        </TabPanel>
-        <TabPanel value="arbitrators">
-          <ArbitratorsTab />
-        </TabPanel>
-        <TabPanel value="datacenters">
-          <DatacentersTab />
-        </TabPanel>
-        <TabPanel value="system">
-          <SystemTab />
-        </TabPanel>
-      </TabPanels>
-    </Tabs>
+    <!-- ── Tab content ── -->
+    <div class="settings-page__body">
+      <ClustersTab    v-if="activeTab === 'clusters'" />
+      <NodesTab       v-else-if="activeTab === 'nodes'" />
+      <ArbitratorsTab v-else-if="activeTab === 'arbitrators'" />
+      <DatacentersTab v-else-if="activeTab === 'datacenters'" />
+      <SystemTab      v-else-if="activeTab === 'system'" />
+    </div>
   </div>
 </template>
 
@@ -59,49 +55,70 @@ const TABS = [
 .settings-page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
   height: 100%;
+  padding: var(--space-8) var(--space-8);
+  gap: var(--space-6);
 }
 
-.settings-tabs {
+.settings-page__title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text);
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+/* ── Tab bar: full width, horizontal scroll if needed ── */
+.settings-page__tabbar-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* hide scrollbar but keep functionality */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.settings-page__tabbar-wrap::-webkit-scrollbar { display: none; }
+
+.settings-page__tabbar {
   display: flex;
+  gap: 0;
+  min-width: max-content;
+  padding-bottom: 0;
+}
+
+.settings-page__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease, border-color 150ms ease;
+  margin-bottom: -1px; /* sit on the wrap border */
+}
+.settings-page__tab:hover {
+  color: var(--color-text);
+}
+.settings-page__tab--active {
+  color: #2dd4bf;
+  border-bottom-color: #2dd4bf;
+}
+
+.settings-page__tab-icon {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+/* ── Content ── */
+.settings-page__body {
   flex: 1;
   min-height: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.settings-tablist {
-  width: 176px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--color-border-muted);
-  padding: var(--space-2) 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: var(--color-surface-2);
-}
-
-.settings-tab {
-  justify-content: flex-start;
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: 450;
-  gap: var(--space-3);
-  border-radius: 0;
-}
-
-.tab-icon { font-size: 0.8rem; }
-
-.settings-panels {
-  flex: 1;
   overflow-y: auto;
-  padding: var(--space-6);
 }
-
-:deep(.tab-content)  { display: flex; flex-direction: column; gap: var(--space-4); }
-:deep(.tab-toolbar)  { display: flex; justify-content: flex-end; }
-:deep(.empty-row)    { padding: var(--space-8); text-align: center; color: var(--color-text-muted); font-size: var(--text-sm); }
 </style>
