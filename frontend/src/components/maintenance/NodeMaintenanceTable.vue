@@ -24,6 +24,7 @@
             icon="pi pi-sync"
             size="small"
             :disabled="store.operationRunning"
+            :pt="{ root: { style: 'padding-inline: 1rem' } }"
             @click="store.openWizard()"
         />
       </div>
@@ -206,7 +207,7 @@ async function handleToggle(nodeId: number, enter: boolean) {
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 /* ── Drift / Error ───────────────────────────────────── */

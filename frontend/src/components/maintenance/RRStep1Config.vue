@@ -54,10 +54,10 @@
           :step="30"
           show-buttons
           size="small"
-          style="width: 140px"
+          class="timeout-input"
       />
       <span class="timeout-hint">
-        If a node doesn’t reach SYNCED within this time, the operation fails.
+        If a node doesn't reach SYNCED within this time, the operation fails.
       </span>
     </div>
 
@@ -74,6 +74,7 @@
           icon="pi pi-sync"
           :loading="starting"
           :disabled="store.nodeOrder.length === 0"
+          :pt="{ root: { style: 'padding-inline: 1.25rem; gap: 0.5rem' } }"
           @click="handleStart"
       />
     </div>
@@ -131,14 +132,14 @@ async function handleStart() {
 </script>
 
 <style scoped>
-/* ── Layout ──────────────────────────────────────────── */
+/* ── Layout ──────────────────────────────────────────────────────────────── */
 .wizard-step {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
 }
 
-/* ── Header ──────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────────── */
 .step-header {
   display: flex;
   flex-direction: column;
@@ -155,7 +156,7 @@ async function handleStart() {
   line-height: 1.6;
 }
 
-/* ── Node order section ───────────────────────────────── */
+/* ── Node order section ──────────────────────────────────────────────────── */
 .node-order-section {
   display: flex;
   flex-direction: column;
@@ -229,7 +230,7 @@ async function handleStart() {
   color: var(--color-text-muted);
 }
 
-/* ── Timeout row ─────────────────────────────────────── */
+/* ── Timeout row ─────────────────────────────────────────────────────────── */
 .timeout-row {
   display: flex;
   flex-wrap: wrap;
@@ -256,6 +257,14 @@ async function handleStart() {
   color: var(--color-text-muted);
   font-weight: 400;
 }
+
+/* InputNumber — фиксированная ширина убрана, flex-shrink:0 не даёт сжаться */
+.timeout-input {
+  flex-shrink: 0;
+  width: 130px;
+  max-width: 100%;
+}
+
 .timeout-hint {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
@@ -263,7 +272,7 @@ async function handleStart() {
   margin-top: calc(-1 * var(--space-1));
 }
 
-/* ── Error ───────────────────────────────────────────── */
+/* ── Error ───────────────────────────────────────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -277,7 +286,7 @@ async function handleStart() {
 }
 .error-alert .pi { flex-shrink: 0; }
 
-/* ── Actions ─────────────────────────────────────────── */
+/* ── Actions ─────────────────────────────────────────────────────────────── */
 .step-actions {
   display: flex;
   justify-content: flex-end;

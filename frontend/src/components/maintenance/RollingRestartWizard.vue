@@ -11,7 +11,11 @@
       :close-on-escape="!store.operationRunning"
       :dismissable-mask="false"
       :style="{ width: '700px' }"
-      :pt="{ content: { style: 'padding: 1.5rem 1.75rem 1.75rem' } }"
+      :pt="{
+        root: { style: 'max-width: calc(100vw - 2rem)' },
+        content: { style: 'padding: 1.75rem 2rem 2rem' },
+        header: { style: 'padding: 1.25rem 2rem' },
+      }"
       @hide="store.closeWizard()"
   >
     <!-- Stepper -->
