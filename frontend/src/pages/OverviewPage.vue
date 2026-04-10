@@ -1,17 +1,16 @@
 <!-- ТЗ раздел 10: ClusterSummaryBar + NodeCard × N + ArbitratorCard × N + EventLog -->
 <script setup lang="ts">
-import { computed } from 'vue'
-import { onUnmounted } from 'vue'
+import { computed, onUnmounted } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
 import { useEventsStore } from '@/stores/events'
+import { useSettingsStore } from '@/stores/settings'
 import { onWsEvent } from '@/stores/ws'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
-import { useSettingsStore } from '@/stores/settings'
 
 const clusterStore = useClusterStore()
 const eventsStore = useEventsStore()
@@ -21,15 +20,6 @@ const queryClient = useQueryClient()
 const clusterId = computed(() => clusterStore.selectedClusterId!)
 
 // Главный запрос страницы — GET /api/clusters/{id}/status
-const { data: status, isLoading, isError } = useQuery({
-  queryKey: computed(() => ['cluster', clusterId.value, 'status']),
-  queryFn: () =>
-      api.get(`/api/clusters/${clusterId.value}/status`).then((r) => r.data),
-  refetchInterval: 10_000,
-  staleTime: 5_000,
-  enabled: computed(() => !!clusterId.value),
-})
-
 const { data: status, isLoading, isError } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'status']),
   queryFn: () => {
@@ -42,8 +32,6 @@ const { data: status, isLoading, isError } = useQuery({
 })
 
 const unsubscribe = onWsEvent((event) => {
-  // убрать полностью — AppLayout уже делает это глобально
-  // если нужна локальная логика — оставить с отпиской:
   if (
       event.cluster_id === clusterId.value &&
       (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed')
@@ -113,17 +101,19 @@ onUnmounted(() => unsubscribe())
               size="small"
               text
               icon="pi pi-trash"
-              @click="eventsStore.clear(clusterId.value)"
+              @click="eventsStore.clear(clusterId)"
           />
         </div>
         <EventLog :entries="eventsStore.entries" :loading="eventsStore.loading" />
       </section>
     </template>
-  </div>
-</template>
-<template v-else>
-  <div class="loading-state">
-    <span>Нет данных</span>
+
+    <!-- Нет данных -->
+    <template v-else>
+      <div class="loading-state">
+        <span>Нет данных</span>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -134,7 +124,13 @@ onUnmounted(() => unsubscribe())
   gap: 1.5rem;
 }
 
-.loading-state { color: var(--p-text-muted-color); }
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
 .section-title  { color: var(--p-text-muted-color); }
 
 .section-header {
