@@ -35,15 +35,12 @@
     </Column>
 
     <!-- Read-only -->
-    <Column field="read_only" header="R/O" style="width: 70px">
+    <Column field="readonly" header="R/O" ...>
       <template #body="{ data }">
-        <Tag
-            v-if="data.read_only !== null"
-            :value="data.read_only ? 'RO' : 'RW'"
-            :severity="data.read_only ? 'warn' : 'success'"
-            class="text-xs"
+        <Tag v-if="data.readonly !== null"
+             :value="data.readonly ? 'RO' : 'RW'"
+             :severity="data.readonly ? 'warn' : 'success'"
         />
-        <span v-else class="text-muted-color text-xs">—</span>
       </template>
     </Column>
 
@@ -97,11 +94,9 @@
     </Column>
 
     <!-- Last seen -->
-    <Column field="last_seen" header="Last seen" style="width: 120px">
+    <Column field="last_check_ts" header="Last seen" ...>
       <template #body="{ data }">
-        <span class="text-xs text-muted-color">
-          {{ data.last_seen ? formatRelative(data.last_seen) : '—' }}
-        </span>
+        {{ data.last_check_ts ? formatRelative(data.last_check_ts) : '—' }}
       </template>
     </Column>
 
@@ -123,7 +118,9 @@
 </template>
 
 <script setup lang="ts">
-import { DataTable, Column, Tag } from 'primevue'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Tag from 'primevue/tag'
 import NodeStatusBadge from './NodeStatusBadge.vue'
 import NodeActionMenu from './NodeActionMenu.vue'
 import type { NodeListItem } from '@/api/nodes'
@@ -142,15 +139,23 @@ const emit = defineEmits<{
 
 function fcClass(val: number | null) {
   if (val === null) return ''
-  if (val > 0.1) return 'text-red-500'
-  if (val > 0.01) return 'text-yellow-500'
-  return 'text-green-500'
+  if (val > 0.1)   return 'val-danger'
+  if (val > 0.01)  return 'val-warn'
+  return 'val-ok'
 }
 
 function recvClass(val: number | null) {
   if (val === null) return ''
-  if (val > 10) return 'text-red-500'
-  if (val > 2) return 'text-yellow-500'
+  if (val > 10) return 'val-danger'
+  if (val > 2)  return 'val-warn'
   return ''
 }
 </script>
+
+<style scoped>
+.val-danger { color: var(--color-notification); }
+.val-warn   { color: var(--color-gold); }
+.val-ok     { color: var(--color-success); }
+.node-host  { color: var(--color-text-muted); font-family: monospace; }
+.col-muted  { color: var(--color-text-muted); }
+</style>
