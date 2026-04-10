@@ -10,12 +10,10 @@ from models import metadata
 logger = logging.getLogger(__name__)
 
 # ── Engine ────────────────────────────────────────────────────────────────────
-# check_same_thread=False required for SQLite when FastAPI uses a threadpool.
-# Per ТЗ раздел 2: БД хранится в /data/orchestrator.db (Docker volume).
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False},
-    echo=False,  # Set True for SQL debug logging
+    echo=False,
 )
 
 
@@ -24,21 +22,15 @@ engine = create_engine(
 def init_db() -> None:
     """
     Create all tables and seed required initial data.
-
-    Called once at application startup (synchronously, from @app.on_event).
     Safe to call multiple times — CREATE IF NOT EXISTS + INSERT OR IGNORE.
-
-    Seeds:
-      - contours: 'test', 'prod'  (per ТЗ раздел 2.1)
-      - system_settings: single row with defaults  (per ТЗ раздел 2.7)
     """
     logger.info("Initialising database at %s", settings.DATABASE_URL)
 
-    # Create all tables defined in models.py
     metadata.create_all(engine)
     logger.info("Tables created (or already exist)")
 
     with engine.begin() as conn:
+        _migrate_system_settings(conn)
         _seed_contours(conn)
         _seed_system_settings(conn)
 
@@ -48,10 +40,6 @@ def init_db() -> None:
 # ── Connection dependency ─────────────────────────────────────────────────────
 
 def get_connection() -> Generator[Connection, None, None]:
-    """
-    FastAPI Depends-совместимый генератор соединения.
-    engine.begin() — транзакция, auto-commit on exit, auto-rollback on exception.
-    """
     with engine.begin() as conn:
         try:
             yield conn
@@ -60,13 +48,37 @@ def get_connection() -> Generator[Connection, None, None]:
             raise
 
 
+# ── Migrations (additive, safe to re-run) ────────────────────────────────────
+
+def _migrate_system_settings(conn) -> None:
+    """
+    Добавляет колонки в system_settings если их нет.
+    ALTER TABLE IF NOT EXISTS column — SQLite не поддерживает IF NOT EXISTS,
+    поэтому проверяем через PRAGMA table_info.
+    """
+    existing = {
+        row[1]
+        for row in conn.execute(text("PRAGMA table_info(system_settings)")).fetchall()
+    }
+
+    pending = [
+        (
+            "rolling_restart_timeout_sec",
+            "ALTER TABLE system_settings ADD COLUMN rolling_restart_timeout_sec INTEGER NOT NULL DEFAULT 300",
+        ),
+        # Сюда добавлять новые колонки по мере роста схемы:
+        # ("new_column", "ALTER TABLE system_settings ADD COLUMN new_column TEXT"),
+    ]
+
+    for col_name, sql in pending:
+        if col_name not in existing:
+            conn.execute(text(sql))
+            logger.info("Migration: added column system_settings.%s", col_name)
+
+
 # ── Seed helpers ──────────────────────────────────────────────────────────────
 
 def _seed_contours(conn) -> None:
-    """
-    Seed the two canonical contours per ТЗ раздел 2.1.
-    Uses INSERT OR IGNORE so re-runs are safe.
-    """
     conn.execute(
         text("INSERT OR IGNORE INTO contours (name) VALUES (:name)"),
         [{"name": "test"}, {"name": "prod"}],
@@ -81,16 +93,19 @@ def _seed_system_settings(conn) -> None:
             text(
                 """
                 INSERT INTO system_settings
-                    (polling_interval_sec, event_log_limit, timezone, updated_at)
+                    (polling_interval_sec, event_log_limit, timezone,
+                     rolling_restart_timeout_sec, updated_at)
                 VALUES
-                    (:polling_interval_sec, :event_log_limit, :timezone, :updated_at)
+                    (:polling_interval_sec, :event_log_limit, :timezone,
+                     :rolling_restart_timeout_sec, :updated_at)
                 """
             ),
             {
                 "polling_interval_sec": 5,
                 "event_log_limit": 200,
                 "timezone": "UTC",
-                "updated_at": datetime.now(timezone.utc),  # ← было utcnow()
+                "rolling_restart_timeout_sec": 300,
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         logger.debug("system_settings seeded with defaults")
