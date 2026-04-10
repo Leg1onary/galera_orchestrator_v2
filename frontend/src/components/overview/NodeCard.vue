@@ -12,12 +12,12 @@ interface NodeLive {
   host: string
   port: number
   dc?: { name: string } | null
-  wsrep_local_state_comment: string | null
-  wsrep_cluster_status: string | null
-  wsrep_cluster_size: number | null
-  wsrep_flow_control_paused: number | null
-  wsrep_local_recv_queue: number | null
-  wsrep_ready: string | null
+  wsrep_local_state_comment: string | null | undefined
+  wsrep_cluster_status: string | null | undefined
+  wsrep_cluster_size: number | null | undefined
+  wsrep_flow_control_paused: number | null | undefined
+  wsrep_local_recv_queue: number | null | undefined
+  wsrep_ready: string | null | undefined
   ssh_ok: boolean
   readonly: boolean
 }
@@ -57,12 +57,21 @@ const STATE_MAP: Record<string, { label: string; cls: string; severity: string }
 const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
 
 // recv queue — 0..100 mapped to knob (cap at 100)
+// ?? 0 защищает от undefined (поле отсутствует в ответе API)
 const recvQueuePct = computed(() => {
   const v = props.node.wsrep_local_recv_queue ?? 0
   return Math.min(v, 100)
 })
 const recvQueueWarn = computed(() => (props.node.wsrep_local_recv_queue ?? 0) > 0)
 const flowWarn      = computed(() => (props.node.wsrep_flow_control_paused ?? 0) > 0)
+
+// Безопасное форматирование flow control:
+// v == null ловит и null и undefined — в отличие от !== null
+const flowControlDisplay = computed(() => {
+  const v = props.node.wsrep_flow_control_paused
+  if (v == null) return '—'
+  return v.toFixed(3)
+})
 
 async function execAction(action: NodeAction) {
   actionLoading.value = action
@@ -158,8 +167,7 @@ const splitItems = computed(() => [
           <div class="nc-metric">
             <span class="nc-mk">flow ctrl</span>
             <span class="nc-mv" :class="flowWarn ? 'nc-mv--warn' : ''">
-              {{ node.wsrep_flow_control_paused !== null
-                ? node.wsrep_flow_control_paused.toFixed(3) : '—' }}
+              {{ flowControlDisplay }}
             </span>
           </div>
         </div>
