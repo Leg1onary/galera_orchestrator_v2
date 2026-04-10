@@ -21,7 +21,7 @@ const isFinished = computed(() =>
   ['success', 'failed', 'cancelled'].includes(activeOp.value.status)
 )
 
-// ── Live UTC clock ────────────────────────────────────────────────────
+// ── Live UTC clock ──────────────────────────────────────────────
 const nowStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
@@ -36,14 +36,13 @@ function tick() {
 onMounted(() => { tick(); clockTimer = setInterval(tick, 1000) })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 
-// ── Op label ─────────────────────────────────────────────────────────
+// ── Op labels ───────────────────────────────────────────────────
 const OP_LABELS: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
   'recovery-rejoin':    'Rejoin',
   'rolling-restart':    'Rolling restart',
   'node-action':        'Node action',
 }
-
 const STATUS_LABEL: Record<string, string> = {
   pending:          'queued',
   running:          'running',
@@ -53,10 +52,10 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled:        'cancelled',
 }
 
-const opTypeLabel  = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
+const opTypeLabel   = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
 const opStatusLabel = computed(() => STATUS_LABEL[activeOp.value?.status ?? ''] ?? activeOp.value?.status ?? '')
 
-// ── Op elapsed timer ─────────────────────────────────────────────────
+// ── Elapsed timer ───────────────────────────────────────────────
 const elapsedStr = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -76,9 +75,9 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 <template>
   <footer class="app-footer">
 
-    <!-- LEFT: build info -->
+    <!-- LEFT -->
     <div class="footer-left">
-      <svg width="13" height="13" viewBox="0 0 22 22" fill="none" aria-hidden="true" class="footer-logo">
+      <svg width="16" height="16" viewBox="0 0 22 22" fill="none" aria-hidden="true" class="footer-logo">
         <circle cx="11" cy="11" r="10" stroke="#2dd4bf" stroke-width="1.5" opacity="0.3"/>
         <circle cx="11" cy="11" r="6"  stroke="#2dd4bf" stroke-width="1.5" opacity="0.55"/>
         <circle cx="11" cy="11" r="2.5" fill="#2dd4bf" opacity="0.8"/>
@@ -87,10 +86,8 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
       <span class="footer-version">v2</span>
     </div>
 
-    <!-- CENTER: active operation or idle pulse -->
+    <!-- CENTER -->
     <div class="footer-center">
-
-      <!-- Running operation -->
       <template v-if="isRunning && activeOp">
         <span class="op-dot op-dot--running" />
         <span class="op-type">{{ opTypeLabel }}</span>
@@ -99,7 +96,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
         <span v-if="elapsedStr" class="op-elapsed">{{ elapsedStr }}</span>
       </template>
 
-      <!-- Finished operation flash -->
       <template v-else-if="isFinished && activeOp">
         <span :class="['op-dot', activeOp.status === 'success' ? 'op-dot--success' : 'op-dot--error']" />
         <span class="op-type">{{ opTypeLabel }}</span>
@@ -109,15 +105,13 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
         </span>
       </template>
 
-      <!-- Idle: subtle system heartbeat -->
       <template v-else>
         <span class="idle-dot" />
         <span class="idle-text">system idle</span>
       </template>
-
     </div>
 
-    <!-- RIGHT: live UTC clock -->
+    <!-- RIGHT -->
     <div class="footer-right">
       <span class="footer-clock-label">UTC</span>
       <span class="footer-clock">{{ nowStr }}</span>
@@ -127,14 +121,13 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 </template>
 
 <style scoped>
-/* ── Shell ── */
 .app-footer {
-  height: var(--footer-height, 32px);
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-5);
-  border-top: 1px solid rgba(255,255,255,0.04);
+  padding: 0 var(--space-6);
+  border-top: 1px solid rgba(255,255,255,0.05);
   flex-shrink: 0;
   background: #0a0b0e;
   gap: var(--space-4);
@@ -149,26 +142,26 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   flex-shrink: 0;
 }
 
-.footer-logo { opacity: 0.7; flex-shrink: 0; }
+.footer-logo { opacity: 0.75; flex-shrink: 0; }
 
 .footer-brand {
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: #3f3f46;
-  letter-spacing: 0.03em;
+  color: #52525b;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 .footer-version {
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: #2dd4bf;
   background: rgba(45,212,191,0.08);
-  border: 1px solid rgba(45,212,191,0.15);
-  border-radius: 3px;
-  padding: 1px 4px;
+  border: 1px solid rgba(45,212,191,0.18);
+  border-radius: 4px;
+  padding: 1px 6px;
   letter-spacing: 0.04em;
-  line-height: 1;
+  line-height: 1.4;
 }
 
 /* ── Center ── */
@@ -181,61 +174,60 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   min-width: 0;
 }
 
-/* Op indicator dot */
 .op-dot {
-  width: 6px; height: 6px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .op-dot--running {
   background: #2dd4bf;
-  box-shadow: 0 0 6px rgba(45,212,191,0.7);
+  box-shadow: 0 0 7px rgba(45,212,191,0.75);
   animation: blink 1.2s ease-in-out infinite;
 }
 .op-dot--success {
   background: #4ade80;
-  box-shadow: 0 0 5px rgba(74,222,128,0.5);
+  box-shadow: 0 0 6px rgba(74,222,128,0.55);
 }
 .op-dot--error {
   background: #f87171;
-  box-shadow: 0 0 5px rgba(248,113,113,0.5);
+  box-shadow: 0 0 6px rgba(248,113,113,0.55);
 }
 @keyframes blink {
-  0%, 100% { opacity: 1;   box-shadow: 0 0 6px rgba(45,212,191,0.7); }
-  50%       { opacity: 0.4; box-shadow: 0 0 2px rgba(45,212,191,0.2); }
+  0%, 100% { opacity: 1;   box-shadow: 0 0 7px rgba(45,212,191,0.75); }
+  50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2); }
 }
 
-.op-type    { font-size: 0.7rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
-.op-sep     { font-size: 0.7rem; color: #3f3f46; }
-.op-status  { font-size: 0.7rem; color: #2dd4bf; font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-type   { font-size: 0.8rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-sep    { font-size: 0.8rem; color: #3f3f46; }
+.op-status { font-size: 0.8rem; color: #2dd4bf; font-family: var(--font-mono, monospace); white-space: nowrap; }
 .op-status--ok  { color: #4ade80; }
 .op-status--err { color: #f87171; }
+
 .op-elapsed {
-  font-size: 0.65rem;
-  color: #52525b;
+  font-size: 0.75rem;
+  color: #71717a;
   font-family: var(--font-mono, monospace);
-  background: rgba(255,255,255,0.04);
-  padding: 1px 5px;
-  border-radius: 3px;
+  background: rgba(255,255,255,0.05);
+  padding: 2px 7px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 
-/* Idle state */
 .idle-dot {
-  width: 5px; height: 5px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: #27272a;
-  box-shadow: 0 0 0 1px #3f3f46;
+  box-shadow: 0 0 0 1.5px #3f3f46;
   animation: idle-pulse 3s ease-in-out infinite;
 }
 @keyframes idle-pulse {
-  0%, 100% { opacity: 0.5; }
-  50%       { opacity: 1; }
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.9; }
 }
 .idle-text {
-  font-size: 0.65rem;
-  color: #3f3f46;
-  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  color: #52525b;
+  letter-spacing: 0.04em;
   font-family: var(--font-mono, monospace);
 }
 
@@ -243,26 +235,25 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 .footer-right {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 5px;
   flex-shrink: 0;
 }
 
 .footer-clock-label {
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: #3f3f46;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 .footer-clock {
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   font-family: var(--font-mono, monospace);
   font-weight: 500;
-  color: #52525b;
-  letter-spacing: 0.05em;
-  /* моноширинные цифры — не скачут при смене секунд */
+  color: #71717a;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   transition: color 300ms ease;
 }
-.footer-clock:hover { color: #71717a; }
+.footer-clock:hover { color: #a1a1aa; }
 </style>
