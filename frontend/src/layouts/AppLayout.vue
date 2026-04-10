@@ -1,17 +1,36 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useClusterStore } from '@/stores/cluster'
+import { useWsStore }      from '@/stores/ws'
 import AppHeader  from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppFooter  from '@/components/AppFooter.vue'
 
-const route = useRoute()
+const route        = useRoute()
+const clusterStore = useClusterStore()
+const wsStore      = useWsStore()
 
-// Правильно через ref — computed+localStorage не реактивен
+// Загружаем контуры при монтировании layout (один раз за сессию).
+// loadContours внутри вызывает loadClusters + восстанавливает выбор из localStorage.
+clusterStore.loadContours()
+
+// WS: подключаемся при смене кластера
+watch(
+  () => clusterStore.selectedClusterId,
+  (id) => {
+    if (id != null) wsStore.connect(id)
+    else wsStore.disconnect()
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => wsStore.disconnect())
+
+// Sidebar collapse
 const sidebarCollapsed = ref<boolean>(
   JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false')
 )
-
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
   localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed.value))

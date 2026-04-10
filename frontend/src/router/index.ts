@@ -2,15 +2,14 @@
 // Guard: один вызов checkAuth() до первого resolved, потом смотрим isAuthenticated.
 // Lazy-load всех страниц кроме Login (она маленькая и нужна сразу).
 // Персистентность: последний роут сохраняется в localStorage (go2-last-route).
-// Overview — дефолтный маршрут, не персистируется (всегда доступен напрямую).
+// Overview — дефолтный маршрут. Редирект на last route только при прямом заходе
+// (navigationId === 1, т.е. первая навигация в сессии). Явный клик по Overview — работает.
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginPage from '@/pages/LoginPage.vue'
 
 const LS_LAST_ROUTE = 'go2-last-route'
 
-// Роуты по имени, которые НЕ сохраняем в localStorage.
-// overview — дефолт, всегда доступен без persist.
 const SKIP_PERSIST = new Set<string>(['login', 'overview', 'not-found'])
 
 const router = createRouter({
@@ -78,7 +77,6 @@ const router = createRouter({
     ],
 })
 
-// ТЗ раздел 4.2: guard через GET /api/auth/me
 router.beforeEach(async (to) => {
     const auth = useAuthStore()
 
@@ -86,13 +84,12 @@ router.beforeEach(async (to) => {
         try {
             await auth.checkAuth()
         } catch {
-            // Сеть недоступна или 500 — authChecked выставлен в auth.ts в finally
+            // сеть недоступна — authChecked выставлен в finally
         }
     }
 
     if (to.meta.public) {
         if (auth.isAuthenticated && to.name === 'login') {
-            // Авторизованный идёт на /login — редиректим на последний роут или overview
             const last = localStorage.getItem(LS_LAST_ROUTE)
             return last ? last : { name: 'overview' }
         }
@@ -103,16 +100,16 @@ router.beforeEach(async (to) => {
         return { name: 'login', query: { redirect: to.fullPath } }
     }
 
-    // Авторизован и явно навигирует на overview (F5 на '/', клик по ссылке http://.../) —
-    // восстанавливаем последний роут если есть.
-    // Не перехватываем другие маршруты — иначе бы заблокировались навигация через sidebar.
-    if (to.name === 'overview') {
+    // Восстанавливаем last route ТОЛЬКО при первом заходе на overview (прямой URL / F5).
+    // router.currentRoute.value.name === null означает что это первая навигация в сессии.
+    // Если пользователь явно кликнул по Overview в сайдбаре — currentRoute уже имеет имя,
+    // редиректить не нужно.
+    if (to.name === 'overview' && router.currentRoute.value.name == null) {
         const last = localStorage.getItem(LS_LAST_ROUTE)
-        if (last) return last
+        if (last && last !== '/') return last
     }
 })
 
-// Сохраняем текущий роут после каждой навигации в пределах protectёд роутов
 router.afterEach((to) => {
     const name = String(to.name ?? '')
     if (!to.meta.public && !SKIP_PERSIST.has(name)) {
