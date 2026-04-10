@@ -1,78 +1,143 @@
 <script setup lang="ts">
-// ── Types (ТЗ 7.4) ────────────────────────────────────────────────────────
-interface ArbitratorLive {
+interface Arbitrator {
   id: number
   name: string
   host: string
-  state: 'online' | 'degraded' | 'offline'
-  ssh_ok: boolean
-  garbd_running: boolean
-  latency_ssh_ms: number | null
+  port: number
+  dc?: { name: string } | null
+  is_reachable?: boolean | null
 }
 
-defineProps<{ arbitrator: ArbitratorLive }>()
-
-// Цвета состояний арбитратора (ТЗ 7.4)
-// Согласованы с NodeCard: online=SYNCED, degraded=warn, offline=OFFLINE
-const STATE_COLORS: Record<ArbitratorLive['state'], string> = {
-  online:   '#22c55e',
-  degraded: '#f97316',
-  offline:  '#ef4444',
-}
+const props = defineProps<{ arbitrator: Arbitrator }>()
 </script>
 
 <template>
-  <div class="arb-card">
-    <div class="arb-header">
-      <span
-          class="state-dot"
-          :style="{ background: STATE_COLORS[arbitrator.state] ?? '#94a3b8' }"
-      />
-      <span class="arb-name">{{ arbitrator.name }}</span>
-      <span class="arb-host">{{ arbitrator.host }}</span>
-    </div>
-    <div class="arb-metrics">
-      <div class="metric">
-        <span class="mk">SSH</span>
-        <span class="mv">
-          <i :class="arbitrator.ssh_ok ? 'pi pi-check' : 'pi pi-times'" />
-        </span>
+  <article class="arb-card anim-fade-in">
+    <div class="arb-stripe" :class="arbitrator.is_reachable ? 'arb-stripe--ok' : 'arb-stripe--fail'" />
+    <div class="arb-body">
+      <div class="arb-header">
+        <div class="arb-title-group">
+          <span class="arb-name">{{ arbitrator.name }}</span>
+          <span v-if="arbitrator.dc?.name" class="arb-dc">{{ arbitrator.dc.name }}</span>
+        </div>
+        <div :class="['arb-badge', arbitrator.is_reachable ? 'arb-badge--ok' : 'arb-badge--fail']">
+          <span class="arb-dot" />
+          {{ arbitrator.is_reachable ? 'Reachable' : 'Unreachable' }}
+        </div>
       </div>
-      <div class="metric">
-        <span class="mk">garbd</span>
-        <span class="mv">{{ arbitrator.garbd_running ? 'running' : 'stopped' }}</span>
-      </div>
-      <div class="metric">
-        <span class="mk">Latency</span>
-        <span class="mv">
-          {{ arbitrator.latency_ssh_ms != null ? `${arbitrator.latency_ssh_ms}ms` : '—' }}
-        </span>
+      <div class="arb-host">
+        <span>{{ arbitrator.host }}:{{ arbitrator.port }}</span>
+        <span class="arb-tag">arbitrator</span>
       </div>
     </div>
-  </div>
+  </article>
 </template>
 
 <style scoped>
 .arb-card {
+  display: flex;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  overflow: hidden;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.arb-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.arb-stripe {
+  width: 3px;
+  flex-shrink: 0;
+}
+
+.arb-stripe--ok   { background: var(--color-synced); }
+.arb-stripe--fail { background: var(--color-offline); }
+
+.arb-body {
+  flex: 1;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
 }
-.arb-header { display: flex; align-items: center; gap: var(--space-2); }
-.state-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.arb-name { font-weight: 600; font-size: var(--text-sm); }
-.arb-host { font-size: var(--text-xs); color: var(--color-text-muted); margin-left: auto; }
-.arb-metrics { display: flex; gap: var(--space-4); }
-.metric { display: flex; flex-direction: column; gap: var(--space-1); }
-.mk {
+
+.arb-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.arb-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.arb-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arb-dc {
   font-size: var(--text-xs);
+  color: var(--color-text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
+  font-weight: 500;
+}
+
+.arb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.arb-badge--ok   { background: var(--color-synced-dim);  color: var(--color-synced);  border-color: rgba(74,222,128,0.20); }
+.arb-badge--fail { background: var(--color-offline-dim); color: var(--color-offline); border-color: rgba(248,113,113,0.20); }
+
+.arb-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.arb-host {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
   color: var(--color-text-muted);
 }
-.mv { font-size: var(--text-sm); font-weight: 600; }
+
+.arb-tag {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
 </style>

@@ -31,7 +31,6 @@ const isLocked = computed(() => {
   return op && ['pending', 'running', 'cancel_requested'].includes(op.status)
 })
 
-// ── State derivation (ТЗ 7.3) ──────────────────────────────────────────────
 const nodeState = computed(() => {
   const n = props.node
   const raw = (n.wsrep_local_state_comment ?? '').toUpperCase()
@@ -41,21 +40,19 @@ const nodeState = computed(() => {
   return raw || 'UNKNOWN'
 })
 
-const stateConfig = computed(() => {
-  const configs: Record<string, { label: string; color: string; dim: string; glowColor: string }> = {
-    SYNCED:     { label: 'Synced',    color: '#22c55e', dim: 'rgba(34,197,94,0.12)',   glowColor: 'rgba(34,197,94,0.4)' },
-    SYNCED_RO:  { label: 'Synced RO', color: '#eab308', dim: 'rgba(234,179,8,0.12)',   glowColor: 'rgba(234,179,8,0.4)' },
-    DONOR:      { label: 'Donor',     color: '#38bdf8', dim: 'rgba(56,189,248,0.12)',  glowColor: 'rgba(56,189,248,0.4)' },
-    JOINER:     { label: 'Joiner',    color: '#38bdf8', dim: 'rgba(56,189,248,0.12)',  glowColor: 'rgba(56,189,248,0.4)' },
-    DESYNCED:   { label: 'Desynced',  color: '#38bdf8', dim: 'rgba(56,189,248,0.12)',  glowColor: 'rgba(56,189,248,0.4)' },
-    NOT_READY:  { label: 'Not Ready', color: '#f97316', dim: 'rgba(249,115,22,0.12)', glowColor: 'rgba(249,115,22,0.4)' },
-    OFFLINE:    { label: 'Offline',   color: '#ef4444', dim: 'rgba(239,68,68,0.12)',   glowColor: 'rgba(239,68,68,0.4)' },
-    UNKNOWN:    { label: 'Unknown',   color: '#64748b', dim: 'rgba(100,116,139,0.12)', glowColor: 'rgba(100,116,139,0.4)' },
-  }
-  return configs[nodeState.value] ?? configs.UNKNOWN
-})
+const STATE_MAP: Record<string, { label: string; cls: string; cssVar: string }> = {
+  SYNCED:     { label: 'Synced',    cls: 'synced',   cssVar: '--color-synced' },
+  SYNCED_RO:  { label: 'Synced RO', cls: 'readonly', cssVar: '--color-readonly' },
+  DONOR:      { label: 'Donor',     cls: 'donor',    cssVar: '--color-donor' },
+  JOINER:     { label: 'Joiner',    cls: 'donor',    cssVar: '--color-donor' },
+  DESYNCED:   { label: 'Desynced',  cls: 'donor',    cssVar: '--color-donor' },
+  NOT_READY:  { label: 'Not Ready', cls: 'degraded', cssVar: '--color-degraded' },
+  OFFLINE:    { label: 'Offline',   cls: 'offline',  cssVar: '--color-offline' },
+  UNKNOWN:    { label: 'Unknown',   cls: 'unknown',  cssVar: '--color-text-muted' },
+}
 
-// ── Actions ────────────────────────────────────────────────────────────────
+const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
+
 const DESTRUCTIVE = new Set<NodeAction>(['stop', 'restart', 'rejoin-force'])
 
 async function runAction(action: NodeAction) {
@@ -70,123 +67,172 @@ async function ping() {
 </script>
 
 <template>
-  <div
-      class="node-card anim-fade-in"
-      :style="{ '--state-color': stateConfig.color, '--state-dim': stateConfig.dim, '--state-glow': stateConfig.glowColor }"
+  <article
+    class="node-card anim-fade-in"
+    :class="'node-card--' + stateInfo.cls"
   >
-    <!-- Header -->
-    <div class="nc-header">
-      <div class="nc-state-bar" />
-      <div class="nc-title">
-        <span class="nc-name">{{ node.name }}</span>
-        <span v-if="node.dc?.name" class="nc-dc">{{ node.dc.name }}</span>
-      </div>
-      <div class="nc-state-badge">
-        <span class="nc-state-dot" />
-        <span class="nc-state-label">{{ stateConfig.label }}</span>
-      </div>
-    </div>
+    <!-- Left state stripe -->
+    <div class="nc-stripe" aria-hidden="true" />
 
-    <!-- Host -->
-    <div class="nc-host">
-      <i class="pi pi-server" style="font-size: 0.7rem; opacity: 0.4" />
-      <span>{{ node.host }}:{{ node.port }}</span>
-      <span class="nc-mode" :class="node.readonly ? 'nc-mode--ro' : 'nc-mode--rw'">
-        {{ node.readonly ? 'RO' : 'RW' }}
-      </span>
-    </div>
+    <div class="nc-body">
+      <!-- Header row -->
+      <div class="nc-header">
+        <div class="nc-title-group">
+          <span class="nc-name">{{ node.name }}</span>
+          <span v-if="node.dc?.name" class="nc-dc">{{ node.dc.name }}</span>
+        </div>
+        <div :class="['nc-badge', 'nc-badge--' + stateInfo.cls]">
+          <span class="nc-dot" />
+          {{ stateInfo.label }}
+        </div>
+      </div>
 
-    <!-- Metrics grid -->
-    <div class="nc-metrics">
-      <div class="nc-metric">
-        <span class="nc-mk">wsrep_size</span>
-        <span class="nc-mv">{{ node.wsrep_cluster_size ?? '—' }}</span>
-      </div>
-      <div class="nc-metric">
-        <span class="nc-mk">cluster_status</span>
-        <span class="nc-mv">{{ node.wsrep_cluster_status ?? '—' }}</span>
-      </div>
-      <div class="nc-metric">
-        <span class="nc-mk">flow_ctrl</span>
-        <span class="nc-mv" :class="(node.wsrep_flow_control_paused ?? 0) > 0 ? 'nc-mv--warn' : ''">
-          {{ node.wsrep_flow_control_paused !== null ? node.wsrep_flow_control_paused.toFixed(3) : '—' }}
+      <!-- Host row -->
+      <div class="nc-host">
+        <span class="nc-host-addr">{{ node.host }}:{{ node.port }}</span>
+        <span class="nc-mode" :class="node.readonly ? 'nc-mode--ro' : 'nc-mode--rw'">
+          {{ node.readonly ? 'RO' : 'RW' }}
         </span>
       </div>
-      <div class="nc-metric">
-        <span class="nc-mk">recv_queue</span>
-        <span class="nc-mv" :class="(node.wsrep_local_recv_queue ?? 0) > 0 ? 'nc-mv--warn' : ''">
-          {{ node.wsrep_local_recv_queue ?? '—' }}
-        </span>
+
+      <!-- Metrics grid -->
+      <div class="nc-metrics">
+        <div class="nc-metric">
+          <span class="nc-mk">cluster size</span>
+          <span class="nc-mv">{{ node.wsrep_cluster_size ?? '—' }}</span>
+        </div>
+        <div class="nc-metric">
+          <span class="nc-mk">status</span>
+          <span class="nc-mv">{{ node.wsrep_cluster_status ?? '—' }}</span>
+        </div>
+        <div class="nc-metric">
+          <span class="nc-mk">flow ctrl</span>
+          <span
+            class="nc-mv"
+            :class="(node.wsrep_flow_control_paused ?? 0) > 0 ? 'nc-mv--warn' : ''"
+          >
+            {{ node.wsrep_flow_control_paused !== null
+              ? node.wsrep_flow_control_paused.toFixed(3)
+              : '—' }}
+          </span>
+        </div>
+        <div class="nc-metric">
+          <span class="nc-mk">recv queue</span>
+          <span
+            class="nc-mv"
+            :class="(node.wsrep_local_recv_queue ?? 0) > 0 ? 'nc-mv--warn' : ''"
+          >
+            {{ node.wsrep_local_recv_queue ?? '—' }}
+          </span>
+        </div>
+      </div>
+
+      <!-- SSH indicator -->
+      <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
+        <i :class="node.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
+        <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
+      </div>
+
+      <!-- Actions -->
+      <div class="nc-actions">
+        <button
+          class="nc-action"
+          v-tooltip.top="'Ping'"
+          @click.stop="ping"
+          aria-label="Ping node"
+        >
+          <i class="pi pi-wifi" />
+        </button>
+        <button
+          class="nc-action"
+          v-tooltip.top="'Restart'"
+          :disabled="!!(isLocked)"
+          @click.stop="runAction('restart')"
+          aria-label="Restart node"
+        >
+          <i class="pi pi-refresh" />
+        </button>
+        <button
+          class="nc-action nc-action--danger"
+          v-tooltip.top="'Stop'"
+          :disabled="!!(isLocked)"
+          @click.stop="runAction('stop')"
+          aria-label="Stop node"
+        >
+          <i class="pi pi-stop" />
+        </button>
+        <button
+          class="nc-action"
+          v-tooltip.top="'Force rejoin'"
+          :disabled="!!(isLocked)"
+          @click.stop="runAction('rejoin-force')"
+          aria-label="Force rejoin"
+        >
+          <i class="pi pi-sign-in" />
+        </button>
       </div>
     </div>
-
-    <!-- SSH status -->
-    <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
-      <i :class="node.ssh_ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
-      <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
-    </div>
-
-    <!-- Actions -->
-    <div class="nc-actions">
-      <button class="nc-btn nc-btn--default" @click="runAction('start')" title="Start">Start</button>
-      <button class="nc-btn nc-btn--danger" :disabled="!!isLocked" @click="runAction('stop')" title="Stop">Stop</button>
-      <button class="nc-btn nc-btn--warn" :disabled="!!isLocked" @click="runAction('restart')" title="Restart">Restart</button>
-      <button class="nc-btn nc-btn--warn" :disabled="!!isLocked" @click="runAction('rejoin-force')" title="Rejoin">Rejoin</button>
-      <button class="nc-btn nc-btn--subtle" @click="runAction('set-readonly')" title="Set Read Only">RO</button>
-      <button class="nc-btn nc-btn--subtle" @click="runAction('set-readwrite')" title="Set Read Write">RW</button>
-      <button class="nc-btn nc-btn--subtle" @click="ping()" title="Ping">Ping</button>
-    </div>
-  </div>
+  </article>
 </template>
 
 <style scoped>
 .node-card {
+  display: flex;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
   transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
-}
-
-.node-card:hover {
-  border-color: var(--state-color);
-  box-shadow: 0 0 20px rgba(from var(--state-color) r g b / 0.08), inset 0 0 0 1px rgba(from var(--state-color) r g b / 0.05);
-}
-
-/* ── State bar (top color strip) ── */
-.nc-state-bar {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--state-color);
-  box-shadow: 0 0 8px var(--state-glow);
-  opacity: 0.85;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
-
-/* ── Header ── */
-.nc-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-4) var(--space-2);
-  padding-top: calc(var(--space-4) + 4px); /* account for state bar */
   position: relative;
 }
 
-.nc-title {
+.node-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+/* State stripe (left border) */
+.nc-stripe {
+  width: 3px;
+  flex-shrink: 0;
+  background: var(--color-text-faint);
+  transition: background var(--transition-normal);
+}
+
+.node-card--synced   .nc-stripe { background: var(--color-synced); }
+.node-card--readonly .nc-stripe { background: var(--color-readonly); }
+.node-card--donor    .nc-stripe { background: var(--color-donor); }
+.node-card--degraded .nc-stripe { background: var(--color-degraded); }
+.node-card--offline  .nc-stripe { background: var(--color-offline); }
+.node-card--unknown  .nc-stripe { background: var(--color-text-muted); }
+
+.nc-body {
   flex: 1;
+  padding: var(--space-4);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* Header */
+.nc-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--space-2);
+}
+
+.nc-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .nc-name {
+  font-size: var(--text-md);
   font-weight: 600;
-  font-size: var(--text-base);
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -195,187 +241,149 @@ async function ping() {
 
 .nc-dc {
   font-size: var(--text-xs);
-  color: var(--color-primary);
-  background: var(--color-primary-dim);
-  border: 1px solid rgba(45,212,191,0.2);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   font-weight: 500;
-  flex-shrink: 0;
 }
 
-/* ── State badge ── */
-.nc-state-badge {
-  display: flex;
+/* Status badge */
+.nc-badge {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: var(--radius-xl);
-  background: var(--state-dim);
-  border: 1px solid color-mix(in srgb, var(--state-color) 30%, transparent);
-  flex-shrink: 0;
-}
-
-.nc-state-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--state-color);
-  box-shadow: 0 0 6px var(--state-glow);
-  animation: pulse-dot 2.5s ease-in-out infinite;
-}
-
-.nc-state-label {
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--state-color);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-/* ── Host ── */
+.nc-badge--synced   { background: var(--color-synced-dim);    color: var(--color-synced);   border-color: rgba(74,222,128,0.20); }
+.nc-badge--readonly { background: var(--color-readonly-dim);  color: var(--color-readonly); border-color: rgba(251,191,36,0.20); }
+.nc-badge--donor    { background: var(--color-donor-dim);     color: var(--color-donor);    border-color: rgba(96,165,250,0.20); }
+.nc-badge--degraded { background: var(--color-degraded-dim);  color: var(--color-degraded); border-color: rgba(251,146,60,0.20); }
+.nc-badge--offline  { background: var(--color-offline-dim);   color: var(--color-offline);  border-color: rgba(248,113,113,0.20); }
+.nc-badge--unknown  { background: rgba(100,116,139,0.10); color: var(--color-text-muted); border-color: rgba(100,116,139,0.20); }
+
+.nc-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Host row */
 .nc-host {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-4) var(--space-3);
+}
+
+.nc-host-addr {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
   font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nc-mode {
-  margin-left: auto;
-  font-family: var(--font-body);
   font-size: var(--text-xs);
   font-weight: 700;
-  padding: 1px 7px;
-  border-radius: var(--radius-xl);
   letter-spacing: 0.05em;
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  flex-shrink: 0;
 }
 
-.nc-mode--rw {
-  background: rgba(45,212,191,0.12);
-  color: var(--color-primary);
-  border: 1px solid rgba(45,212,191,0.25);
-}
+.nc-mode--rw { background: rgba(74,222,128,0.10); color: var(--color-synced); }
+.nc-mode--ro { background: rgba(251,191,36,0.10); color: var(--color-readonly); }
 
-.nc-mode--ro {
-  background: rgba(234,179,8,0.12);
-  color: var(--color-readonly);
-  border: 1px solid rgba(234,179,8,0.25);
-}
-
-/* ── Metrics ── */
+/* Metrics grid */
 .nc-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  padding: 0 var(--space-4) var(--space-3);
-  row-gap: var(--space-2);
-  column-gap: var(--space-4);
+  gap: var(--space-2) var(--space-3);
 }
 
 .nc-metric {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .nc-mk {
   font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--color-text-faint);
-  font-family: var(--font-mono);
+  font-weight: 500;
 }
 
 .nc-mv {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
+  font-family: var(--font-mono);
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
 }
 
 .nc-mv--warn { color: var(--color-degraded); }
 
-/* ── SSH status ── */
+/* SSH indicator */
 .nc-ssh {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  gap: var(--space-1);
   font-size: var(--text-xs);
   font-weight: 500;
+}
+
+.nc-ssh i { font-size: 0.6rem; }
+.nc-ssh--ok   { color: var(--color-text-faint); }
+.nc-ssh--fail { color: var(--color-offline); }
+
+/* Actions */
+.nc-actions {
+  display: flex;
+  gap: var(--space-1);
+  padding-top: var(--space-1);
   border-top: 1px solid var(--color-border-muted);
 }
 
-.nc-ssh--ok   { color: var(--color-synced); }
-.nc-ssh--fail { color: var(--color-error); }
-
-/* ── Actions ── */
-.nc-actions {
+.nc-action {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-2);
-  border-top: 1px solid var(--color-border);
-}
-
-.nc-btn {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 3px 10px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-family: var(--font-body);
-  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  transition: all var(--transition-normal);
+  font-size: 0.75rem;
 }
 
-.nc-btn:disabled {
+.nc-action:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+
+.nc-action--danger:hover:not(:disabled) {
+  color: var(--color-error);
+  background: var(--color-offline-dim);
+}
+
+.nc-action:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.nc-btn--default {
-  background: rgba(45,212,191,0.08);
-  color: var(--color-primary);
-  border-color: rgba(45,212,191,0.2);
-}
-.nc-btn--default:hover:not(:disabled) {
-  background: rgba(45,212,191,0.15);
-  border-color: rgba(45,212,191,0.4);
-}
-
-.nc-btn--danger {
-  background: rgba(239,68,68,0.08);
-  color: var(--color-error);
-  border-color: rgba(239,68,68,0.2);
-}
-.nc-btn--danger:hover:not(:disabled) {
-  background: rgba(239,68,68,0.15);
-  border-color: rgba(239,68,68,0.4);
-}
-
-.nc-btn--warn {
-  background: rgba(249,115,22,0.08);
-  color: var(--color-degraded);
-  border-color: rgba(249,115,22,0.2);
-}
-.nc-btn--warn:hover:not(:disabled) {
-  background: rgba(249,115,22,0.15);
-  border-color: rgba(249,115,22,0.4);
-}
-
-.nc-btn--subtle {
-  background: transparent;
-  color: var(--color-text-muted);
-  border-color: var(--color-border-muted);
-}
-.nc-btn--subtle:hover:not(:disabled) {
-  background: var(--color-surface-4);
-  color: var(--color-text);
-  border-color: var(--color-border-hover);
 }
 </style>
