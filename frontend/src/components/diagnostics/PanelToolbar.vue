@@ -1,28 +1,35 @@
-<!-- Переиспользуемый тулбар для всех диагностических панелей -->
 <template>
   <div class="panel-toolbar">
-    <div class="panel-toolbar-left">
-      <span class="panel-title">{{ title }}</span>
-      <span v-if="fetchedAt" class="fetched-at">Updated {{ fetchedAt }}</span>
+    <div class="toolbar-left">
+      <h2 class="toolbar-title">{{ title }}</h2>
+      <span v-if="fetchedAt" class="toolbar-ts">
+        <i class="pi pi-clock" />
+        {{ fetchedAt }}
+      </span>
     </div>
-    <div class="panel-toolbar-right">
+
+    <div class="toolbar-right">
+      <!-- slot: node select, filters, etc. -->
       <slot />
-      <div class="auto-toggle">
+
+      <!-- auto-refresh toggle -->
+      <div class="auto-row">
         <ToggleSwitch
             :model-value="autoRefresh"
             size="small"
-            v-tooltip="'Auto-refresh every 15s'"
             @update:model-value="emit('toggle-auto', $event)"
         />
         <span class="auto-label">Auto</span>
       </div>
+
+      <!-- manual refresh -->
       <Button
           icon="pi pi-refresh"
           text
           rounded
           size="small"
           :loading="loading"
-          aria-label="Refresh"
+          v-tooltip="'Refresh now'"
           @click="emit('refresh')"
       />
     </div>
@@ -30,20 +37,18 @@
 </template>
 
 <script setup lang="ts">
-// BLOCKER fix: раздельные импорты
 import Button       from 'primevue/button'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 defineProps<{
-  title:        string
-  loading?:     boolean
-  fetchedAt?:   string | null
-  autoRefresh?: boolean
+  title:       string
+  loading?:    boolean
+  fetchedAt?:  string | null
+  autoRefresh: boolean
 }>()
 
-// MAJOR fix: toggle-auto передаёт новое значение
 const emit = defineEmits<{
-  refresh:       []
+  refresh:      []
   'toggle-auto': [value: boolean]
 }>()
 </script>
@@ -51,26 +56,52 @@ const emit = defineEmits<{
 <style scoped>
 .panel-toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-divider);
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  gap: var(--space-4);
+  flex-wrap: wrap;
 }
-.panel-toolbar-left  { display: flex; align-items: baseline; gap: var(--space-3); }
-.panel-toolbar-right { display: flex; align-items: center; gap: var(--space-2); }
 
-/* MAJOR fix: заменяем Tailwind flex/gap/text-xs/text-muted-color */
-.auto-toggle {
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.toolbar-title {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+.toolbar-ts {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.toolbar-ts .pi { font-size: 0.65rem; }
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .auto-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+  font-weight: 500;
 }
-
-.panel-title { font-size: var(--text-base); font-weight: 600; }
-.fetched-at  { font-size: var(--text-xs); color: var(--color-text-faint); }
 </style>

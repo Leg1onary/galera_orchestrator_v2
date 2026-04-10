@@ -8,39 +8,25 @@
         @refresh="refetch()"
         @toggle-auto="autoRefresh = $event"
     >
-      <!-- MAJOR fix: inline style → class -->
       <Select
           v-model="selectedNodeId"
           :options="nodeOptions"
           option-label="label"
           option-value="value"
-          placeholder="Select node…"
+          placeholder="Select node"
           size="small"
           class="node-select"
       />
-      <!-- MAJOR fix: utility классы → scoped -->
-      <div class="lines-control">
-        <span class="lines-label">Lines</span>
-        <Select
-            v-model="linesCount"
-            :options="LINE_OPTIONS"
-            option-label="label"
-            option-value="value"
-            size="small"
-            class="lines-select"
-        />
-      </div>
-      <div class="level-toggles">
-        <ToggleButton
-            v-for="lvl in LEVELS"
-            :key="lvl"
-            v-model="levelFilter[lvl]"
-            :on-label="lvl"
-            :off-label="lvl"
-            size="small"
-            :class="`level-btn level-btn--${lvl.toLowerCase()}`"
-        />
-      </div>
+      <InputNumber
+          v-model="lineCount"
+          :min="10"
+          :max="1000"
+          :step="50"
+          show-buttons
+          size="small"
+          class="lines-input"
+          v-tooltip="'Number of lines'"
+      />
     </PanelToolbar>
 
     <div v-if="error" class="error-alert">
@@ -48,223 +34,168 @@
       {{ error.message }}
     </div>
 
-    <div v-if="!selectedNodeId" class="empty-state-inline">
-      <i class="pi pi-info-circle" />
-      Select a node to view error log.
-    </div>
-
-    <template v-else>
-      <!-- MAJOR fix: utility классы mb-2, ml-auto, text-xs, text-muted-color → scoped -->
-      <div v-if="data" class="stats-bar">
-        <span class="stat" v-for="lvl in LEVELS" :key="lvl">
-          <span :class="`dot dot--${lvl.toLowerCase()}`" />
-          {{ countByLevel(lvl) }} {{ lvl }}
-        </span>
-        <span class="stats-source">
-          Showing last {{ data.total_lines }} lines from {{ data.node_name }}
-        </span>
+    <template v-else-if="data">
+      <!-- LEGEND -->
+      <div class="log-legend">
+        <span class="legend-item legend-item--error"><i class="pi pi-circle-fill" /> Error</span>
+        <span class="legend-item legend-item--warn"><i class="pi pi-circle-fill" /> Warning</span>
+        <span class="legend-item legend-item--note"><i class="pi pi-circle-fill" /> Note</span>
       </div>
 
-      <!-- MAJOR fix: inline style → scoped класс -->
-      <VirtualScroller
-          :items="filteredLines"
-          :item-size="22"
-          class="log-scroller"
-          :lazy="false"
-      >
-        <template #item="{ item }">
-          <div class="log-line" :class="`log-line--${item.level.toLowerCase()}`">
-            <span class="log-lineno">{{ item.line_no }}</span>
-            <span v-if="item.timestamp" class="log-ts">{{ item.timestamp }}</span>
-            <span class="log-badge" :class="`badge--${item.level.toLowerCase()}`">
-              {{ item.level }}
-            </span>
-            <span class="log-text">{{ stripTimestamp(item.raw) }}</span>
-          </div>
-        </template>
-        <template #loader>
-          <div class="log-line log-line--loader">Loading…</div>
-        </template>
-      </VirtualScroller>
+      <div class="log-wrap">
+        <div v-if="!data.lines.length" class="log-empty">
+          <i class="pi pi-check-circle" /> No log entries found.
+        </div>
+        <div
+            v-for="(line, idx) in data.lines"
+            :key="idx"
+            class="log-line"
+            :class="lineClass(line)"
+        >
+          <span class="log-num">{{ data.lines.length - idx }}</span>
+          <span class="log-text">{{ line }}</span>
+        </div>
+      </div>
     </template>
+
+    <div v-else-if="!isLoading" class="empty-state">
+      <div class="empty-icon"><i class="pi pi-file-edit" /></div>
+      <p>Select a node and click refresh to load the error log.</p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
-import { useQuery, keepPreviousData } from '@tanstack/vue-query'
-// BLOCKER fix: раздельные импорты
-import Select         from 'primevue/select'
-import ToggleButton   from 'primevue/togglebutton'
-import VirtualScroller from 'primevue/virtualscroller'
-import { useClusterStore }                from '@/stores/cluster'
-import { diagnosticsApi, type ErrorLogLine } from '@/api/diagnostics'
-import PanelToolbar                       from './PanelToolbar.vue'
-import { useDiagAutoRefresh }             from '@/composables/useDiagAutoRefresh'
-import { useNodeOptions }                 from '@/composables/useNodeOptions'
+import { ref, computed } from 'vue'
+import { useQuery }      from '@tanstack/vue-query'
+import Select      from 'primevue/select'
+import InputNumber from 'primevue/inputnumber'
+import { useClusterStore }   from '@/stores/cluster'
+import { diagnosticsApi }    from '@/api/diagnostics'
+import PanelToolbar          from './PanelToolbar.vue'
+import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
+import { useNodeOptions }     from '@/composables/useNodeOptions'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
 const selectedNodeId = ref<number | undefined>(undefined)
-const linesCount     = ref(200)
+const lineCount      = ref(200)
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
-const LEVELS = ['ERROR', 'WARNING', 'NOTE', 'SYSTEM'] as const
-const LINE_OPTIONS = [
-  { label: '100',  value: 100  },
-  { label: '200',  value: 200  },
-  { label: '500',  value: 500  },
-  { label: '1000', value: 1000 },
-]
-
-const levelFilter = reactive<Record<string, boolean>>({
-  ERROR:   true,
-  WARNING: true,
-  NOTE:    false,
-  SYSTEM:  false,
-  UNKNOWN: true,
-})
-
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-  queryKey: computed(() => [
-    'diag-errorlog',
-    clusterStore.selectedClusterId,
-    selectedNodeId.value,
-    linesCount.value,
-  ]),
-  queryFn: () =>
-      diagnosticsApi.getErrorLog(
-          clusterStore.selectedClusterId!,
-          selectedNodeId.value!,
-          linesCount.value,
-      ),
-  enabled:          computed(() => props.active && !!clusterStore.selectedClusterId && !!selectedNodeId.value),
+  queryKey: computed(() => ['diag-errorlog', clusterStore.selectedClusterId, selectedNodeId.value, lineCount.value]),
+  queryFn: () => diagnosticsApi.getErrorLog(clusterStore.selectedClusterId!, selectedNodeId.value!, lineCount.value),
+  enabled: computed(() => props.active && !!clusterStore.selectedClusterId && !!selectedNodeId.value),
   refetchInterval,
-  staleTime:        0,
-  // MINOR fix: не мигаем пустым состоянием при смене linesCount
-  placeholderData:  keepPreviousData,
+  staleTime: 0,
 })
 
 const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
-const filteredLines = computed((): ErrorLogLine[] => {
-  if (!data.value) return []
-  return data.value.lines.filter((l) => levelFilter[l.level] !== false)
-})
-
-function countByLevel(lvl: string): number {
-  return data.value?.lines.filter((l) => l.level === lvl).length ?? 0
-}
-
-function stripTimestamp(raw: string): string {
-  return raw.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+/, '')
+function lineClass(line: string): string {
+  const l = line.toLowerCase()
+  if (l.includes('[error]') || l.includes('[fatal]')) return 'log-line--error'
+  if (l.includes('[warning]') || l.includes('[warn]'))  return 'log-line--warn'
+  if (l.includes('[note]'))                              return 'log-line--note'
+  return ''
 }
 </script>
 
 <style scoped>
-/* MAJOR fix: utility классы → scoped */
-.node-select  { width: 180px; }
-.lines-select { width: 90px; }
+.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.lines-control {
+.node-select  { width: 180px; }
+.lines-input  { width: 110px; }
+
+/* LEGEND */
+.log-legend {
   display: flex;
+  gap: var(--space-4);
   align-items: center;
-  gap: var(--space-2);
 }
-.lines-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-.level-toggles {
+.legend-item {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
+.legend-item .pi { font-size: 0.5rem; }
+.legend-item--error .pi { color: var(--color-error); }
+.legend-item--warn  .pi { color: var(--color-warning); }
+.legend-item--note  .pi { color: var(--color-primary); }
 
-/* MAJOR fix: stats-bar без utility ml-auto, mb-2 */
-.stats-bar {
+/* LOG */
+.log-wrap {
   display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
-}
-.stats-source {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  margin-left: auto;   /* вместо ml-auto */
-}
-
-/* MAJOR fix: VirtualScroller без inline style */
-.log-scroller {
-  height: 520px;
+  flex-direction: column;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  max-height: 560px;
+  overflow-y: auto;
 }
-.log-line--loader { color: var(--color-text-muted); }
-
-.stat { display: flex; align-items: center; gap: var(--space-1); }
-.dot  { width: 8px; height: 8px; border-radius: var(--radius-full); flex-shrink: 0; }
-.dot--error   { background: var(--color-error); }
-.dot--warning { background: var(--color-warning); }
-.dot--note    { background: var(--color-blue); }
-.dot--system  { background: var(--color-text-faint); }
-
 .log-line {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: 2px var(--space-3);
-  font-size: 0.7rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  line-height: 22px;
+  gap: var(--space-3);
+  padding: 3px var(--space-4);
   border-bottom: 1px solid var(--color-divider);
+  line-height: 1.6;
+  transition: background 100ms ease;
 }
-.log-line--error   { background: color-mix(in oklch, var(--color-error) 4%, transparent); }
-.log-line--warning { background: color-mix(in oklch, var(--color-warning) 4%, transparent); }
-.log-lineno { min-width: 44px; color: var(--color-text-faint); text-align: right; flex-shrink: 0; }
-.log-ts     { min-width: 155px; color: var(--color-text-muted); flex-shrink: 0; }
-.log-badge  {
-  min-width: 60px;
-  font-weight: 700;
-  text-align: center;
-  border-radius: var(--radius-sm);
-  padding: 0 4px;
+.log-line:last-child { border-bottom: none; }
+.log-line:hover { background: var(--color-surface-dynamic); }
+
+.log-num {
   flex-shrink: 0;
-  font-size: 0.65rem;
+  width: 40px;
+  text-align: right;
+  color: var(--color-text-faint);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
 }
-.badge--error   { color: var(--color-error);   background: color-mix(in oklch, var(--color-error) 15%, transparent); }
-.badge--warning { color: var(--color-warning); background: color-mix(in oklch, var(--color-warning) 15%, transparent); }
-.badge--note    { color: var(--color-blue);    background: color-mix(in oklch, var(--color-blue) 12%, transparent); }
-.badge--system  { color: var(--color-text-muted); background: var(--color-surface-offset); }
-.badge--unknown { color: var(--color-text-muted); background: var(--color-surface-offset); }
-.log-text   { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); }
+.log-text {
+  flex: 1;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
-:deep(.level-btn--error.p-togglebutton-checked)   { --p-togglebutton-checked-background: color-mix(in oklch, var(--color-error) 15%, transparent); color: var(--color-error); }
-:deep(.level-btn--warning.p-togglebutton-checked) { --p-togglebutton-checked-background: color-mix(in oklch, var(--color-warning) 15%, transparent); color: var(--color-warning); }
-:deep(.level-btn--note.p-togglebutton-checked)    { --p-togglebutton-checked-background: color-mix(in oklch, var(--color-blue) 12%, transparent); color: var(--color-blue); }
+.log-line--error { background: color-mix(in oklch, var(--color-error) 8%, transparent); }
+.log-line--error .log-text { color: var(--color-error); }
+.log-line--warn  { background: color-mix(in oklch, var(--color-warning) 7%, transparent); }
+.log-line--warn  .log-text { color: var(--color-warning); }
+.log-line--note  .log-text { color: var(--color-primary); }
 
+.log-empty {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: var(--space-8);
+  color: var(--color-text-faint); font-size: var(--text-sm);
+}
+
+/* ERROR */
 .error-alert {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: color-mix(in oklch, var(--color-error) 10%, transparent);
-  color: var(--color-error);
-  font-size: var(--text-sm);
+  border: 1px solid color-mix(in oklch, var(--color-error) 25%, transparent);
+  color: var(--color-error); font-size: var(--text-sm);
 }
-.empty-state-inline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-12);
+  color: var(--color-text-muted); font-size: var(--text-sm); text-align: center;
+}
+.empty-icon {
+  width: 48px; height: 48px; border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-surface-offset); color: var(--color-text-faint); font-size: 1.2rem;
 }
 </style>
