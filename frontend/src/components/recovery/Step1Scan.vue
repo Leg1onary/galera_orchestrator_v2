@@ -16,7 +16,7 @@
         <i class="pi pi-search" />
       </div>
       <p class="state-idle-hint">No scan performed yet.</p>
-      <Button label="Start scan" icon="pi pi-play" @click="store.scan()" />
+      <Button label="Start scan" icon="pi pi-play" class="idle-btn" @click="store.scan()" />
     </div>
 
     <!-- SCANNING -->
@@ -183,22 +183,33 @@ const hasReachableNodes = computed(() =>
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-6);
   padding: var(--space-16) 0;
   flex: 1;
 }
 .state-idle-icon {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-surface-offset);
   color: var(--color-text-faint);
-  font-size: 1.4rem;
+  font-size: 1.8rem;
+  border: 1px solid var(--color-border);
 }
-.state-idle-hint { font-size: var(--text-sm); color: var(--color-text-muted); }
+.state-idle-hint {
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+}
+
+/* Bigger idle button */
+.state-idle :deep(.idle-btn.p-button) {
+  padding: var(--space-3) var(--space-8);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
 
 /* SCANNING STATE */
 .state-scanning {
