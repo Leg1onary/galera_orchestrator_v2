@@ -1,12 +1,10 @@
 <template>
-  <div class="doc-card" :class="`doc-card--${badge.toLowerCase()}`">
+  <div class="doc-card">
     <div class="doc-card__header">
       <span class="doc-card__title">{{ title }}</span>
-      <Tag
-          :value="BADGE_CONFIG[badge].label"
-          :severity="BADGE_CONFIG[badge].severity as any"
-          class="doc-card__badge"
-      />
+      <span class="doc-card__badge" :class="`doc-card__badge--${badge.toLowerCase()}`">
+        {{ badge }}
+      </span>
     </div>
 
     <p class="doc-card__description">{{ description }}</p>
@@ -37,19 +35,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Tag, Button } from 'primevue'
+import { Button } from 'primevue'
 import { type DocBadge } from '@/data/docs'
-
-type PrimeSeverity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast'
-
-// fix: убран export — script setup не поддерживает ES module exports
-const BADGE_CONFIG: Record<DocBadge, { severity: PrimeSeverity; label: string }> = {
-  Safe:    { severity: 'success',   label: 'Safe' },
-  Danger:  { severity: 'danger',    label: 'Danger' },
-  Warning: { severity: 'warn',      label: 'Warning' },
-  Action:  { severity: 'info',      label: 'Action' },
-  Info:    { severity: 'secondary', label: 'Info' },
-}
 
 const props = defineProps<{
   title: string
@@ -83,30 +70,27 @@ async function handleCopy() {
 <style scoped>
 .doc-card {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid rgba(255,255,255,0.06);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  transition: box-shadow var(--transition-interactive);
+  gap: var(--space-4);
+  transition: box-shadow 200ms ease, border-color 200ms ease, transform 200ms ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.3);
 }
 .doc-card:hover {
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.3);
+  border-color: rgba(45,212,191,0.15);
+  transform: translateY(-1px);
 }
 
-/* Left accent bar by badge type */
-.doc-card--danger  { border-left: 3px solid var(--color-error); }
-.doc-card--warning { border-left: 3px solid var(--color-warning); }
-.doc-card--safe    { border-left: 3px solid var(--color-success); }
-.doc-card--action  { border-left: 3px solid var(--color-primary); }
-.doc-card--info    { border-left: 3px solid var(--color-border); }
-
+/* ── Header ── */
 .doc-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 .doc-card__title {
   font-size: var(--text-base);
@@ -114,11 +98,48 @@ async function handleCopy() {
   color: var(--color-text);
   line-height: 1.3;
 }
+
+/* ── Badge ── */
 .doc-card__badge {
   flex-shrink: 0;
-  font-size: var(--text-xs);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
+.doc-card__badge--safe {
+  background: rgba(68,215,128,0.12);
+  color: #4ade80;
+  border: 1px solid rgba(68,215,128,0.25);
+}
+.doc-card__badge--danger {
+  background: rgba(248,113,113,0.12);
+  color: #f87171;
+  border: 1px solid rgba(248,113,113,0.25);
+}
+.doc-card__badge--warning {
+  background: rgba(251,191,36,0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,0.25);
+}
+.doc-card__badge--action {
+  background: rgba(45,212,191,0.1);
+  color: #2dd4bf;
+  border: 1px solid rgba(45,212,191,0.22);
+}
+.doc-card__badge--info {
+  background: rgba(148,163,184,0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148,163,184,0.2);
+}
+
+/* ── Description ── */
 .doc-card__description {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
@@ -126,10 +147,10 @@ async function handleCopy() {
   max-width: none;
 }
 
-/* Code block */
+/* ── Code block ── */
 .doc-card__code-block {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
+  background: #0d0e12;
+  border: 1px solid rgba(255,255,255,0.06);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -138,7 +159,8 @@ async function handleCopy() {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
 }
 .doc-card__code-lang {
   font-size: var(--text-xs);
@@ -156,27 +178,30 @@ async function handleCopy() {
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-xs);
   font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-  color: var(--color-text);
+  color: #a5f3fc;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
   overflow-x: auto;
 }
 
-/* Note */
+/* ── Note ── */
 .doc-card__note {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  background: var(--color-surface-offset);
+  background: rgba(45,212,191,0.04);
+  border: 1px solid rgba(45,212,191,0.1);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
+  line-height: 1.5;
 }
 .doc-card__note-icon {
   flex-shrink: 0;
   margin-top: 1px;
   color: var(--color-primary);
+  font-size: 0.75rem;
 }
 </style>

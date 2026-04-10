@@ -27,6 +27,7 @@ const navItems = computed((): NavItem[] => [
   { key: 'maintenance',label: 'Maintenance', icon: 'pi-wrench',       group: 'ops',      to: () => ({ name: 'maintenance', params: { clusterId: clusterId.value } }) },
   { key: 'diagnostics',label: 'Diagnostics', icon: 'pi-search',       group: 'ops',      to: () => ({ name: 'diagnostics', params: { clusterId: clusterId.value } }) },
   { key: 'settings',   label: 'Settings',    icon: 'pi-sliders-h',    group: 'system',   to: () => ({ name: 'settings',    params: { clusterId: clusterId.value } }) },
+  { key: 'docs',       label: 'Docs',        icon: 'pi-book',         group: 'system',   to: () => ({ name: 'docs',        params: { clusterId: clusterId.value } }) },
 ])
 
 const groups: { key: string; label: string }[] = [
@@ -68,7 +69,7 @@ function navigate(item: NavItem) {
       </button>
     </div>
 
-    <!-- Cluster selector (shows current cluster) -->
+    <!-- Cluster selector -->
     <div class="sidebar-cluster" v-if="clusterStore.currentCluster && !collapsed">
       <span class="cluster-label">cluster</span>
       <span class="cluster-name">{{ clusterStore.currentCluster.name }}</span>
@@ -121,7 +122,6 @@ function navigate(item: NavItem) {
 
 .sidebar--collapsed { width: var(--sidebar-width-collapsed); }
 
-/* ── Logo ── */
 .sidebar-logo {
   height: var(--header-height);
   display: flex;
@@ -169,7 +169,6 @@ function navigate(item: NavItem) {
   background: var(--color-surface-3);
 }
 
-/* ── Cluster badge ── */
 .sidebar-cluster {
   padding: var(--space-3) var(--space-4);
   margin: var(--space-3) var(--space-3) var(--space-2);
@@ -199,7 +198,6 @@ function navigate(item: NavItem) {
   font-family: var(--font-mono);
 }
 
-/* ── Nav ── */
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
@@ -281,6 +279,5 @@ function navigate(item: NavItem) {
   height: 16px;
   background: var(--color-primary);
   border-radius: 1px 0 0 1px;
-  margin-right: 0;
 }
 </style>

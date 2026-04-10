@@ -1,112 +1,104 @@
 <template>
-    <div class="docs-page">
-      <!-- ── Page header ───────────────────────────────────────────── -->
-      <div class="docs-page__header">
-        <h1 class="docs-page__title">Документация</h1>
-        <p class="docs-page__subtitle">
-          Справочник по командам, wsrep-переменным, архитектуре и типовым сценариям.
-        </p>
-      </div>
-
-      <!-- ── Search ─────────────────────────────────────────────────── -->
-      <div class="docs-page__search-wrap">
-        <IconField class="docs-page__search-input-wrap">
-          <InputIcon class="pi pi-search" />
-          <InputText
-              v-model="search"
-              placeholder="Поиск по заголовку, описанию, коду…"
-              class="docs-page__search"
-              size="large"
-              fluid />
-        </IconField>
-        <Button
-            v-if="search"
-            icon="pi pi-times"
-            text
-            rounded
-            class="docs-page__search-clear"
-            @click="clearSearch"
-        />
-      </div>
-
-      <!-- ── Search results (cross-tab) ────────────────────────────── -->
-      <template v-if="search.trim()">
-        <div v-if="searchResults.length === 0" class="docs-page__empty">
-          <i class="pi pi-search docs-page__empty-icon" />
-          <p>Ничего не найдено по запросу <strong>"{{ search }}"</strong></p>
-        </div>
-
-        <div v-else class="docs-page__search-results">
-          <div class="docs-page__search-count">
-            Найдено: {{ searchResults.length }} {{ plural(searchResults.length, 'карточка', 'карточки', 'карточек') }}
-          </div>
-
-          <!-- Group results by tab for readability -->
-          <template v-for="tabGroup in searchGrouped" :key="tabGroup.tabId">
-            <div class="docs-page__search-group">
-              <span class="docs-page__search-group-label">
-                {{ getTabLabel(tabGroup.tabId) }}
-              </span>
-              <div class="docs-section__grid">
-                <DocCard
-                    v-for="card in tabGroup.cards"
-                    :key="card.id"
-                    :title="card.title"
-                    :badge="card.badge"
-                    :description="card.description"
-                    :code="card.code"
-                    :note="card.note"
-                />
-              </div>
-            </div>
-          </template>
-        </div>
-      </template>
-
-      <!-- ── Tabbed view ────────────────────────────────────────────── -->
-      <template v-else>
-        <Tabs v-model:value="activeTab" lazy class="docs-page__tabs" :scrollable="true">
-          <TabList>
-            <Tab v-for="tab in DOC_TABS" :key="tab.id" :value="tab.id">
-              {{ tab.label }}
-            </Tab>
-          </TabList>
-          <TabPanels>
-            <TabPanel v-for="tab in DOC_TABS" :key="tab.id" :value="tab.id">
-              <DocSection
-                  v-for="section in getSections(tab.id)"
-                  :key="section.name"
-                  :section-name="section.name"
-                  :cards="section.cards"
-              />
-            </TabPanel>
-          </TabPanels>
-        </Tabs>
-      </template>
+  <div class="docs-page">
+    <!-- ── Page header ── -->
+    <div class="docs-page__header">
+      <h1 class="docs-page__title">Документация</h1>
+      <p class="docs-page__subtitle">
+        Справочник по командам, wsrep-переменным, архитектуре и типовым сценариям.
+      </p>
     </div>
+
+    <!-- ── Search ── -->
+    <div class="docs-page__search-wrap">
+      <div class="docs-page__search-box">
+        <i class="pi pi-search docs-page__search-icon" />
+        <input
+          v-model="search"
+          type="text"
+          placeholder="Поиск по заголовку, описанию, коду…"
+          class="docs-page__search-input"
+        />
+        <button
+          v-if="search"
+          class="docs-page__search-clear"
+          @click="clearSearch"
+          aria-label="Очистить поиск"
+        >
+          <i class="pi pi-times" />
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Search results ── -->
+    <template v-if="search.trim()">
+      <div v-if="searchResults.length === 0" class="docs-page__empty">
+        <i class="pi pi-search docs-page__empty-icon" />
+        <p>Ничего не найдено по запросу <strong>"{{ search }}"</strong></p>
+      </div>
+
+      <div v-else class="docs-page__search-results">
+        <div class="docs-page__search-count">
+          Найдено: {{ searchResults.length }} {{ plural(searchResults.length, 'карточка', 'карточки', 'карточек') }}
+        </div>
+        <template v-for="tabGroup in searchGrouped" :key="tabGroup.tabId">
+          <div class="docs-page__search-group">
+            <span class="docs-page__search-group-label">{{ getTabLabel(tabGroup.tabId) }}</span>
+            <div class="docs-section__grid">
+              <DocCard
+                v-for="card in tabGroup.cards"
+                :key="card.id"
+                :title="card.title"
+                :badge="card.badge"
+                :description="card.description"
+                :code="card.code"
+                :note="card.note"
+              />
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- ── Tabbed view ── -->
+    <template v-else>
+      <div class="docs-tabs">
+        <!-- Tab switcher -->
+        <div class="docs-tabs__nav" role="tablist">
+          <button
+            v-for="tab in DOC_TABS"
+            :key="tab.id"
+            role="tab"
+            :aria-selected="activeTab === tab.id"
+            class="docs-tabs__tab"
+            :class="{ 'docs-tabs__tab--active': activeTab === tab.id }"
+            @click="activeTab = tab.id"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+
+        <!-- Tab content -->
+        <div class="docs-tabs__content">
+          <DocSection
+            v-for="section in getSections(activeTab)"
+            :key="section.name"
+            :section-name="section.name"
+            :cards="section.cards"
+          />
+        </div>
+      </div>
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import Tabs from 'primevue/tabs'
-import TabList from 'primevue/tablist'
-import Tab from 'primevue/tab'
-import TabPanels from 'primevue/tabpanels'
-import TabPanel from 'primevue/tabpanel'
-import InputText from 'primevue/inputtext'
-import Button from 'primevue/button'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
+import { ref, computed } from 'vue'
 import DocCard from '@/components/docs/DocCard.vue'
 import DocSection from '@/components/docs/DocSection.vue'
 import { DOCS, DOC_TABS, type DocTab } from '@/data/docs'
 
-// ── Tabs ─────────────────────────────────────────────────────────────────────
 const activeTab = ref(DOC_TABS[0].id)
 
-// Lazy render: mark tab as rendered when first activated
-
-// ── Sections per tab ──────────────────────────────────────────────────────────
 function getSections(tabId: DocTab): { name: string; cards: typeof DOCS }[] {
   const cards = DOCS.filter((c) => c.tab === tabId)
   const sectionMap = new Map<string, typeof DOCS>()
@@ -117,19 +109,18 @@ function getSections(tabId: DocTab): { name: string; cards: typeof DOCS }[] {
   return Array.from(sectionMap.entries()).map(([name, cards]) => ({ name, cards }))
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
 const search = ref('')
 
 const searchResults = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return []
   return DOCS.filter(
-      (c) =>
-          c.title.toLowerCase().includes(q) ||
-          c.description.toLowerCase().includes(q) ||
-          (c.code ?? '').toLowerCase().includes(q) ||
-          (c.note ?? '').toLowerCase().includes(q) ||
-          c.section.toLowerCase().includes(q),
+    (c) =>
+      c.title.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      (c.code ?? '').toLowerCase().includes(q) ||
+      (c.note ?? '').toLowerCase().includes(q) ||
+      c.section.toLowerCase().includes(q),
   )
 })
 
@@ -142,15 +133,12 @@ const searchGrouped = computed(() => {
   return Array.from(groups.entries()).map(([tabId, cards]) => ({ tabId, cards }))
 })
 
-function clearSearch() {
-  search.value = ''
-}
+function clearSearch() { search.value = '' }
 
 function getTabLabel(tabId: DocTab): string {
   return DOC_TABS.find((t) => t.id === tabId)?.label ?? tabId
 }
 
-// ── Utils ─────────────────────────────────────────────────────────────────────
 function plural(n: number, one: string, few: string, many: string): string {
   const mod10 = n % 10
   const mod100 = n % 100
@@ -167,7 +155,7 @@ function plural(n: number, one: string, few: string, many: string): string {
   padding: var(--space-8) var(--space-6);
 }
 
-/* Header */
+/* ── Header ── */
 .docs-page__header {
   margin-bottom: var(--space-8);
 }
@@ -183,22 +171,75 @@ function plural(n: number, one: string, few: string, many: string): string {
   max-width: 60ch;
 }
 
-/* Search */
+/* ── Search ── */
 .docs-page__search-wrap {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   margin-bottom: var(--space-8);
   max-width: 560px;
 }
-.docs-page__search-input-wrap {
-  flex: 1;
+
+.docs-page__search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #13141a;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-lg);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
-.docs-page__search {
-  width: 100%;
+.docs-page__search-box:focus-within {
+  border-color: rgba(45,212,191,0.4);
+  box-shadow: 0 0 0 3px rgba(45,212,191,0.08);
 }
 
-/* Empty */
+.docs-page__search-icon {
+  position: absolute;
+  left: var(--space-4);
+  color: var(--color-text-faint);
+  font-size: 0.875rem;
+  pointer-events: none;
+  transition: color 180ms ease;
+}
+.docs-page__search-box:focus-within .docs-page__search-icon {
+  color: var(--color-primary);
+}
+
+.docs-page__search-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  padding: 0.75rem var(--space-4) 0.75rem 2.5rem;
+  line-height: 1.5;
+}
+.docs-page__search-input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.docs-page__search-clear {
+  flex-shrink: 0;
+  margin-right: var(--space-2);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-text-faint);
+  transition: all 180ms ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.docs-page__search-clear:hover {
+  color: var(--color-text);
+  background: rgba(255,255,255,0.06);
+}
+.docs-page__search-clear .pi { font-size: 0.75rem; }
+
+/* ── Empty state ── */
 .docs-page__empty {
   display: flex;
   flex-direction: column;
@@ -213,7 +254,7 @@ function plural(n: number, one: string, few: string, many: string): string {
   color: var(--color-text-faint);
 }
 
-/* Search results */
+/* ── Search results ── */
 .docs-page__search-count {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
@@ -232,23 +273,54 @@ function plural(n: number, one: string, few: string, many: string): string {
   margin-bottom: var(--space-3);
 }
 
-/* Tabs */
-.docs-page__tabs {
-  --p-tabview-tab-font-size: var(--text-sm);
+/* ── Custom tabs ── */
+.docs-tabs {}
+
+.docs-tabs__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: #13141a;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-8);
+  width: fit-content;
 }
 
-/* Section grid */
-.docs-section {
-  margin-bottom: var(--space-8);
-}
-.docs-section__title {
-  font-size: var(--text-base);
-  font-weight: 600;
+.docs-tabs__tab {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
   color: var(--color-text-muted);
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 180ms ease;
+  white-space: nowrap;
+  line-height: 1.4;
 }
+.docs-tabs__tab:hover {
+  color: var(--color-text);
+  background: rgba(255,255,255,0.05);
+}
+.docs-tabs__tab--active {
+  background: rgba(45,212,191,0.1);
+  color: #2dd4bf;
+  border: 1px solid rgba(45,212,191,0.2);
+}
+.docs-tabs__tab--active:hover {
+  background: rgba(45,212,191,0.15);
+}
+
+.docs-tabs__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-10);
+}
+
+/* Section grid (used by DocSection.vue and search results) */
 .docs-section__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
