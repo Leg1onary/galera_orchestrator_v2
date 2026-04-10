@@ -132,14 +132,14 @@ async function handleStart() {
 </script>
 
 <style scoped>
-/* ── Layout ──────────────────────────────────────────────────────────────── */
+/* ── Layout ──────────────────────────────────────────────────────────── */
 .wizard-step {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
 }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────── */
 .step-header {
   display: flex;
   flex-direction: column;
@@ -156,7 +156,7 @@ async function handleStart() {
   line-height: 1.6;
 }
 
-/* ── Node order section ──────────────────────────────────────────────────── */
+/* ── Node order section ──────────────────────────────────────────────── */
 .node-order-section {
   display: flex;
   flex-direction: column;
@@ -230,24 +230,59 @@ async function handleStart() {
   color: var(--color-text-muted);
 }
 
-/* ── Timeout row ─────────────────────────────────────────────────────────── */
+/* ── Timeout row ─────────────────────────────────────────────────────── */
+/*
+  Grid layout: [label auto-stretch] [input 130px fixed]
+  Hint занимает всю ширину на второй строке.
+  Так InputNumber физически ограничен своей grid-колонкой и не вылезает.
+*/
 .timeout-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 130px;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: var(--space-3);
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
   background: var(--color-surface-2);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
 }
+
 .timeout-label-wrap {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: 1 1 auto;
-  min-width: 160px;
+  min-width: 0;
 }
+
+.timeout-input {
+  grid-column: 2;
+  grid-row: 1;
+  width: 130px;
+  /* Ограничиваем внутренний p-inputtext чтобы не вылезал за grid-ячейку */
+}
+/* PrimeVue InputNumber рендерит .p-inputnumber > .p-inputtext внутри себя.
+   Без этого override input растягивается и выходит за границы. */
+:deep(.timeout-input.p-inputnumber) {
+  width: 130px;
+  max-width: 130px;
+  min-width: 0;
+}
+:deep(.timeout-input .p-inputtext) {
+  width: 100%;
+  min-width: 0;
+}
+
+.timeout-hint {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
 .field-label {
   font-size: var(--text-sm);
   font-weight: 600;
@@ -258,21 +293,7 @@ async function handleStart() {
   font-weight: 400;
 }
 
-/* InputNumber — фиксированная ширина убрана, flex-shrink:0 не даёт сжаться */
-.timeout-input {
-  flex-shrink: 0;
-  width: 130px;
-  max-width: 100%;
-}
-
-.timeout-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  flex: 1 1 100%;
-  margin-top: calc(-1 * var(--space-1));
-}
-
-/* ── Error ───────────────────────────────────────────────────────────────── */
+/* ── Error ───────────────────────────────────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -286,7 +307,7 @@ async function handleStart() {
 }
 .error-alert .pi { flex-shrink: 0; }
 
-/* ── Actions ─────────────────────────────────────────────────────────────── */
+/* ── Actions ─────────────────────────────────────────────────────────── */
 .step-actions {
   display: flex;
   justify-content: flex-end;
