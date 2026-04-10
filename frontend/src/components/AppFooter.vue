@@ -7,13 +7,14 @@ defineProps<{ wsStatus: WsStatus }>()
 const labels: Record<WsStatus, string> = {
   connected:    'Live',
   connecting:   'Connecting…',
+  reconnecting: 'Reconnecting…',
   disconnected: 'Disconnected',
 }
 </script>
 
 <template>
   <footer class="app-footer">
-    <span :class="['ws-indicator', `ws-${wsStatus}`]">
+    <span :class="['ws-indicator', `ws-${wsStatus}`]" aria-live="polite">
       <span class="ws-dot" />
       {{ labels[wsStatus] }}
     </span>
@@ -23,16 +24,9 @@ const labels: Record<WsStatus, string> = {
 
 <style scoped>
 .app-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 32px;
-  padding: 0 1.5rem;
-  background: #1a1f2e;
-  border-top: 1px solid #2a3040;
-  flex-shrink: 0;
-  font-size: 0.75rem;
-  color: #94a3b8;
+  background: var(--p-surface-section);
+  border-top: 1px solid var(--p-content-border-color);
+  color: var(--p-text-muted-color);
 }
 
 .ws-indicator {
@@ -49,16 +43,22 @@ const labels: Record<WsStatus, string> = {
   flex-shrink: 0;
 }
 
-.ws-connected    .ws-dot { background: #22c55e; }
-.ws-connecting   .ws-dot { background: #f59e0b; animation: pulse 1s infinite; }
-.ws-disconnected .ws-dot { background: #ef4444; }
+.ws-connected    .ws-dot { background: var(--p-green-500); }
+.ws-connecting   .ws-dot { background: var(--p-yellow-400); animation: pulse 1s infinite; }
+.ws-reconnecting .ws-dot { background: var(--p-orange-400); animation: pulse 1s infinite; }
+.ws-disconnected .ws-dot { background: var(--p-red-500); }
 
-.ws-connected    { color: #16a34a; }
-.ws-connecting   { color: #d97706; }
-.ws-disconnected { color: #dc2626; }
+.ws-connected    { color: var(--p-green-600); }
+.ws-connecting   { color: var(--p-yellow-600); }
+.ws-reconnecting { color: var(--p-orange-500); }
+.ws-disconnected { color: var(--p-red-600); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-dot { animation: none !important; }
 }
 </style>

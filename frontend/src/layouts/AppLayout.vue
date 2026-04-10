@@ -1,14 +1,16 @@
-<!-- ТЗ раздел 6.2–6.4: Header + Sidebar + Footer + <slot> -->
+<!-- layouts/AppLayout.vue -->
+<!-- ТЗ раздел 6.2–6.4: Header + Sidebar + Footer + RouterView -->
 <!-- Монтирует WS при выборе кластера, инвалидирует Vue Query при смене -->
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, onUnmounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import { useWsStore, onWsEvent } from '@/stores/ws'
 import { useOperationsStore } from '@/stores/operations'
 import { useEventsStore } from '@/stores/events'
+import { useQuery } from '@tanstack/vue-query'
 import { useSettingsStore } from '@/stores/settings'
 import AppHeader from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
@@ -22,36 +24,48 @@ const eventsStore = useEventsStore()
 const settingsStore = useSettingsStore()
 const queryClient = useQueryClient()
 const router = useRouter()
+const route = useRoute()
+
+const settingsStore = useSettingsStore()
+const { data: clusterStatusData } = useQuery({
+  queryKey: computed(() => ['cluster', clusterStore.selectedClusterId, 'status']),
+  queryFn: () => api.get(`/api/clusters/${clusterStore.selectedClusterId}/status`).then(r => r.data),
+  enabled: computed(() => !!clusterStore.selectedClusterId),
+  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
+  staleTime: 5_000,
+})
 
 // Загружаем контуры + системные настройки при монтировании layout
 onMounted(async () => {
   await Promise.all([
-    clusterStore.loadContours(),
+    clusterStore.loadContours(), // внутри выставляет selectedClusterId
     settingsStore.load(),
   ])
+  // После loadContours selectedClusterId уже известен — стартуем WS и events
+  if (clusterStore.selectedClusterId) {
+    wsStore.connect(clusterStore.selectedClusterId)
+    eventsStore.load(clusterStore.selectedClusterId)
+  }
 })
 
-// При смене кластера: WS переподключение + инвалидация Vue Query
+// При смене кластера пользователем: WS переподключение + инвалидация Vue Query
+// ИСПРАВЛЕНО: queryClient НЕ передаётся в store — инвалидация только здесь
 watch(
     () => clusterStore.selectedClusterId,
     (clusterId, prevId) => {
       if (!clusterId) return
-
-      // Инвалидируем все cluster-scoped запросы (ТЗ 6.2)
-      queryClient.invalidateQueries({ queryKey: ['cluster', prevId] })
+      if (prevId) {
+        queryClient.invalidateQueries({ queryKey: ['cluster', prevId] })
+      }
       queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] })
-
-      // Переподключаем WS на новый кластер
       wsStore.connect(clusterId)
-
-      // Загружаем event log для нового кластера
       eventsStore.load(clusterId)
-    },
-    { immediate: true }
+    }
 )
 
 // Глобальный WS handler — роутит события в нужные stores
-onWsEvent((event) => {
+// onUnmounted отписывается через возвращённую функцию
+const unsubscribeWs = onWsEvent((event) => {
   if (!clusterStore.selectedClusterId) return
 
   switch (event.event) {
@@ -65,7 +79,6 @@ onWsEvent((event) => {
       eventsStore.appendFromWs(event.payload as any)
       break
 
-      // node_state_changed и arbitrator_state_changed инвалидируют status-запрос
     case 'node_state_changed':
     case 'arbitrator_state_changed':
       queryClient.invalidateQueries({
@@ -75,8 +88,13 @@ onWsEvent((event) => {
   }
 })
 
+onUnmounted(() => {
+  unsubscribeWs()
+})
+
 async function handleLogout() {
   wsStore.disconnect()
+  queryClient.clear()
   await auth.logout()
   router.push({ name: 'login' })
 }
@@ -90,8 +108,9 @@ async function handleLogout() {
         :clusters="clusterStore.clustersForContour"
         :selected-contour-id="clusterStore.selectedContourId"
         :selected-cluster-id="clusterStore.selectedClusterId"
+        :cluster-status="clusterStatusData"
         @select-contour="clusterStore.selectContour"
-        @select-cluster="(id) => clusterStore.selectCluster(id, queryClient)"
+        @select-cluster="(id) => clusterStore.selectCluster(id)"
         @logout="handleLogout"
     />
 
@@ -99,8 +118,10 @@ async function handleLogout() {
       <AppSidebar />
 
       <main class="app-main">
-        <!-- Не рендерим контент пока кластер не выбран -->
-        <template v-if="clusterStore.selectedClusterId">
+        <!-- Settings и Docs доступны без выбранного кластера (ТЗ 6.1) -->
+        <template
+            v-if="clusterStore.selectedClusterId || ['settings', 'docs'].includes(String(route.name))"
+        >
           <router-view />
         </template>
         <template v-else>
@@ -121,7 +142,7 @@ async function handleLogout() {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--surface-ground);
+  background: var(--p-surface-ground);
 }
 
 .app-body {
@@ -141,6 +162,6 @@ async function handleLogout() {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-color-secondary);
+  color: var(--p-text-muted-color);
 }
 </style>
