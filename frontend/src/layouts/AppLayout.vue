@@ -1,21 +1,28 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import AppHeader from '@/components/AppHeader.vue'
+import AppHeader  from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
-import AppFooter from '@/components/AppFooter.vue'
+import AppFooter  from '@/components/AppFooter.vue'
 
 const route = useRoute()
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = computed({
+  get: () => JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false'),
+  set: (v) => localStorage.setItem('sidebar-collapsed', String(v)),
+})
 
-const showLayout = computed(() =>
-  route.name !== 'login' && route.name !== 'not-found'
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+const showLayout = computed(
+  () => route.name !== 'login' && route.name !== 'not-found'
 )
 </script>
 
 <template>
   <div v-if="showLayout" class="app-shell">
-    <AppSidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
+    <AppSidebar :collapsed="sidebarCollapsed" @toggle="toggleSidebar" />
     <div class="app-main" :class="{ 'app-main--collapsed': sidebarCollapsed }">
       <AppHeader />
       <main class="app-content">
@@ -25,6 +32,10 @@ const showLayout = computed(() =>
     </div>
   </div>
   <RouterView v-else />
+
+  <!-- Global overlays - must be at root level -->
+  <ConfirmDialog />
+  <Toast position="bottom-right" />
 </template>
 
 <style scoped>

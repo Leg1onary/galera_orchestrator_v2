@@ -20,47 +20,65 @@ const healthState = computed(() => {
   return 'critical'
 })
 
-const healthConfig = computed(() => {
-  const map: Record<string, { label: string; cls: string }> = {
-    healthy:  { label: 'Healthy',  cls: 'healthy' },
-    degraded: { label: 'Degraded', cls: 'degraded' },
-    critical: { label: 'Critical', cls: 'critical' },
-    unknown:  { label: 'Unknown',  cls: 'unknown' },
+const HEALTH_MAP = {
+  healthy:  { label: 'Healthy',  severity: 'success', icon: 'pi pi-check-circle' },
+  degraded: { label: 'Degraded', severity: 'warn',    icon: 'pi pi-exclamation-triangle' },
+  critical: { label: 'Critical', severity: 'danger',  icon: 'pi pi-times-circle' },
+  unknown:  { label: 'Unknown',  severity: 'secondary', icon: 'pi pi-question-circle' },
+} as const
+
+const healthCfg = computed(() => HEALTH_MAP[healthState.value])
+
+// MeterGroup value: synced (green) + not-synced (orange)
+const meterValues = computed(() => {
+  if (props.totalNodes === 0) return []
+  const syncedPct  = Math.round((props.syncedNodes / props.totalNodes) * 100)
+  const others     = 100 - syncedPct
+  const result = [
+    { label: 'Synced', color: 'var(--color-synced)',   value: syncedPct },
+  ]
+  if (others > 0) {
+    result.push({ label: 'Other', color: 'var(--color-degraded)', value: others })
   }
-  return map[healthState.value]
+  return result
 })
 
-const syncRatio = computed(() =>
-  props.totalNodes > 0 ? props.syncedNodes / props.totalNodes : 0
-)
+const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 </script>
 
 <template>
   <div class="csb anim-fade-in">
-    <!-- Cluster health -->
+
+    <!-- Cluster health tag -->
     <div class="csb-item csb-item--main">
       <span class="csb-label">Cluster</span>
-      <div :class="['csb-health', 'csb-health--' + healthConfig.cls]">
-        <span class="csb-dot" />
-        <span class="csb-health-text">{{ healthConfig.label }}</span>
+      <div v-if="props.isLoading">
+        <Skeleton height="1.5rem" width="90px" />
       </div>
+      <Tag
+        v-else
+        :value="healthCfg.label"
+        :severity="healthCfg.severity"
+        :icon="healthCfg.icon"
+        class="csb-tag"
+      />
     </div>
 
     <div class="csb-divider" />
 
-    <!-- Nodes synced -->
-    <div class="csb-item">
+    <!-- Nodes synced with MeterGroup -->
+    <div class="csb-item csb-item--wide">
       <span class="csb-label">Synced</span>
-      <div class="csb-synced">
+      <div v-if="props.isLoading">
+        <Skeleton height="1rem" width="120px" />
+      </div>
+      <div v-else class="csb-meter-wrap">
         <span class="csb-val">{{ syncedNodes }}<span class="csb-total">/{{ totalNodes }}</span></span>
-        <!-- mini progress bar -->
-        <div class="csb-progress" aria-hidden="true">
-          <div
-            class="csb-progress-fill"
-            :class="syncRatio === 1 ? 'csb-progress-fill--full' : 'csb-progress-fill--partial'"
-            :style="{ width: (syncRatio * 100) + '%' }"
-          />
-        </div>
+        <MeterGroup
+          :value="meterValues"
+          class="csb-meter"
+          :pt="{ meters: { style: 'height: 4px; border-radius: 99px' }, meter: { style: 'border-radius: 99px' } }"
+        />
       </div>
     </div>
 
@@ -69,15 +87,17 @@ const syncRatio = computed(() =>
     <!-- Primary component -->
     <div class="csb-item">
       <span class="csb-label">Component</span>
-      <span class="csb-val csb-val--mono">{{ clusterStatus ?? '—' }}</span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="70px" /></div>
+      <span v-else class="csb-val csb-val--mono">{{ clusterStatus ?? '—' }}</span>
     </div>
 
     <div class="csb-divider" />
 
-    <!-- Cluster size -->
+    <!-- wsrep cluster size -->
     <div class="csb-item">
       <span class="csb-label">wsrep size</span>
-      <span class="csb-val csb-val--mono">{{ clusterSize ?? '—' }}</span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="40px" /></div>
+      <span v-else class="csb-val csb-val--mono">{{ clusterSize ?? '—' }}</span>
     </div>
 
     <div class="csb-divider" />
@@ -85,12 +105,14 @@ const syncRatio = computed(() =>
     <!-- Flow control -->
     <div class="csb-item">
       <span class="csb-label">Flow ctrl</span>
-      <span
-        class="csb-val csb-val--mono"
-        :class="(flowControlPaused ?? 0) > 0 ? 'csb-val--warn' : ''"
-      >
-        {{ flowControlPaused !== null ? flowControlPaused.toFixed(3) : '—' }}
-      </span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="60px" /></div>
+      <Tag
+        v-else
+        :value="flowControlPaused !== null ? flowControlPaused.toFixed(3) : '—'"
+        :severity="flowWarn ? 'warn' : 'secondary'"
+        :icon="flowWarn ? 'pi pi-exclamation-triangle' : undefined"
+        class="csb-tag csb-tag--mono"
+      />
     </div>
   </div>
 </template>
@@ -103,18 +125,19 @@ const syncRatio = computed(() =>
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-5);
-  gap: var(--space-3);
+  gap: var(--space-4);
   overflow-x: auto;
+  flex-wrap: nowrap;
 }
 
 .csb-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
   min-width: max-content;
 }
-
-.csb-item--main { min-width: 120px; }
+.csb-item--main  { min-width: 110px; }
+.csb-item--wide  { min-width: 160px; }
 
 .csb-label {
   font-size: var(--text-xs);
@@ -129,37 +152,27 @@ const syncRatio = computed(() =>
   font-weight: 700;
   color: var(--color-text);
 }
-
 .csb-val--mono { font-family: var(--font-mono); }
-.csb-val--warn { color: var(--color-degraded); }
-
-.csb-synced {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 .csb-total {
   color: var(--color-text-muted);
   font-weight: 500;
 }
 
-.csb-progress {
-  width: 80px;
-  height: 3px;
-  background: var(--color-surface-3);
-  border-radius: var(--radius-full);
-  overflow: hidden;
+.csb-tag { font-size: var(--text-xs) !important; }
+.csb-tag--mono :deep(.p-tag-value) { font-family: var(--font-mono); }
+
+.csb-meter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
-.csb-progress-fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width var(--transition-slow);
+.csb-meter {
+  width: 120px;
 }
 
-.csb-progress-fill--full    { background: var(--color-synced); }
-.csb-progress-fill--partial { background: var(--color-degraded); }
+:deep(.p-metergroup-label-list) { display: none; }
 
 .csb-divider {
   width: 1px;
@@ -167,27 +180,4 @@ const syncRatio = computed(() =>
   background: var(--color-border-muted);
   flex-shrink: 0;
 }
-
-.csb-health {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-md);
-  font-weight: 700;
-}
-
-.csb-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-
-.csb-health--healthy  { color: var(--color-synced); }
-.csb-health--degraded { color: var(--color-degraded); }
-.csb-health--critical { color: var(--color-offline); }
-.csb-health--unknown  { color: var(--color-text-muted); }
-
-.csb-health-text { color: var(--color-text); }
 </style>

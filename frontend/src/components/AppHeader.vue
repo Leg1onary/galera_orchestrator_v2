@@ -5,17 +5,26 @@ import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
-const route    = useRoute()
-const router   = useRouter()
+const route        = useRoute()
+const router       = useRouter()
 const clusterStore = useClusterStore()
 const authStore    = useAuthStore()
 
-// Human-readable page name from route meta or name
 const pageName = computed(() => {
   if (route.meta?.title) return route.meta.title as string
   const name = String(route.name ?? '')
   return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 })
+
+const breadcrumbItems = computed(() => [
+  ...(clusterStore.currentCluster
+    ? [{ label: clusterStore.currentCluster.name, icon: 'pi pi-database' }]
+    : []
+  ),
+  { label: pageName.value },
+])
+
+const breadcrumbHome = { icon: 'pi pi-home', url: '/' }
 
 async function logout() {
   await authStore.logout()
@@ -25,17 +34,16 @@ async function logout() {
 
 <template>
   <header class="app-header">
-    <!-- Left: breadcrumb -->
-    <div class="header-left">
-      <span class="header-cluster" v-if="clusterStore.currentCluster">
-        <i class="pi pi-database" style="font-size: 0.7rem; opacity: 0.5" />
-        {{ clusterStore.currentCluster.name }}
-      </span>
-      <span v-if="clusterStore.currentCluster" class="header-sep">/</span>
-      <span class="header-page">{{ pageName }}</span>
-    </div>
+    <Breadcrumb
+      :model="breadcrumbItems"
+      :home="breadcrumbHome"
+      class="header-breadcrumb"
+      :pt="{
+        root: { style: 'background: transparent; border: none; padding: 0; font-size: var(--text-sm)' },
+        label: { style: 'font-size: var(--text-sm)' },
+      }"
+    />
 
-    <!-- Right: actions -->
     <div class="header-right">
       <button
         class="header-btn"
@@ -64,36 +72,6 @@ async function logout() {
   flex-shrink: 0;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  min-width: 0;
-}
-
-.header-cluster {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.header-sep {
-  color: var(--color-text-faint);
-  user-select: none;
-}
-
-.header-page {
-  color: var(--color-text);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .header-right {
   display: flex;
   align-items: center;
@@ -114,13 +92,6 @@ async function logout() {
   background: none;
   border: none;
 }
-
-.header-btn:hover {
-  color: var(--color-text);
-  background: var(--color-surface-3);
-}
-
-.header-btn:active {
-  background: var(--color-surface-4);
-}
+.header-btn:hover  { color: var(--color-text); background: var(--color-surface-3); }
+.header-btn:active { background: var(--color-surface-4); }
 </style>

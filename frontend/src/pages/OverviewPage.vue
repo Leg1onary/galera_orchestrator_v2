@@ -4,11 +4,12 @@ import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
+import NodeCardSkeleton from '@/components/overview/NodeCardSkeleton.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
 
 const clusterStore = useClusterStore()
-const clusterId = computed(() => clusterStore.selectedClusterId!)
+const clusterId    = computed(() => clusterStore.selectedClusterId!)
 const { data, isLoading } = useClusterStatus(clusterId)
 
 const nodes       = computed(() => data.value?.nodes ?? [])
@@ -29,7 +30,7 @@ const syncedCount = computed(() =>
     </div>
 
     <template v-else>
-      <!-- Summary bar -->
+      <!-- Summary bar with inline skeleton -->
       <ClusterSummaryBar
         :total-nodes="nodes.length"
         :synced-nodes="syncedCount"
@@ -39,14 +40,15 @@ const syncedCount = computed(() =>
         :is-loading="isLoading"
       />
 
-      <!-- Nodes grid -->
+      <!-- Nodes -->
       <section class="overview-section">
         <div class="section-title">Nodes</div>
-        <div v-if="isLoading" class="loading-state">
-          <i class="pi pi-spin pi-spinner" /><span>Loading&hellip;</span>
-        </div>
-        <div v-else class="nodes-grid">
+        <div class="nodes-grid">
+          <template v-if="isLoading">
+            <NodeCardSkeleton v-for="i in 3" :key="'sk-' + i" />
+          </template>
           <NodeCard
+            v-else
             v-for="node in nodes"
             :key="node.id"
             :node="node"
@@ -81,7 +83,6 @@ const syncedCount = computed(() =>
   flex-direction: column;
   gap: var(--space-6);
 }
-
 .pg-empty {
   display: flex;
   align-items: center;
@@ -91,19 +92,16 @@ const syncedCount = computed(() =>
   justify-content: center;
   font-size: var(--text-sm);
 }
-
 .overview-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
-
 .nodes-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-4);
 }
-
 .arb-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
