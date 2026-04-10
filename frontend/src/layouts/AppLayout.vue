@@ -2,16 +2,16 @@
 <!-- ТЗ раздел 6.2–6.4: Header + Sidebar + Footer + RouterView -->
 <!-- Монтирует WS при выборе кластера, инвалидирует Vue Query при смене -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient, useQuery } from '@tanstack/vue-query'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore } from '@/stores/cluster'
 import { useWsStore, onWsEvent } from '@/stores/ws'
 import { useOperationsStore } from '@/stores/operations'
 import { useEventsStore } from '@/stores/events'
-import { useQuery } from '@tanstack/vue-query'
 import { useSettingsStore } from '@/stores/settings'
+import { api } from '@/api/client'
 import AppHeader from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppFooter from '@/components/AppFooter.vue'
@@ -26,7 +26,6 @@ const queryClient = useQueryClient()
 const router = useRouter()
 const route = useRoute()
 
-const settingsStore = useSettingsStore()
 const { data: clusterStatusData } = useQuery({
   queryKey: computed(() => ['cluster', clusterStore.selectedClusterId, 'status']),
   queryFn: () => api.get(`/api/clusters/${clusterStore.selectedClusterId}/status`).then(r => r.data),
