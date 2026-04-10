@@ -380,7 +380,6 @@ async function submit() {
   width: 100%;
   justify-content: center;
   margin-top: var(--space-1);
-  /* override ghost → solid teal for the primary CTA on login */
   background: linear-gradient(135deg, #0d9488, #0f766e) !important;
   border-color: transparent !important;
   color: #f0fdfa !important;
@@ -403,7 +402,29 @@ async function submit() {
   letter-spacing: 0.03em;
 }
 
-/* PrimeVue Password wrapper */
+/* ====== PRIMEVUE OVERRIDES ====== */
+
+/* Password wrapper */
 :deep(.p-password) { width: 100%; }
 :deep(.p-password .p-inputtext) { width: 100%; }
+
+/* InputText & Password — увеличенный внутренний отступ */
+:deep(.login-input.p-inputtext),
+:deep(.p-password .p-inputtext) {
+  padding-block: 0.75rem;
+  padding-inline: 0.875rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  border-radius: 10px;
+}
+
+/* Button — увеличенный padding и высота */
+:deep(.login-submit.p-button) {
+  padding-block: 0.8rem;
+  padding-inline: 1.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  border-radius: 10px;
+  min-height: 48px;
+}
 </style>
