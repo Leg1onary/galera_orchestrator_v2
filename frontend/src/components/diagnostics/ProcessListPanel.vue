@@ -226,7 +226,12 @@ async function handleKill(row: ProcessRow) {
   gap: var(--space-4);
 }
 
-.node-select  { width: 180px; }
+.node-select {
+  width: 160px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
 .search-input { width: 240px; }
 
 /* TABLE */
@@ -239,20 +244,23 @@ async function handleKill(row: ProcessRow) {
 .table-header {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-2);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
 }
 
+/* ToggleSwitch в хедере таблицы */
 .toggle-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .toggle-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .row-count {
@@ -324,5 +332,12 @@ async function handleKill(row: ProcessRow) {
   padding: var(--space-10);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+}
+
+/* PrimeVue ToggleSwitch фикс */
+:deep(.p-toggleswitch) {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 </style>

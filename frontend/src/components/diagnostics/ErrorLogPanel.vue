@@ -23,10 +23,18 @@
           :max="1000"
           :step="50"
           show-buttons
+          button-layout="horizontal"
           size="small"
           class="lines-input"
           v-tooltip="'Number of lines'"
-      />
+      >
+        <template #incrementbuttonicon>
+          <span class="pi pi-plus" />
+        </template>
+        <template #decrementbuttonicon>
+          <span class="pi pi-minus" />
+        </template>
+      </InputNumber>
     </PanelToolbar>
 
     <div v-if="error" class="error-alert">
@@ -112,8 +120,54 @@ function lineClass(line: string): string {
 <style scoped>
 .diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.node-select { width: 180px; }
-.lines-input { width: 110px; }
+.node-select {
+  width: 160px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+/* InputNumber с кнопками — горизонтальный layout */
+.lines-input {
+  flex-shrink: 0;
+}
+
+:deep(.lines-input .p-inputnumber) {
+  display: inline-flex;
+  align-items: center;
+}
+
+:deep(.lines-input .p-inputnumber-input) {
+  width: 64px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+:deep(.lines-input .p-inputnumber-button) {
+  width: 28px;
+  height: 100%;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: 0.6rem;
+}
+
+:deep(.lines-input .p-inputnumber-button:hover) {
+  background: var(--color-surface-4);
+  border-color: var(--color-border-hover);
+  color: var(--color-text);
+}
+
+:deep(.lines-input .p-inputnumber-button-group) {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-border);
+}
 
 /* META ROW */
 .log-meta {

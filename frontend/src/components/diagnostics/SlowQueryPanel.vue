@@ -139,7 +139,11 @@ const fetchedAt = computed(() =>
   gap: var(--space-4);
 }
 
-.node-select { width: 180px; }
+.node-select {
+  width: 160px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
 
 .table-wrap {
   border: 1px solid var(--color-border);

@@ -14,7 +14,6 @@
       <div class="auto-row">
         <ToggleSwitch
             :model-value="autoRefresh"
-            size="small"
             @update:model-value="emit('toggle-auto', $event)"
         />
         <span class="auto-label">Auto</span>
@@ -59,14 +58,15 @@ const emit = defineEmits<{
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   gap: var(--space-4);
-  flex-wrap: wrap;
-  min-height: 40px;
+  flex-wrap: nowrap;
+  min-height: 44px;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex-shrink: 0;
 }
 
 .toolbar-title {
@@ -75,6 +75,7 @@ const emit = defineEmits<{
   color: var(--color-text);
   letter-spacing: -0.01em;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .toolbar-ts {
@@ -85,6 +86,7 @@ const emit = defineEmits<{
   color: var(--color-text-faint);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .toolbar-ts .pi {
@@ -95,13 +97,15 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
+/* ToggleSwitch контейнер — без overflow hidden, жёсткий flex */
 .auto-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .auto-label {
@@ -110,11 +114,13 @@ const emit = defineEmits<{
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .toolbar-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,5 +150,16 @@ const emit = defineEmits<{
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── PrimeVue ToggleSwitch глобальный фикс внутри scoped ── */
+:deep(.p-toggleswitch) {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+:deep(.p-toggleswitch-slider) {
+  flex-shrink: 0;
 }
 </style>
