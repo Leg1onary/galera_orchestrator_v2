@@ -28,7 +28,6 @@ import Toast from 'primevue/toast'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Badge from 'primevue/badge'
-// ── new components ────────────────────────────────────────────────────────────
 import Timeline from 'primevue/timeline'
 import MeterGroup from 'primevue/metergroup'
 import Skeleton from 'primevue/skeleton'
@@ -46,7 +45,6 @@ import './assets/main.css'
 import App from './App.vue'
 import router from './router'
 
-// ─── Galera Orchestrator v2 — Terminal Precision theme ───────────────────────
 const GaleraPreset = definePreset(Aura, {
   semantic: {
     primary: {
@@ -129,10 +127,10 @@ const GaleraPreset = definePreset(Aura, {
       colorScheme: {
         dark: {
           root: {
-            background:       '#1a1b24',
-            borderColor:      'rgba(255,255,255,0.07)',
+            background:       '#13141a',
+            borderColor:      'rgba(255,255,255,0.08)',
             color:            '#e4e4e7',
-            placeholderColor: '#3f3f46',
+            placeholderColor: '#52525b',
             focusBorderColor: '#2dd4bf',
             hoverBorderColor: 'rgba(45,212,191,0.30)',
             shadow:           'none',
@@ -144,8 +142,8 @@ const GaleraPreset = definePreset(Aura, {
       colorScheme: {
         dark: {
           root: {
-            background:       '#1a1b24',
-            borderColor:      'rgba(255,255,255,0.07)',
+            background:       '#13141a',
+            borderColor:      'rgba(255,255,255,0.08)',
             color:            '#e4e4e7',
             hoverBorderColor: 'rgba(45,212,191,0.30)',
             focusBorderColor: '#2dd4bf',
@@ -187,9 +185,7 @@ const GaleraPreset = definePreset(Aura, {
     datatable: {
       colorScheme: {
         dark: {
-          root: {
-            borderColor: 'rgba(255,255,255,0.07)',
-          },
+          root: { borderColor: 'rgba(255,255,255,0.07)' },
           header: {
             background: '#14151c',
             borderColor: 'rgba(255,255,255,0.07)',
@@ -209,12 +205,7 @@ const GaleraPreset = definePreset(Aura, {
 const pinia = createPinia()
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
 
 const app = createApp(App)
@@ -226,11 +217,9 @@ app.use(PrimeVue, {
   theme: {
     preset: GaleraPreset,
     options: {
-      darkModeSelector: false,
-      cssLayer: {
-        name: 'primevue',
-        order: 'base, primevue',
-      },
+      // класс app-dark вешается на <html> в index.html — PrimeVue всегда в dark mode
+      darkModeSelector: '.app-dark',
+      cssLayer: { name: 'primevue', order: 'base, primevue' },
     },
   },
 })
@@ -239,7 +228,6 @@ app.use(ConfirmationService)
 
 app.directive('tooltip', Tooltip)
 
-// original components
 app.component('Button', Button)
 app.component('InputText', InputText)
 app.component('Password', Password)
@@ -261,7 +249,6 @@ app.component('Toast', Toast)
 app.component('ConfirmDialog', ConfirmDialog)
 app.component('ToggleSwitch', ToggleSwitch)
 app.component('Badge', Badge)
-// new components
 app.component('Timeline', Timeline)
 app.component('MeterGroup', MeterGroup)
 app.component('Skeleton', Skeleton)
