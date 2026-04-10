@@ -63,14 +63,14 @@ app.add_middleware(
 #   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
 #   - Если роутер имеет prefix="/clusters", "/auth" и т.д. → include_router с prefix="/api"
 #
-app.include_router(auth_router,        prefix="/api")   # → /api/auth/...
-app.include_router(diagnostics_router, prefix="/api")   # → /api/diagnostics/...
-app.include_router(recovery_router,    prefix="/api")   # → /api/recovery/...
-app.include_router(maintenance_router, prefix="/api")   # → /api/maintenance/...
-app.include_router(clusters_router,    prefix="/api")   # → /api/clusters/...
-app.include_router(nodes_router,       prefix="/api")   # FIX BLOCKER: был без prefix → /clusters/...
-app.include_router(contours_router)                     # уже /api/contours внутри
-app.include_router(settings_router)                     # уже /api/settings внутри
+app.include_router(auth_router,        prefix="/api")
+app.include_router(diagnostics_router, prefix="/api")
+app.include_router(recovery_router,    prefix="/api")
+app.include_router(maintenance_router, prefix="/api")
+app.include_router(clusters_router,    prefix="/api")
+app.include_router(nodes_router,       prefix="/api")
+app.include_router(contours_router,    prefix="/api")
+app.include_router(settings_router,    prefix="/api")
 app.include_router(ws_router)                           # → /ws/clusters/... (не /api)
 
 # ── Static assets ─────────────────────────────────────────────────────────────
