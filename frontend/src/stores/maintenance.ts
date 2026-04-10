@@ -27,7 +27,7 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
     const nodeOrder      = ref<number[]>([])
     const waitTimeoutSec = ref(300)
 
-    const operationId = ref<string | null>(null)
+    const operationId = ref<number | null>(null)
     const rrStatus    = ref<RollingRestartStatus | null>(null)
     const cancelling  = ref(false)
 
@@ -61,14 +61,30 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
 
         wsUnsub.value = wsStore.on((event) => {
             if (event.event === 'operation_progress' && rrStatus.value) {
-                const p = event.payload as Record<string, unknown>
+                const p      = event.payload as Record<string, unknown>
+                const detail = (p.detail ?? {}) as Record<string, unknown>
+                const incomingNodeId = detail.node_id as number | undefined
+
+                // Накапливаем completed: если node_id сменился — предыдущий завершён
+                const prevCompleted  = rrStatus.value.completed_node_ids
+                const prevCurrentId  = rrStatus.value.current_node_id
+                const newCompleted =
+                    incomingNodeId !== undefined &&
+                    prevCurrentId  !== null &&
+                    incomingNodeId !== prevCurrentId
+                        ? [...prevCompleted, prevCurrentId]
+                        : prevCompleted
+
                 rrStatus.value = {
                     ...rrStatus.value,
                     state:              'running',
-                    progress_pct:       (p.progress_pct       as number)   ?? rrStatus.value.progress_pct,
-                    message:            (p.message            as string)   ?? rrStatus.value.message,
-                    current_node_id:    (p.current_node_id    as number)   ?? rrStatus.value.current_node_id,
-                    completed_node_ids: (p.completed_node_ids as number[]) ?? rrStatus.value.completed_node_ids,
+                    message:            (p.message as string) ?? rrStatus.value.message,
+                    current_node_id:    incomingNodeId         ?? rrStatus.value.current_node_id,
+                    completed_node_ids: newCompleted,
+                    // progress_pct считаем сами — бэкенд не шлёт его в каждом событии
+                    progress_pct: nodes.value.length > 0
+                        ? Math.round((newCompleted.length / nodes.value.length) * 100)
+                        : rrStatus.value.progress_pct,
                 }
             }
 
@@ -76,16 +92,26 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 const p      = event.payload as Record<string, unknown>
                 const status = p.status as string
 
+                // set_operation_status() пишет 'success' при успехе — нормализуем в 'finished'
+                const normalizedState: RollingRestartStatus['state'] =
+                    status === 'failed'    ? 'failed'
+                        : status === 'cancelled' ? 'cancelled'
+                            : 'finished'            // 'success' → 'finished'
+
+                // При успехе все ноды завершены
+                const allNodeIds = nodes.value.map((n) => n.id)
+
                 rrStatus.value = {
                     ...rrStatus.value,
-                    // BLOCKER fix: 'finished' вместо 'success' — соответствует RollingRestartStatus['state'] и Step3
-                    state:       status === 'failed' ? 'failed' : status === 'cancelled' ? 'cancelled' : 'finished',
-                    progress_pct: 100,
-                    error:        (p.error_message as string) ?? null,
-                    finished_at:  new Date().toISOString(),
+                    state:              normalizedState,
+                    progress_pct:       normalizedState === 'finished' ? 100 : rrStatus.value.progress_pct,
+                    completed_node_ids: normalizedState === 'finished'
+                        ? allNodeIds
+                        : rrStatus.value.completed_node_ids,
+                    error:       (p.error_message as string) ?? null,
+                    finished_at: new Date().toISOString(),
                 }
                 wizardStep.value = 3
-                // MINOR fix: catch вместо fire-and-forget
                 loadNodes().catch(console.error)
             }
 
@@ -117,13 +143,14 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 rrStatus.value = {
                     operation_id:       op.id,
                     state:              op.status as RollingRestartStatus['state'],
-                    current_node_id:    op.current_node_id    ?? null,
-                    completed_node_ids: op.completed_node_ids ?? [],
-                    failed_node_id:     op.failed_node_id     ?? null,
-                    progress_pct:       op.progress_pct       ?? 0,
-                    message:            op.message            ?? null,
-                    error:              op.error_message      ?? null,
-                    started_at:         op.started_at         ?? null,
+                    // Прогресс неизвестен до первого WS-события — инициализируем нулями
+                    current_node_id:    null,
+                    completed_node_ids: [],
+                    failed_node_id:     null,
+                    progress_pct:       0,
+                    message:            null,   // op.message не существует в ActiveOperation
+                    error:              op.error_message ?? null,
+                    started_at:         op.started_at    ?? null,
                     finished_at:        null,
                 }
                 wizardOpen.value = true

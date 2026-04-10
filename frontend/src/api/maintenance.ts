@@ -1,29 +1,33 @@
 import { api } from '@/api/client'
 
 // ── Operation states ──────────────────────────────────────────────────────────
-// ТЗ п.2.8 — точные строки, которые отдаёт бэкенд
+// set_operation_status() пишет: 'pending'|'running'|'success'|'failed'|
+//                               'cancel_requested'|'cancelled'
+// 'finished' — фронтовая нормализация 'success' для UI
 export type OperationStatus =
     | 'pending'
     | 'running'
-    | 'finished'          // бэкенд отдаёт 'finished', не 'success'
+    | 'success'           // реальный DB/WS статус при успехе
+    | 'finished'          // нормализованный фронт-статус (success → finished)
     | 'failed'
     | 'cancel_requested'
     | 'cancelled'
 
 // ── Active operation ──────────────────────────────────────────────────────────
-// ТЗ п.9.1: полный набор полей которые читает store.init()
+// get_active_operation() SELECT: id, type, status, started_at, created_by,
+//                                target_node_id, details_json
+// НЕТ полей: current_node_id, completed_node_ids, progress_pct, message
+// Эти поля доступны ТОЛЬКО через WS-события operation_progress
 export type ActiveOperation = {
-    id:                  string        // UUID строка — store.operationId: ref<string|null>
-    type:                'rolling_restart' | 'recovery_bootstrap' | 'recovery_rejoin' | 'node_action'
-    status:              OperationStatus
-    // BLOCKER fix: поля которые store читает в init()
-    current_node_id:     number | null
-    completed_node_ids:  number[]
-    failed_node_id:      number | null
-    progress_pct:        number
-    message:             string | null
-    error_message:       string | null
-    started_at:          string | null
+    id:             number        // Integer autoincrement из cluster_operations
+    type:           'rolling_restart' | 'recovery_bootstrap' | 'recovery_rejoin' | 'node_action'
+    status:         OperationStatus
+    started_at:     string | null
+    created_by:     string | null
+    target_node_id: number | null
+    details_json:   string | null // raw JSON строка — парсить на фронте при необходимости
+    error_message:  string | null // из cluster_operations.error_message
+    // Поля прогресса ОТСУТСТВУЮТ в get_active_operation() — только через WS
 }
 
 // ── Status response ───────────────────────────────────────────────────────────
@@ -32,34 +36,43 @@ export type MaintenanceStatusResponse = {
 }
 
 // ── Node state ────────────────────────────────────────────────────────────────
-// BLOCKER fix: id/name вместо node_id/node_name — единообразие с NodeListItem и store
+// Гибрид: поля из nodes (БД) + live поля от поллера (LiveNodeState.to_dict())
+// ВАЖНО: live поле называется 'readonly', не 'read_only' (из LiveNodeState.to_dict())
 export type MaintenanceNodeState = {
-    id:                number
-    name:              string
-    host:              string
-    port:              number
-    wsrep_local_state_comment: string   // MAJOR fix: соответствует полю topology/nodes
-    maintenance:       boolean
-    maintenance_drift: boolean          // ТЗ п.14.10
-    read_only:         boolean
-    enabled:           boolean
+    // БД поля (nodes table)
+    id:          number
+    name:        string
+    host:        string
+    port:        number
+    maintenance: boolean
+    enabled:     boolean
+    // Live поля (LiveNodeState.to_dict()) — опциональны если поллер ещё не успел
+    wsrep_local_state_comment?: string | null  // 'SYNCED'|'OFFLINE'|'DONOR'|'JOINER'|'DESYNCED'
+    readonly?:                  boolean        // ВАЖНО: 'readonly', не 'read_only'!
+    maintenance_drift?:         boolean
+    ssh_ok?:                    boolean
+    db_ok?:                     boolean
+    last_check_ts?:             string | null
 }
 
 // ── Rolling restart ───────────────────────────────────────────────────────────
 export type RollingRestartConfig = {
-    node_order?:        number[]
-    wait_timeout_sec?:  number
+    node_order?:       number[]
+    wait_timeout_sec?: number
 }
 
 export type StartRollingRestartResponse = {
     accepted:     boolean
-    operation_id: string   // MAJOR fix: string UUID, не number
+    operation_id: number   // Integer autoincrement — не UUID строка
+    message:      string
 }
 
-// BLOCKER fix: тип который store импортирует и хранит в rrStatus
+// Хранится в store.rrStatus — фронтовое представление прогресса операции
+// Собирается из init() (только base поля) + WS-событий (прогресс)
 export type RollingRestartStatus = {
-    operation_id:        string
+    operation_id:        number        // Integer
     state:               OperationStatus
+    // Поля прогресса — только из WS, не из getStatus()
     current_node_id:     number | null
     completed_node_ids:  number[]
     failed_node_id:      number | null
@@ -72,15 +85,15 @@ export type RollingRestartStatus = {
 
 // ── API ───────────────────────────────────────────────────────────────────────
 export const maintenanceApi = {
-    // ТЗ п.9.2: GET /api/clusters/{cluster_id}/maintenance/nodes
-    // MAJOR fix: отдельный endpoint для maintenance-состояния нод, не /nodes
+    // ТЗ п.9.2 — ENDPOINT НУЖНО ДОБАВИТЬ НА БЭКЕНД
+    // GET /api/clusters/{cluster_id}/maintenance/nodes не существует в routers/maintenance.py
+    // Требует реализации get_maintenance_nodes() в services/maintenance.py
     listNodes: (clusterId: number) =>
         api
             .get<MaintenanceNodeState[]>(`/api/clusters/${clusterId}/maintenance/nodes`)
             .then((r) => r.data),
 
     // ТЗ п.9.3: POST /api/clusters/{cluster_id}/nodes/{node_id}/actions
-    // MAJOR fix: возвращаем методы — store их вызывает
     enterMaintenance: (clusterId: number, nodeId: number) =>
         api
             .post(`/api/clusters/${clusterId}/nodes/${nodeId}/actions`, {
@@ -95,7 +108,7 @@ export const maintenanceApi = {
             })
             .then((r) => r.data),
 
-    // ТЗ п.9.1: POST /api/clusters/{cluster_id}/maintenance/rolling-restart
+    // ТЗ п.9.1 — БЭКЕНД НЕ ЧИТАЕТ BODY (нужно добавить RollingRestartBody в роутер)
     startRollingRestart: (clusterId: number, config: RollingRestartConfig = {}) =>
         api
             .post<StartRollingRestartResponse>(
@@ -104,13 +117,14 @@ export const maintenanceApi = {
             )
             .then((r) => r.data),
 
-    // ТЗ п.9.1: POST /api/clusters/{cluster_id}/maintenance/cancel
     cancel: (clusterId: number) =>
         api
             .post(`/api/clusters/${clusterId}/maintenance/cancel`)
             .then((r) => r.data),
 
-    // ТЗ п.9.1: GET /api/clusters/{cluster_id}/maintenance/status
+    // Возвращает только: id, type, status, started_at, created_by,
+    //                    target_node_id, details_json
+    // НЕ содержит: current_node_id, completed_node_ids, progress_pct, message
     getStatus: (clusterId: number) =>
         api
             .get<MaintenanceStatusResponse>(

@@ -28,6 +28,8 @@ const opsStore = useOperationsStore()
 const confirm  = useConfirm()
 
 const actionLoading = ref<NodeAction | null>(null)
+const pingLoading   = ref(false)
+const pingResult    = ref<{ ssh_ok: boolean; db_ok: boolean; ssh_latency_ms: number | null } | null>(null)
 const actionsOpen   = ref(false)
 
 const isLocked = computed(() => {
@@ -82,7 +84,16 @@ async function execAction(action: NodeAction) {
   }
 }
 
-function ping() { execAction('ping' as NodeAction) }
+async function ping() {
+  pingLoading.value = true
+  pingResult.value  = null
+  try {
+    const res = await nodesApi.testConnection(props.clusterId, props.node.id)
+    pingResult.value = res
+  } finally {
+    pingLoading.value = false
+  }
+}
 
 function confirmDestructive(action: NodeAction, label: string) {
   if (isLocked.value) return
@@ -159,14 +170,16 @@ function confirmDestructive(action: NodeAction, label: string) {
       <!-- ACTION BAR -->
       <div class="nc-actions">
         <Button
-          class="nc-action-ping"
-          icon="pi pi-wifi"
-          label="Ping"
-          size="small"
-          :loading="actionLoading === 'ping'"
-          :disabled="!!isLocked"
-          v-tooltip.top="'Check node reachability'"
-          @click.stop="ping"
+            class="nc-action-ping"
+            icon="pi pi-wifi"
+            label="Ping"
+            size="small"
+            :loading="pingLoading"
+            :disabled="!!isLocked"
+            v-tooltip.top="pingResult
+               ? `SSH: ${pingResult.ssh_ok ? 'OK' : 'FAIL'} | DB: ${pingResult.db_ok ? 'OK' : 'FAIL'} | ${pingResult.ssh_latency_ms ?? '—'}ms`
+               : 'Check node reachability'"
+            @click.stop="ping"
         />
         <Button
           v-tooltip.top="'Restart MySQL'"

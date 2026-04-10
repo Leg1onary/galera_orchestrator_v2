@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     FERNET_SECRET_KEY: str = "change-me-fernet-base64-key"
 
     # SSH
-    SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
+    #SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
+    SSH_KEY_PATH: str = r"C:\Users\ssholokhov\galera_orchestrator_v2\ssh\id_rsa"
 
     # Database
     DATABASE_URL: str = "sqlite:////data/orchestrator.db"
