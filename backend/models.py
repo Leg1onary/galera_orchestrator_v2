@@ -189,6 +189,7 @@ system_settings = Table(
     Column("polling_interval_sec", Integer, nullable=False, server_default="5"),
     Column("event_log_limit", Integer, nullable=False, server_default="200"),
     Column("timezone", Text, nullable=False, server_default="UTC"),
+    Column("rolling_restart_timeout_sec", Integer, nullable=False,  server_default= "300"),
     Column(
         "updated_at",
         DateTime,

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, field_validator
@@ -339,13 +340,13 @@ async def list_nodes_settings(
         cluster_id: int | None = Query(None),
 ) -> list[dict]:
     """GET /api/settings/nodes?cluster_id=N — конфиг нод без live state и без db_password."""
-    query = """
-            SELECT n.id, n.name, n.host, n.port, n.ssh_port, n.ssh_user,
-                   n.db_user, n.enabled, n.maintenance, n.datacenter_id,
-                   d.name AS datacenter_name, n.cluster_id
-            FROM nodes n
-                     LEFT JOIN datacenters d ON d.id = n.datacenter_id \
-            """
+    query = (
+        "SELECT n.id, n.name, n.host, n.port, n.ssh_port, n.ssh_user, "
+        "n.db_user, n.enabled, n.maintenance, n.datacenter_id, "
+        "d.name AS datacenter_name, n.cluster_id "
+        "FROM nodes n "
+        "LEFT JOIN datacenters d ON d.id = n.datacenter_id"
+    )
     params: dict = {}
     if cluster_id is not None:
         query += " WHERE n.cluster_id = :cid"
@@ -473,10 +474,13 @@ async def delete_node_settings(node_id: int) -> Response:
 
 
 def _get_node_or_404_by_id(node_id: int) -> dict:
-    """Fetch node by id only (settings context — cluster_id неизвестен заранее)."""
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT * FROM nodes WHERE id = :id"),
+            text(
+                "SELECT id, name, host, port, ssh_port, ssh_user, db_user, "
+                "db_password, cluster_id, datacenter_id, enabled, maintenance "
+                "FROM nodes WHERE id = :id"
+            ),
             {"id": node_id},
         ).mappings().fetchone()
     if row is None:
@@ -547,12 +551,12 @@ async def list_arbitrators_settings(
         cluster_id: int | None = Query(None),
 ) -> list[dict]:
     """GET /api/settings/arbitrators?cluster_id=N"""
-    query = """
-            SELECT a.id, a.name, a.host, a.ssh_port, a.ssh_user,
-                   a.enabled, a.datacenter_id, d.name AS datacenter_name, a.cluster_id
-            FROM arbitrators a
-                     LEFT JOIN datacenters d ON d.id = a.datacenter_id \
-            """
+    query = (
+        "SELECT a.id, a.name, a.host, a.ssh_port, a.ssh_user, "
+        "a.enabled, a.datacenter_id, d.name AS datacenter_name, a.cluster_id "
+        "FROM arbitrators a "
+        "LEFT JOIN datacenters d ON d.id = a.datacenter_id"
+    )
     params: dict = {}
     if cluster_id is not None:
         query += " WHERE a.cluster_id = :cid"
@@ -671,6 +675,7 @@ class SystemSettingsUpdate(BaseModel):
     polling_interval_sec: int = 5
     event_log_limit: int = 200
     timezone: str = "UTC"
+    rolling_restart_timeout_sec: Optional[int] = None
 
     @field_validator("polling_interval_sec")
     @classmethod
@@ -692,16 +697,15 @@ async def get_system_settings() -> dict:
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT polling_interval_sec, event_log_limit, timezone, updated_at "
+                "SELECT polling_interval_sec, event_log_limit, timezone, "
+                "rolling_restart_timeout_sec, updated_at "
                 "FROM system_settings WHERE id = 1"
             )
         ).mappings().fetchone()
-    if row is None:
-        raise HTTPException(500, detail="system_settings row not found — run init_db()")
-    return dict(row)
+        if row is None:
+            raise HTTPException(500, detail="system_settings row not found — run init_db()")
+        return dict(row)
 
-
-# FIX MAJOR: PUT → PATCH (ТЗ 16.1)
 @router.patch("/system")
 async def update_system_settings(body: SystemSettingsUpdate) -> dict:
     with engine.begin() as conn:
@@ -710,22 +714,25 @@ async def update_system_settings(body: SystemSettingsUpdate) -> dict:
                 """
                 UPDATE system_settings SET
                                            polling_interval_sec = :interval,
-                                           event_log_limit      = :log_limit,
-                                           timezone             = :tz,
-                                           updated_at           = :now
+                                           event_log_limit = :log_limit,
+                                           timezone = :tz,
+                                           rolling_restart_timeout_sec = :rr_timeout,
+                                           updated_at = :now
                 WHERE id = 1
                 """
             ),
             {
-                "interval":  body.polling_interval_sec,
+                "interval": body.polling_interval_sec,
                 "log_limit": body.event_log_limit,
-                "tz":        body.timezone,
-                "now":       datetime.now(timezone.utc).isoformat(),
+                "tz": body.timezone,
+                "rr_timeout": body.rolling_restart_timeout_sec,
+                "now": datetime.now(timezone.utc).isoformat(),
             },
         )
     write_event(level="INFO", source="ui", message="System settings updated")
     return {
         "polling_interval_sec": body.polling_interval_sec,
-        "event_log_limit":      body.event_log_limit,
-        "timezone":             body.timezone,
+        "event_log_limit": body.event_log_limit,
+        "timezone": body.timezone,
+        "rolling_restart_timeout_sec": body.rolling_restart_timeout_sec,
     }
