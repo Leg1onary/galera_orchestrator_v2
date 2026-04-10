@@ -40,10 +40,10 @@ import { ref } from 'vue'
 import { Tag, Button } from 'primevue'
 import { type DocBadge } from '@/data/docs'
 
-// MINOR fix: severity type без `as any`
 type PrimeSeverity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast'
 
-export const BADGE_CONFIG: Record<DocBadge, { severity: PrimeSeverity; label: string }> = {
+// fix: убран export — script setup не поддерживает ES module exports
+const BADGE_CONFIG: Record<DocBadge, { severity: PrimeSeverity; label: string }> = {
   Safe:    { severity: 'success',   label: 'Safe' },
   Danger:  { severity: 'danger',    label: 'Danger' },
   Warning: { severity: 'warn',      label: 'Warning' },
@@ -61,13 +61,11 @@ const props = defineProps<{
 
 const copied = ref(false)
 
-// MINOR fix: fallback для non-HTTPS
 async function handleCopy() {
   if (!props.code) return
   try {
     await navigator.clipboard.writeText(props.code)
   } catch {
-    // fallback: execCommand для HTTP/insecure context
     const el = document.createElement('textarea')
     el.value = props.code
     el.style.position = 'fixed'
@@ -125,7 +123,7 @@ async function handleCopy() {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   line-height: 1.6;
-  max-width: none; /* override base.css */
+  max-width: none;
 }
 
 /* Code block */
