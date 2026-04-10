@@ -27,10 +27,12 @@ const qc       = useQueryClient()
 const opsStore = useOperationsStore()
 const confirm  = useConfirm()
 
-const actionLoading = ref<NodeAction | null>(null)
-const pingLoading   = ref(false)
-const pingResult    = ref<{ ssh_ok: boolean; db_ok: boolean; ssh_latency_ms: number | null } | null>(null)
-const actionsOpen   = ref(false)
+const actionLoading  = ref<NodeAction | null>(null)
+const pingLoading    = ref(false)
+const pingResult     = ref<{ ssh_ok: boolean; db_ok: boolean; ssh_latency_ms: number | null } | null>(null)
+const pingVisible    = ref(false)
+const actionsOpen    = ref(false)
+let   pingTimer: ReturnType<typeof setTimeout> | null = null
 
 const isLocked = computed(() => {
   const op = opsStore.activeOperation
@@ -74,6 +76,17 @@ const recvQueueDisplay = computed(() => {
 const recvQueueWarn = computed(() => (props.node.wsrep_local_recv_queue ?? 0) > 0)
 const flowWarn      = computed(() => (props.node.wsrep_flow_control_paused ?? 0) > 0)
 
+const pingResultText = computed(() => {
+  if (!pingResult.value) return ''
+  const r = pingResult.value
+  const lat = r.ssh_latency_ms != null ? `${r.ssh_latency_ms}ms` : '—'
+  return `SSH: ${r.ssh_ok ? 'OK' : 'FAIL'} | DB: ${r.db_ok ? 'OK' : 'FAIL'} | ${lat}`
+})
+
+const pingResultOk = computed(() =>
+  !!pingResult.value?.ssh_ok && !!pingResult.value?.db_ok
+)
+
 async function execAction(action: NodeAction) {
   actionLoading.value = action
   try {
@@ -85,11 +98,15 @@ async function execAction(action: NodeAction) {
 }
 
 async function ping() {
+  if (pingTimer) clearTimeout(pingTimer)
   pingLoading.value = true
+  pingVisible.value = false
   pingResult.value  = null
   try {
     const res = await nodesApi.testConnection(props.clusterId, props.node.id)
-    pingResult.value = res
+    pingResult.value  = res
+    pingVisible.value = true
+    pingTimer = setTimeout(() => { pingVisible.value = false }, 4000)
   } finally {
     pingLoading.value = false
   }
@@ -167,6 +184,18 @@ function confirmDestructive(action: NodeAction, label: string) {
         <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
       </div>
 
+      <!-- PING RESULT -->
+      <Transition name="ping-result">
+        <div
+          v-if="pingVisible && pingResult"
+          class="nc-ping-result"
+          :class="pingResultOk ? 'nc-ping-result--ok' : 'nc-ping-result--fail'"
+        >
+          <i :class="pingResultOk ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
+          <span>{{ pingResultText }}</span>
+        </div>
+      </Transition>
+
       <!-- ACTION BAR -->
       <div class="nc-actions">
         <Button
@@ -176,9 +205,7 @@ function confirmDestructive(action: NodeAction, label: string) {
             size="small"
             :loading="pingLoading"
             :disabled="!!isLocked"
-            v-tooltip.top="pingResult
-               ? `SSH: ${pingResult.ssh_ok ? 'OK' : 'FAIL'} | DB: ${pingResult.db_ok ? 'OK' : 'FAIL'} | ${pingResult.ssh_latency_ms ?? '—'}ms`
-               : 'Check node reachability'"
+            v-tooltip.top="'Check node reachability'"
             @click.stop="ping"
         />
         <Button
@@ -308,13 +335,12 @@ function confirmDestructive(action: NodeAction, label: string) {
 }
 
 /* ═══════════════════════════════════════
-   STATE TAG — увеличенный padding + градиент по статусу
+   STATE TAG
 ═══════════════════════════════════════ */
 .nc-state-tag {
   flex-shrink: 0;
 }
 
-/* Базовые стили тега через :deep */
 :deep(.nc-state-tag.p-tag) {
   padding: 5px 10px !important;
   font-size: 0.7rem !important;
@@ -327,7 +353,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   overflow: hidden;
 }
 
-/* Gradient layer поверх фона через псевдоэлемент */
 :deep(.nc-state-tag.p-tag)::after {
   content: '';
   position: absolute;
@@ -336,7 +361,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   pointer-events: none;
 }
 
-/* OFFLINE — красный, более насыщенный с warm-красным градиентом */
 .node-card--offline :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-offline) 22%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-offline) 45%, transparent) !important;
@@ -350,7 +374,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   );
 }
 
-/* SYNCED — зелёный */
 .node-card--synced :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-synced) 40%, transparent) !important;
@@ -363,7 +386,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   );
 }
 
-/* SYNCED RO — жёлтый/warn */
 .node-card--readonly :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-readonly) 18%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-readonly) 40%, transparent) !important;
@@ -376,7 +398,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   );
 }
 
-/* DONOR/JOINER/DESYNCED — синий */
 .node-card--donor :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-donor) 18%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important;
@@ -389,7 +410,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   );
 }
 
-/* DEGRADED/NOT_READY — оранжевый */
 .node-card--degraded :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-degraded) 18%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-degraded) 40%, transparent) !important;
@@ -402,7 +422,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   );
 }
 
-/* UNKNOWN — muted */
 .node-card--unknown :deep(.nc-state-tag.p-tag) {
   background: color-mix(in oklch, var(--color-text-faint) 15%, transparent) !important;
   border-color: color-mix(in oklch, var(--color-text-faint) 30%, transparent) !important;
@@ -511,6 +530,50 @@ function confirmDestructive(action: NodeAction, label: string) {
   background: color-mix(in oklch, var(--color-offline) 15%, transparent);
   color: var(--color-offline);
   border: 1px solid color-mix(in oklch, var(--color-offline) 30%, transparent);
+}
+
+/* ═══════════════════════════════════════
+   PING RESULT
+═══════════════════════════════════════ */
+.nc-ping-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  align-self: flex-start;
+  border: 1px solid transparent;
+}
+.nc-ping-result i {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+.nc-ping-result--ok {
+  background: color-mix(in oklch, var(--color-synced) 12%, transparent);
+  color: var(--color-synced);
+  border-color: color-mix(in oklch, var(--color-synced) 30%, transparent);
+}
+.nc-ping-result--fail {
+  background: color-mix(in oklch, var(--color-offline) 12%, transparent);
+  color: var(--color-offline);
+  border-color: color-mix(in oklch, var(--color-offline) 30%, transparent);
+}
+
+/* Transition */
+.ping-result-enter-active {
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.ping-result-leave-active {
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+.ping-result-enter-from,
+.ping-result-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* ═══════════════════════════════════════
