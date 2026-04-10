@@ -11,7 +11,7 @@
     <!-- Node selection -->
     <div class="node-list">
       <div
-          v-for="node in store.reachableNodes"
+          v-for="node in safeReachableNodes"
           :key="node.node_id"
           class="node-option"
           :class="{
@@ -20,7 +20,6 @@
         }"
           @click="store.selectedBootstrapNodeId = node.node_id"
       >
-        <!-- MINOR fix: убран дублирующий @update:model-value -->
         <RadioButton
             :model-value="store.selectedBootstrapNodeId"
             :value="node.node_id"
@@ -44,7 +43,6 @@
           <span style="font-family: monospace; font-size: var(--text-sm)">
             seqno: {{ node.seqno }}
           </span>
-          <!-- MAJOR fix: severity 'warn' → 'warning' -->
           <Tag
               :value="node.safe_to_bootstrap === 1 ? 'safe' : 'unsafe'"
               :severity="node.safe_to_bootstrap === 1 ? 'success' : 'warning'"
@@ -82,7 +80,6 @@
 
     <div class="step-actions">
       <Button label="Back" icon="pi pi-arrow-left" outlined size="small" @click="emit('back')" />
-      <!-- MAJOR fix: emit('next') после успешного запуска -->
       <Button
           label="Start bootstrap"
           icon="pi pi-bolt"
@@ -96,7 +93,6 @@
 
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-// BLOCKER fix: раздельные импорты
 import Button from 'primevue/button'
 import RadioButton from 'primevue/radiobutton'
 import Tag from 'primevue/tag'
@@ -106,11 +102,13 @@ import { useRecoveryStore } from '@/stores/recovery'
 const emit = defineEmits<{ back: []; next: [] }>()
 const store = useRecoveryStore()
 
+// Защитный fallback: store.reachableNodes может быть undefined при анмаунте
+const safeReachableNodes = computed(() => store.reachableNodes ?? [])
+
 const selectedNode = computed(() =>
-    store.reachableNodes.find((n) => n.node_id === store.selectedBootstrapNodeId) ?? null
+    safeReachableNodes.value.find((n) => n.node_id === store.selectedBootstrapNodeId) ?? null
 )
 
-// MINOR fix: null явно исключён
 const selectedIsUnsafe = computed(() =>
     selectedNode.value !== null &&
     selectedNode.value.safe_to_bootstrap !== null &&
@@ -123,12 +121,10 @@ const canProceed = computed(() => {
   return true
 })
 
-// MINOR fix: сбрасываем force при смене ноды
 watch(() => store.selectedBootstrapNodeId, () => {
   store.bootstrapForce = false
 })
 
-// MAJOR fix: после startBootstrap переходим на следующий шаг
 async function handleBootstrap() {
   await store.startBootstrap()
   if (!store.bootstrapError) {
