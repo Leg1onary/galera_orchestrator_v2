@@ -87,9 +87,3 @@ async def me(username: str = Depends(require_auth)) -> MeResponse:
     Frontend uses this as the primary auth check on app startup.
     """
     return MeResponse(authenticated=True, username=username)
-    """
-    Returns the currently authenticated user.
-    Dependency require_auth raises 401 if cookie is missing/invalid.
-    Frontend uses this as the primary auth check on app startup.
-    """
-    return MeResponse(authenticated=True, username=username)

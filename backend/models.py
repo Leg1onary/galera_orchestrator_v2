@@ -63,7 +63,7 @@ nodes = Table(
     Column("host", Text, nullable=False),
     Column("port", Integer, nullable=False, server_default="3306"),
     Column("ssh_port", Integer, nullable=False, server_default="22"),
-    Column("ssh_user", Text, nullable=False, server_default="'root'"),
+    Column("ssh_user", Text, nullable=False, server_default="root"),
     Column("db_user", Text, nullable=True),
     Column("db_password", Text, nullable=True),
     Column(
@@ -92,7 +92,7 @@ arbitrators = Table(
     Column("name", Text, nullable=False),
     Column("host", Text, nullable=False),
     Column("ssh_port", Integer, nullable=False, server_default="22"),
-    Column("ssh_user", Text, nullable=False, server_default="'root'"),
+    Column("ssh_user", Text, nullable=False, server_default="root"),
     Column(
         "cluster_id",
         Integer,
@@ -188,7 +188,7 @@ system_settings = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("polling_interval_sec", Integer, nullable=False, server_default="5"),
     Column("event_log_limit", Integer, nullable=False, server_default="200"),
-    Column("timezone", Text, nullable=False, server_default="'UTC'"),
+    Column("timezone", Text, nullable=False, server_default="UTC"),
     Column(
         "updated_at",
         DateTime,

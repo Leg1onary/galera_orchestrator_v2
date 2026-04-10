@@ -8,30 +8,43 @@ Per ТЗ раздел 14:
 """
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 
 from dependencies import require_auth
+from services.event_log import write_event
+from services.maintenance import start_rolling_restart
 from services.operations import (
     assert_no_active_operation,
     get_active_operation,
     request_cancel,
 )
-from services.maintenance import start_rolling_restart
+from services.ws_manager import ws_manager
 
-router = APIRouter(prefix="/clusters", tags=["maintenance"])
+# FIX MAJOR: auth перенесён в router-level dependency
+router = APIRouter(
+    prefix="/clusters",
+    tags=["maintenance"],
+    dependencies=[Depends(require_auth)],
+)
 
 
 @router.get("/{cluster_id}/maintenance/status")
-async def maintenance_status(
-        cluster_id: int,
-        username: str = Depends(require_auth),
-):
+async def maintenance_status(cluster_id: int) -> dict:
     """
     Return the active maintenance operation for this cluster, or null.
+    ТЗ 14.1, 9.1
     """
-    op = get_active_operation(cluster_id)
+    # FIX BLOCKER: синхронный вызов → to_thread
+    op = await asyncio.to_thread(get_active_operation, cluster_id)
+
+    # Показываем только rolling_restart операции
+    # pending/running/cancel_requested — все считаются active (ТЗ 19.1)
     if op and op["type"] != "rolling_restart":
         op = None
+
     return {"active_operation": op}
 
 
@@ -39,19 +52,33 @@ async def maintenance_status(
 async def rolling_restart(
         cluster_id: int,
         username: str = Depends(require_auth),
-):
+) -> dict:
     """
     Start a rolling restart of all enabled nodes in the cluster.
 
     - 409 if any operation is already active
     - 202 Accepted: operation created, progress via WS
+    ТЗ 14.8, 14.6, 19.1
     """
-    assert_no_active_operation(cluster_id)
+    # FIX BLOCKER: синхронный вызов → to_thread
+    # FIX MINOR: start_rolling_restart также делает assert внутри — здесь
+    # делаем явно чтобы вернуть 409 до создания task-а
+    await asyncio.to_thread(assert_no_active_operation, cluster_id)
+
     op_id = await start_rolling_restart(cluster_id, created_by=username)
+
+    write_event(
+        level="INFO",
+        source="maintenance",
+        cluster_id=cluster_id,
+        operation_id=op_id,
+        message=f"Rolling restart started by '{username}' for cluster {cluster_id}",
+    )
+
     return {
-        "accepted": True,
+        "accepted":     True,
         "operation_id": op_id,
-        "message": "Rolling restart started. Subscribe to WS for progress.",
+        "message":      "Rolling restart started. Subscribe to WS for progress.",
     }
 
 
@@ -59,17 +86,43 @@ async def rolling_restart(
 async def maintenance_cancel(
         cluster_id: int,
         username: str = Depends(require_auth),
-):
+) -> dict:
     """
     Request cancellation of the active maintenance operation.
 
     - 404 if no active operation
-    - Stops after the current node's maintenance-exit step (node won't be left read-only)
+    - Stops after current node's maintenance-exit step
+      (node won't be left read-only per ТЗ 14.9)
+    ТЗ 14.1
     """
-    op = request_cancel(cluster_id)
+    # FIX BLOCKER: синхронный вызов → to_thread
+    op = await asyncio.to_thread(request_cancel, cluster_id)
+
+    # FIX MAJOR: добавлены write_event + WS broadcast (по аналогии с recovery_cancel)
+    write_event(
+        level="INFO",
+        source="maintenance",
+        cluster_id=cluster_id,
+        operation_id=op["id"],
+        message=f"Cancel requested by '{username}' for rolling restart op id={op['id']}",
+    )
+
+    await ws_manager.broadcast(cluster_id, {
+        "event":      "operation_cancel_requested",
+        "cluster_id": cluster_id,
+        "ts":         datetime.now(timezone.utc).isoformat(),
+        "payload": {
+            "operation_id": op["id"],
+            "type":         op["type"],
+        },
+    })
+
     return {
-        "cancelled": True,
+        "cancelled":    True,
         "operation_id": op["id"],
-        "status": op["status"],
-        "message": "Cancel requested. Current node will finish its maintenance-exit step before stopping.",
+        "status":       op["status"],
+        "message": (
+            "Cancel requested. "
+            "Current node will finish its maintenance-exit step before stopping."
+        ),
     }

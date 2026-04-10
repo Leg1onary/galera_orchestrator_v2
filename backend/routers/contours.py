@@ -4,7 +4,7 @@ from sqlalchemy import text
 from database import get_connection
 from dependencies import require_auth
 
-router = APIRouter(prefix="/api/contours", tags=["contours"])
+router = APIRouter(prefix="/contours", tags=["contours"])
 
 
 @router.get("", summary="List all contours")

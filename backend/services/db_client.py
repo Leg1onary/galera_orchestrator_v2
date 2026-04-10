@@ -27,7 +27,7 @@ from typing import Any, Self
 
 import pymysql
 import pymysql.cursors
-from cryptography.fernet import Fernet, InvalidToken
+from services.crypto import decrypt_password, is_encrypted
 
 from config import settings
 
@@ -43,12 +43,6 @@ class DBError(Exception):
 
 
 class DBClient:
-    """
-    Thin wrapper around pymysql for executing status queries on Galera nodes.
-
-    Per ТЗ раздел 2.4: db_password is stored Fernet-encrypted.
-    Per ТЗ раздел 3.3: FERNET_SECRET_KEY is loaded from settings.
-    """
 
     def __init__(
             self,
@@ -66,47 +60,21 @@ class DBClient:
         self._password = self._decrypt_password(encrypted_password)
         self._conn: pymysql.connections.Connection | None = None
 
-    # ── Password handling ─────────────────────────────────────────────────────
-
     @staticmethod
     def _decrypt_password(raw: str) -> str:
-        """
-        Attempt Fernet decryption of the stored password.
-
-        Falls back to returning the raw string if:
-          - The value is empty (node has no DB password configured)
-          - Decryption fails (value is plain-text, e.g. in dev environment)
-
-        This dual-mode behaviour allows dev environments to store plain-text
-        passwords in .env.dev without requiring Fernet encryption.
-        """
         if not raw:
             return ""
+        if is_encrypted(raw):
+            try:
+                return decrypt_password(raw)
+            except ValueError as exc:
+                # FIX MAJOR: не возвращать raw — pymysql получит Fernet-токен как пароль
+                raise DBError(
+                    f"db_password decryption failed — token invalid or FERNET_SECRET_KEY changed: {exc}"
+                ) from exc
+        logger.debug("db_password is not a Fernet token — using as plain-text (dev mode)")
+        return raw
 
-        try:
-            fernet = Fernet(settings.FERNET_SECRET_KEY.encode())
-            return fernet.decrypt(raw.encode()).decode()
-        except (InvalidToken, Exception):
-            # Not a Fernet token — treat as plain-text (dev mode)
-            logger.debug(
-                "db_password is not a Fernet token — using as plain-text (dev mode)"
-            )
-            return raw
-
-    @staticmethod
-    def encrypt_password(plain: str) -> str:
-        """
-        Encrypt a plain-text password for storage in SQLite.
-        Used by Settings CRUD when saving node db_password.
-
-        Args:
-            plain: plain-text password
-
-        Returns:
-            Fernet-encrypted token string
-        """
-        fernet = Fernet(settings.FERNET_SECRET_KEY.encode())
-        return fernet.encrypt(plain.encode()).decode()
 
     # ── Connection lifecycle ──────────────────────────────────────────────────
 
@@ -242,13 +210,12 @@ class DBClient:
         return round(latency_ms, 2)
 
     def execute(self, sql: str) -> None:
-        """Execute a non-SELECT statement (SET GLOBAL, etc.)."""
         if self._conn is None:
             raise DBError("Not connected — call connect() first")
-
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(sql)
+            # autocommit=True — commit() не нужен, убран
             self._conn.commit()
         except pymysql.Error as exc:
             raise DBError(

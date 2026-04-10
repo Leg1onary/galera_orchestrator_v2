@@ -1,6 +1,5 @@
 import logging
-from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator
 
 from sqlalchemy import Connection, create_engine, text
@@ -48,20 +47,17 @@ def init_db() -> None:
 
 # ── Connection dependency ─────────────────────────────────────────────────────
 
-@contextmanager
 def get_connection() -> Generator[Connection, None, None]:
     """
-    Context manager for a single transactional connection.
-
-    Usage in routers via FastAPI Depends:
-        def some_endpoint(conn = Depends(get_connection)):
-            ...
-
-    engine.begin() opens a transaction that auto-commits on exit
-    and auto-rolls back on exception.
+    FastAPI Depends-совместимый генератор соединения.
+    engine.begin() — транзакция, auto-commit on exit, auto-rollback on exception.
     """
     with engine.begin() as conn:
-        yield conn
+        try:
+            yield conn
+        except Exception:
+            logger.exception("Database error inside request")
+            raise
 
 
 # ── Seed helpers ──────────────────────────────────────────────────────────────
@@ -79,14 +75,6 @@ def _seed_contours(conn) -> None:
 
 
 def _seed_system_settings(conn) -> None:
-    """
-    Seed a single system_settings row with ТЗ defaults if the table is empty.
-
-    Per ТЗ раздел 2.7:
-      polling_interval_sec  = 5
-      event_log_limit       = 200
-      timezone              = 'UTC'
-    """
     row = conn.execute(text("SELECT COUNT(*) FROM system_settings")).scalar()
     if row == 0:
         conn.execute(
@@ -102,7 +90,7 @@ def _seed_system_settings(conn) -> None:
                 "polling_interval_sec": 5,
                 "event_log_limit": 200,
                 "timezone": "UTC",
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),  # ← было utcnow()
             },
         )
         logger.debug("system_settings seeded with defaults")

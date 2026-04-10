@@ -81,29 +81,22 @@ def create_operation(
         details: dict | None = None,
         created_by: str = "api",
 ) -> int:
-    """
-    Insert a new cluster_operation row with status='pending'.
-    Returns the new operation id.
-
-    Does NOT acquire a lock — call assert_no_active_operation() first.
-    """
     with engine.begin() as conn:
         result = conn.execute(
             text(
                 """
                 INSERT INTO cluster_operations
-                (cluster_id, type, status, started_at, created_by, target_node_id, details_json)
+                    (cluster_id, type, status, created_by, target_node_id, details_json)
                 VALUES
-                    (:cluster_id, :type, 'pending', :now, :created_by, :target_node_id, :details_json)
+                    (:cluster_id, :type, 'pending', :created_by, :target_node_id, :details_json)
                 """
             ),
             {
-                "cluster_id":    cluster_id,
-                "type":          op_type,
-                "now":           datetime.now(timezone.utc).isoformat(),
-                "created_by":    created_by,
+                "cluster_id":     cluster_id,
+                "type":           op_type,
+                "created_by":     created_by,
                 "target_node_id": target_node_id,
-                "details_json":  json.dumps(details) if details else None,
+                "details_json":   json.dumps(details) if details else None,
             },
         )
         return result.lastrowid
@@ -114,25 +107,28 @@ def set_operation_status(
         new_status: str,
         error_message: str | None = None,
 ) -> None:
-    """Update status (and finished_at if terminal) of a cluster_operation."""
     is_terminal = new_status in ("success", "failed", "cancelled")
+    is_running = new_status == "running"
     with engine.begin() as conn:
         conn.execute(
             text(
                 """
                 UPDATE cluster_operations
-                SET status       = :status,
-                    finished_at  = CASE WHEN :terminal THEN :now ELSE finished_at END,
-                    error_message= COALESCE(:error, error_message)
+                SET status        = :status,
+                    started_at    = CASE WHEN :is_running AND started_at IS NULL
+                                             THEN :now ELSE started_at END,
+                    finished_at   = CASE WHEN :terminal THEN :now ELSE finished_at END,
+                    error_message = COALESCE(:error, error_message)
                 WHERE id = :op_id
                 """
             ),
             {
-                "status":    new_status,
-                "terminal":  1 if is_terminal else 0,
-                "now":       datetime.now(timezone.utc).isoformat(),
-                "error":     error_message,
-                "op_id":     op_id,
+                "status":     new_status,
+                "is_running": 1 if is_running else 0,
+                "terminal":   1 if is_terminal else 0,
+                "now":        datetime.now(timezone.utc).isoformat(),
+                "error":      error_message,
+                "op_id":      op_id,
             },
         )
 

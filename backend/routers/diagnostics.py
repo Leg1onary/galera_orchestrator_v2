@@ -19,14 +19,14 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 
-from database import get_connection
+# FIX BLOCKER: убран get_connection() — используем engine (SQLAlchemy Core)
+from database import engine
 from dependencies import require_auth
-from services.crypto import decrypt_password
-from services.db_client import DBClient
+from services.db_client import DBClient, DBError
 from services.event_log import write_event
-from services.ssh_client import SSHClient
-from config import settings
+from services.ssh_client import SSHClient, SSHError
 
 router = APIRouter(
     prefix="/clusters/{cluster_id}",
@@ -35,56 +35,56 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# ── Internal DB helpers ───────────────────────────────────────────────────────
 
 def _assert_cluster_exists(cluster_id: int) -> dict:
-    with get_connection() as conn:
+    # FIX BLOCKER: get_connection() → engine.connect()
+    with engine.connect() as conn:
         row = conn.execute(
-            "SELECT id, name FROM clusters WHERE id = ?", (cluster_id,)
-        ).fetchone()
+            text("SELECT id, name FROM clusters WHERE id = :cid"),
+            {"cid": cluster_id},
+        ).mappings().fetchone()
     if not row:
         raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
     return dict(row)
 
 
 def _get_enabled_nodes(cluster_id: int) -> list[dict]:
-    with get_connection() as conn:
+    with engine.connect() as conn:
         rows = conn.execute(
-            """
-            SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
-            FROM nodes
-            WHERE cluster_id = ? AND enabled = 1
-            """,
-            (cluster_id,),
-        ).fetchall()
+            text("""
+                 SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                 FROM nodes
+                 WHERE cluster_id = :cid AND enabled = 1
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
 def _get_enabled_arbitrators(cluster_id: int) -> list[dict]:
-    with get_connection() as conn:
+    with engine.connect() as conn:
         rows = conn.execute(
-            """
-            SELECT id, name, host, ssh_port, ssh_user
-            FROM arbitrators
-            WHERE cluster_id = ? AND enabled = 1
-            """,
-            (cluster_id,),
-        ).fetchall()
+            text("""
+                 SELECT id, name, host, ssh_port, ssh_user
+                 FROM arbitrators
+                 WHERE cluster_id = :cid AND enabled = 1
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
 def _get_arbitrator_or_404(cluster_id: int, arb_id: int) -> dict:
-    with get_connection() as conn:
+    with engine.connect() as conn:
         row = conn.execute(
-            """
-            SELECT id, name, host, ssh_port, ssh_user
-            FROM arbitrators
-            WHERE id = ? AND cluster_id = ?
-            """,
-            (arb_id, cluster_id),
-        ).fetchone()
+            text("""
+                 SELECT id, name, host, ssh_port, ssh_user
+                 FROM arbitrators
+                 WHERE id = :aid AND cluster_id = :cid
+                 """),
+            {"aid": arb_id, "cid": cluster_id},
+        ).mappings().fetchone()
     if not row:
         raise HTTPException(
             status_code=404,
@@ -93,24 +93,38 @@ def _get_arbitrator_or_404(cluster_id: int, arb_id: int) -> dict:
     return dict(row)
 
 
-# ---------------------------------------------------------------------------
-# SSH / DB probe helpers — called inside asyncio.to_thread()
-# ---------------------------------------------------------------------------
+def _get_node_for_cluster(node_id: int, cluster_id: int) -> dict | None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                 SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                 FROM nodes
+                 WHERE id = :nid AND cluster_id = :cid AND enabled = 1
+                 """),
+            {"nid": node_id, "cid": cluster_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
+# ── SSH / DB probe helpers — called inside asyncio.to_thread() ────────────────
 
 def _probe_node_ssh(node: dict) -> dict:
     """SSH connectivity + latency for one node."""
+    # FIX MAJOR: node["ssh_port"] может быть None
+    # FIX MAJOR: used as context manager (with) для гарантии close()
     t0 = time.monotonic()
     try:
-        client = SSHClient(
-            host=node["host"],
-            port=node["ssh_port"],
-            username=node["ssh_user"],
-        )
-        client.connect()
-        client.exec("echo ok")
-        client.close()
+        with SSHClient(
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
+        ) as client:
+            # FIX BLOCKER: client.exec() → client.execute()
+            client.execute("echo ok")
         latency_ms = round((time.monotonic() - t0) * 1000)
         return {"ssh_ok": True, "ssh_latency_ms": latency_ms, "ssh_error": None}
+    except SSHError as exc:
+        return {"ssh_ok": False, "ssh_latency_ms": None, "ssh_error": str(exc)}
     except Exception as exc:
         return {"ssh_ok": False, "ssh_latency_ms": None, "ssh_error": str(exc)}
 
@@ -121,17 +135,18 @@ def _probe_node_db(node: dict) -> dict:
         return {"db_ok": None, "db_latency_ms": None, "db_error": "No credentials"}
     t0 = time.monotonic()
     try:
-        client = DBClient(
-            host=node["host"],
-            port=node["port"],
-            user=node["db_user"],
-            encrypted_password=node["db_password"],
-        )
-        client.connect()
-        client.query("SELECT 1")
-        client.close()
+        # FIX MAJOR: используем context manager
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            client.query("SELECT 1")
         latency_ms = round((time.monotonic() - t0) * 1000)
         return {"db_ok": True, "db_latency_ms": latency_ms, "db_error": None}
+    except DBError as exc:
+        return {"db_ok": False, "db_latency_ms": None, "db_error": str(exc)}
     except Exception as exc:
         return {"db_ok": False, "db_latency_ms": None, "db_error": str(exc)}
 
@@ -140,30 +155,36 @@ def _probe_arbitrator(arb: dict) -> dict:
     """SSH + garbd process check for one arbitrator."""
     t0 = time.monotonic()
     try:
-        client = SSHClient(
-            host=arb["host"],
-            port=arb["ssh_port"],
-            username=arb["ssh_user"],
-        )
-        client.connect()
-        stdout, _ = client.exec(
-            "pgrep -x garbd > /dev/null 2>&1 && echo running || echo stopped"
-        )
-        client.close()
+        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
+        with SSHClient(
+                host=arb["host"],
+                port=int(arb.get("ssh_port") or 22),
+                username=arb.get("ssh_user") or "root",
+        ) as client:
+            stdout, _ = client.execute(
+                "pgrep -x garbd > /dev/null 2>&1 && echo running || echo stopped"
+            )
         latency_ms = round((time.monotonic() - t0) * 1000)
         garbd_running = stdout.strip() == "running"
         return {
-            "ssh_ok": True,
-            "garbd_running": garbd_running,
+            "ssh_ok":         True,
+            "garbd_running":  garbd_running,
             "latency_ssh_ms": latency_ms,
-            "error": None,
+            "error":          None,
+        }
+    except SSHError as exc:
+        return {
+            "ssh_ok":         False,
+            "garbd_running":  False,
+            "latency_ssh_ms": None,
+            "error":          str(exc),
         }
     except Exception as exc:
         return {
-            "ssh_ok": False,
-            "garbd_running": False,
+            "ssh_ok":         False,
+            "garbd_running":  False,
             "latency_ssh_ms": None,
-            "error": str(exc),
+            "error":          str(exc),
         }
 
 
@@ -172,17 +193,16 @@ def _fetch_wsrep_variables(node: dict) -> dict[str, str] | None:
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
-        client = DBClient(
-            host=node["host"],
-            port=node["port"],
-            user=node["db_user"],
-            encrypted_password=node["db_password"],
-        )
-        client.connect()
-        rows = client.query(
-            "SHOW GLOBAL VARIABLES WHERE Variable_name LIKE 'wsrep%'"
-        )
-        client.close()
+        # FIX MAJOR: context manager
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query(
+                "SHOW GLOBAL VARIABLES WHERE Variable_name LIKE 'wsrep%'"
+            )
         return {r["Variable_name"]: r["Value"] for r in rows}
     except Exception:
         return None
@@ -193,82 +213,82 @@ def _fetch_all_variables(node: dict) -> list[dict] | None:
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
-        client = DBClient(
-            host=node["host"],
-            port=node["port"],
-            user=node["db_user"],
-            encrypted_password=node["db_password"],
-        )
-        client.connect()
-        rows = client.query("SHOW GLOBAL VARIABLES")
-        client.close()
+        # FIX MAJOR: context manager
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query("SHOW GLOBAL VARIABLES")
         return rows
     except Exception:
         return None
 
 
 def _fetch_resources(node: dict) -> dict:
-    """SSH resource probes: CPU load, RAM, disk, uptime."""
+    """SSH resource probes: CPU load, RAM, disk, uptime. Per ТЗ 15.6."""
     result: dict[str, Any] = {
-        "node_id": node["id"],
-        "node_name": node["name"],
-        "host": node["host"],
-        "cpu_load": None,
-        "ram": None,
-        "disk": None,
+        "node_id":      node["id"],
+        "node_name":    node["name"],
+        "host":         node["host"],
+        "cpu_load":     None,
+        "ram":          None,
+        "disk":         None,
         "uptime_since": None,
-        "error": None,
+        "error":        None,
     }
     try:
-        client = SSHClient(
-            host=node["host"],
-            port=node["ssh_port"],
-            username=node["ssh_user"],
-        )
-        client.connect()
-
-        # CPU — /proc/loadavg: "0.52 0.58 0.59 1/432 12345"
-        stdout, _ = client.exec("cat /proc/loadavg")
-        parts = stdout.strip().split()
-        if len(parts) >= 3:
-            result["cpu_load"] = {
-                "load1": float(parts[0]),
-                "load5": float(parts[1]),
-                "load15": float(parts[2]),
-            }
-
-        # RAM — free -b: parse "Mem:" line
-        stdout, _ = client.exec("free -b")
-        for line in stdout.splitlines():
-            if line.startswith("Mem:"):
-                cols = line.split()
-                # cols: Mem: total used free shared buff/cache available
-                result["ram"] = {
-                    "total_bytes": int(cols[1]),
-                    "used_bytes": int(cols[2]),
-                    "free_bytes": int(cols[3]),
-                    "available_bytes": int(cols[6]) if len(cols) > 6 else None,
+        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
+        with SSHClient(
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
+        ) as client:
+            # CPU — /proc/loadavg: "0.52 0.58 0.59 1/432 12345"
+            stdout, _ = client.execute("cat /proc/loadavg")
+            parts = stdout.strip().split()
+            if len(parts) >= 3:
+                result["cpu_load"] = {
+                    "load1":  float(parts[0]),
+                    "load5":  float(parts[1]),
+                    "load15": float(parts[2]),
                 }
-                break
 
-        # Disk — df -B1 /: parse last data line
-        stdout, _ = client.exec("df -B1 /")
-        lines = [l for l in stdout.splitlines() if l and not l.startswith("Filesystem")]
-        if lines:
-            cols = lines[-1].split()
-            # cols: Filesystem 1B-blocks Used Available Use% Mounted
-            result["disk"] = {
-                "total_bytes": int(cols[1]),
-                "used_bytes": int(cols[2]),
-                "available_bytes": int(cols[3]),
-                "use_percent": cols[4].rstrip("%"),
-            }
+            # RAM — free -b
+            stdout, _ = client.execute("free -b")
+            for line in stdout.splitlines():
+                if line.startswith("Mem:"):
+                    cols = line.split()
+                    result["ram"] = {
+                        "total_bytes":     int(cols[1]),
+                        "used_bytes":      int(cols[2]),
+                        "free_bytes":      int(cols[3]),
+                        "available_bytes": int(cols[6]) if len(cols) > 6 else None,
+                    }
+                    break
 
-        # Uptime since
-        stdout, _ = client.exec("uptime -s")
-        result["uptime_since"] = stdout.strip() or None
+            # Disk — df -B1 /
+            stdout, _ = client.execute("df -B1 /")
+            lines = [
+                l for l in stdout.splitlines()
+                if l and not l.startswith("Filesystem")
+            ]
+            if lines:
+                cols = lines[-1].split()
+                result["disk"] = {
+                    "total_bytes":     int(cols[1]),
+                    "used_bytes":      int(cols[2]),
+                    "available_bytes": int(cols[3]),
+                    "use_percent":     cols[4].rstrip("%"),
+                }
 
-        client.close()
+            # Uptime since
+            stdout, _ = client.execute("uptime -s")
+            result["uptime_since"] = stdout.strip() or None
+
+    except SSHError as exc:
+        result["error"] = str(exc)
     except Exception as exc:
         result["error"] = str(exc)
 
@@ -276,93 +296,87 @@ def _fetch_resources(node: dict) -> dict:
 
 
 def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
-    """journalctl -u garbd -n N with fallback to tail."""
+    """journalctl -u garbd -n N with fallback to tail. Per ТЗ 15.8."""
     try:
-        client = SSHClient(
-            host=arb["host"],
-            port=arb["ssh_port"],
-            username=arb["ssh_user"],
-        )
-        client.connect()
-
-        # Primary: journalctl
-        stdout, stderr = client.exec(
-            f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null"
-        )
-        log_lines = stdout.strip().splitlines() if stdout.strip() else []
-
-        # Fallback: tail from common log path
-        if not log_lines:
-            stdout, stderr = client.exec(
-                f"tail -n {lines} /var/log/garbd.log 2>/dev/null || "
-                f"tail -n {lines} /var/log/garbd/garbd.log 2>/dev/null || echo ''"
+        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
+        with SSHClient(
+                host=arb["host"],
+                port=int(arb.get("ssh_port") or 22),
+                username=arb.get("ssh_user") or "root",
+        ) as client:
+            stdout, _ = client.execute(
+                f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null"
             )
             log_lines = stdout.strip().splitlines() if stdout.strip() else []
 
-        client.close()
+            # Fallback: tail от стандартных путей (ТЗ 15.8)
+            if not log_lines:
+                stdout, _ = client.execute(
+                    f"tail -n {lines} /var/log/garbd.log 2>/dev/null || "
+                    f"tail -n {lines} /var/log/garbd/garbd.log 2>/dev/null || echo ''"
+                )
+                log_lines = stdout.strip().splitlines() if stdout.strip() else []
+
         return {
-            "arbitrator_id": arb["id"],
+            "arbitrator_id":   arb["id"],
             "arbitrator_name": arb["name"],
-            "host": arb["host"],
-            "lines": log_lines,
-            "error": None,
+            "host":            arb["host"],
+            "lines":           log_lines,
+            "error":           None,
+        }
+    except SSHError as exc:
+        return {
+            "arbitrator_id":   arb["id"],
+            "arbitrator_name": arb["name"],
+            "host":            arb["host"],
+            "lines":           [],
+            "error":           str(exc),
         }
     except Exception as exc:
         return {
-            "arbitrator_id": arb["id"],
+            "arbitrator_id":   arb["id"],
             "arbitrator_name": arb["name"],
-            "host": arb["host"],
-            "lines": [],
-            "error": str(exc),
+            "host":            arb["host"],
+            "lines":           [],
+            "error":           str(exc),
         }
 
 
-# ---------------------------------------------------------------------------
-# POST /diagnostics/check-all
-# ТЗ 15.3: параллельные SSH+DB проверки всех нод и арбитраторов
-# ---------------------------------------------------------------------------
+# ── POST /diagnostics/check-all ──────────────────────────────────────────────
 
 @router.post("/diagnostics/check-all")
 async def check_all(cluster_id: int) -> dict:
+    """ТЗ 15.3: параллельные SSH+DB проверки всех нод и арбитраторов."""
     _assert_cluster_exists(cluster_id)
 
-    nodes = _get_enabled_nodes(cluster_id)
-    arbitrators = _get_enabled_arbitrators(cluster_id)
+    nodes        = _get_enabled_nodes(cluster_id)
+    arbitrators  = _get_enabled_arbitrators(cluster_id)
 
-    # Запускаем все probe-задачи параллельно
-    node_ssh_tasks = [
-        asyncio.to_thread(_probe_node_ssh, node) for node in nodes
-    ]
-    node_db_tasks = [
-        asyncio.to_thread(_probe_node_db, node) for node in nodes
-    ]
-    arb_tasks = [
-        asyncio.to_thread(_probe_arbitrator, arb) for arb in arbitrators
-    ]
+    node_ssh_tasks = [asyncio.to_thread(_probe_node_ssh, node) for node in nodes]
+    node_db_tasks  = [asyncio.to_thread(_probe_node_db,  node) for node in nodes]
+    arb_tasks      = [asyncio.to_thread(_probe_arbitrator, arb) for arb in arbitrators]
 
     all_results = await asyncio.gather(
         *node_ssh_tasks, *node_db_tasks, *arb_tasks,
         return_exceptions=True,
     )
 
-    n = len(nodes)
+    n           = len(nodes)
     ssh_results = all_results[:n]
-    db_results = all_results[n : n * 2]
-    arb_results = all_results[n * 2 :]
+    db_results  = all_results[n: n * 2]
+    arb_results = all_results[n * 2:]
 
     node_checks = []
     for node, ssh_r, db_r in zip(nodes, ssh_results, db_results):
-        # Если asyncio.gather вернул исключение — оборачиваем
         if isinstance(ssh_r, Exception):
             ssh_r = {"ssh_ok": False, "ssh_latency_ms": None, "ssh_error": str(ssh_r)}
         if isinstance(db_r, Exception):
-            db_r = {"db_ok": False, "db_latency_ms": None, "db_error": str(db_r)}
-
+            db_r  = {"db_ok": False, "db_latency_ms": None, "db_error": str(db_r)}
         node_checks.append({
-            "node_id": node["id"],
+            "node_id":   node["id"],
             "node_name": node["name"],
-            "host": node["host"],
-            "role": "node",
+            "host":      node["host"],
+            "role":      "node",
             **ssh_r,
             **db_r,
         })
@@ -371,23 +385,23 @@ async def check_all(cluster_id: int) -> dict:
     for arb, arb_r in zip(arbitrators, arb_results):
         if isinstance(arb_r, Exception):
             arb_r = {
-                "ssh_ok": False,
-                "garbd_running": False,
+                "ssh_ok":         False,
+                "garbd_running":  False,
                 "latency_ssh_ms": None,
-                "error": str(arb_r),
+                "error":          str(arb_r),
             }
         arb_checks.append({
-            "arbitrator_id": arb["id"],
+            "arbitrator_id":   arb["id"],
             "arbitrator_name": arb["name"],
-            "host": arb["host"],
-            "role": "arbitrator",
-            "db_ok": None,      # арбитратор не имеет DB endpoint
-            "db_latency_ms": None,
+            "host":            arb["host"],
+            "role":            "arbitrator",
+            "db_ok":           None,
+            "db_latency_ms":   None,
             **arb_r,
         })
 
-    # Пишем один обобщающий event log (ТЗ 15.10 — source: diagnostics)
     failed_nodes = [r for r in node_checks if not r.get("ssh_ok")]
+    # ТЗ 2.6: уровни INFO / WARN / ERROR
     level = "WARN" if failed_nodes else "INFO"
     await asyncio.to_thread(
         write_event,
@@ -403,111 +417,87 @@ async def check_all(cluster_id: int) -> dict:
     return {"nodes": node_checks, "arbitrators": arb_checks}
 
 
-# ---------------------------------------------------------------------------
-# GET /diagnostics/config-diff
-# ТЗ 15.4: SHOW GLOBAL VARIABLES LIKE 'wsrep%', diff по enabled нодам
-# ---------------------------------------------------------------------------
+# ── GET /diagnostics/config-diff ─────────────────────────────────────────────
 
 @router.get("/diagnostics/config-diff")
 async def config_diff(cluster_id: int) -> dict:
+    """ТЗ 15.4: SHOW GLOBAL VARIABLES LIKE 'wsrep%', diff по enabled нодам."""
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
     if not nodes:
         return {"variables": [], "nodes": [], "diff_found": False}
 
-    # Параллельно собираем wsrep-переменные со всех нод
-    tasks = [asyncio.to_thread(_fetch_wsrep_variables, node) for node in nodes]
-    results: list[dict[str, str] | None] = await asyncio.gather(
-        *tasks, return_exceptions=False
-    )
+    tasks: list = [asyncio.to_thread(_fetch_wsrep_variables, node) for node in nodes]
+    results: list[dict[str, str] | None] = await asyncio.gather(*tasks, return_exceptions=False)
 
-    # Собираем полное множество имён переменных
     all_var_names: set[str] = set()
     for r in results:
         if r:
             all_var_names.update(r.keys())
 
-    sorted_vars = sorted(all_var_names)
-
-    # Строим таблицу: переменная → значения по нодам
-    # Помечаем переменные где есть расхождение
     table = []
-    for var_name in sorted_vars:
-        values = []
-        for node, node_vars in zip(nodes, results):
-            values.append({
-                "node_id": node["id"],
-                "node_name": node["name"],
-                "value": node_vars.get(var_name) if node_vars else None,
+    for var_name in sorted(all_var_names):
+        values = [
+            {
+                "node_id":    node["id"],
+                "node_name":  node["name"],
+                "value":      node_vars.get(var_name) if node_vars else None,
                 "fetch_error": node_vars is None,
-            })
-
-        distinct_values = {v["value"] for v in values if not v["fetch_error"]}
-        has_diff = len(distinct_values) > 1
-
+            }
+            for node, node_vars in zip(nodes, results)
+        ]
+        distinct = {v["value"] for v in values if not v["fetch_error"]}
         table.append({
             "variable": var_name,
-            "values": values,
-            "has_diff": has_diff,
+            "values":   values,
+            "has_diff": len(distinct) > 1,
         })
 
     node_summary = [
         {
-            "node_id": n["id"],
+            "node_id":   n["id"],
             "node_name": n["name"],
-            "host": n["host"],
-            "fetch_ok": results[i] is not None,
+            "host":      n["host"],
+            "fetch_ok":  results[i] is not None,
         }
         for i, n in enumerate(nodes)
     ]
 
-    diff_found = any(row["has_diff"] for row in table)
-
     return {
-        "variables": table,
-        "nodes": node_summary,
-        "diff_found": diff_found,
+        "variables":  table,
+        "nodes":      node_summary,
+        "diff_found": any(row["has_diff"] for row in table),
     }
 
 
-# ---------------------------------------------------------------------------
-# GET /diagnostics/variables
-# ТЗ 15.5: SHOW GLOBAL VARIABLES с фильтрацией по search + wsrep-фокус
-# ---------------------------------------------------------------------------
+# ── GET /diagnostics/variables ────────────────────────────────────────────────
 
 @router.get("/diagnostics/variables")
 async def variables(
         cluster_id: int,
-        node_id: int = Query(..., description="Target node id"),
-        search: str | None = Query(None, description="Filter by variable name substring"),
-        wsrep_only: bool = Query(False, description="Return only wsrep_* variables"),
+        node_id: int      = Query(...,    description="Target node id"),
+        search: str | None = Query(None,  description="Filter by variable name substring"),
+        wsrep_only: bool   = Query(False, description="Return only wsrep_* variables"),
 ) -> dict:
+    """ТЗ 15.5: SHOW GLOBAL VARIABLES с фильтрацией."""
     _assert_cluster_exists(cluster_id)
 
-    # Валидируем что нода принадлежит кластеру
-    with get_connection() as conn:
-        node_row = conn.execute(
-            "SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password "
-            "FROM nodes WHERE id = ? AND cluster_id = ? AND enabled = 1",
-            (node_id, cluster_id),
-        ).fetchone()
-    if not node_row:
+    # FIX BLOCKER: get_connection() → engine helper
+    node = _get_node_for_cluster(node_id, cluster_id)
+    if not node:
         raise HTTPException(
             status_code=404,
             detail=f"Node {node_id} not found in cluster {cluster_id}",
         )
-    node = dict(node_row)
 
     rows: list[dict] | None = await asyncio.to_thread(_fetch_all_variables, node)
-
     if rows is None:
         raise HTTPException(
             status_code=502,
             detail=f"Failed to connect to node {node['name']} ({node['host']}:{node['port']})",
         )
 
-    # Применяем фильтры
     if wsrep_only:
         rows = [r for r in rows if r["Variable_name"].startswith("wsrep")]
     if search:
@@ -515,49 +505,44 @@ async def variables(
         rows = [r for r in rows if search_lower in r["Variable_name"].lower()]
 
     return {
-        "node_id": node["id"],
+        "node_id":   node["id"],
         "node_name": node["name"],
-        "host": node["host"],
-        "total": len(rows),
-        "variables": [
-            {"name": r["Variable_name"], "value": r["Value"]} for r in rows
-        ],
+        "host":      node["host"],
+        "total":     len(rows),
+        "variables": [{"name": r["Variable_name"], "value": r["Value"]} for r in rows],
     }
 
 
-# ---------------------------------------------------------------------------
-# POST /diagnostics/resources
-# ТЗ 15.6: SSH-ресурсы (CPU, RAM, Disk, Uptime) по всем enabled нодам
-# ---------------------------------------------------------------------------
+# ── POST /diagnostics/resources ──────────────────────────────────────────────
 
 @router.post("/diagnostics/resources")
 async def resources(cluster_id: int) -> dict:
+    """ТЗ 15.6: SSH-ресурсы (CPU, RAM, Disk, Uptime) по всем enabled нодам."""
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
     if not nodes:
         return {"nodes": []}
 
-    tasks = [asyncio.to_thread(_fetch_resources, node) for node in nodes]
+    tasks   = [asyncio.to_thread(_fetch_resources, node) for node in nodes]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     node_resources = []
     for node, result in zip(nodes, results):
         if isinstance(result, Exception):
             node_resources.append({
-                "node_id": node["id"],
-                "node_name": node["name"],
-                "host": node["host"],
-                "cpu_load": None,
-                "ram": None,
-                "disk": None,
+                "node_id":      node["id"],
+                "node_name":    node["name"],
+                "host":         node["host"],
+                "cpu_load":     None,
+                "ram":          None,
+                "disk":         None,
                 "uptime_since": None,
-                "error": str(result),
+                "error":        str(result),
             })
         else:
             node_resources.append(result)
 
-    # event log только при наличии ошибок (ТЗ 15.10)
     errors = [r for r in node_resources if r.get("error")]
     if errors:
         await asyncio.to_thread(
@@ -574,13 +559,11 @@ async def resources(cluster_id: int) -> dict:
     return {"nodes": node_resources}
 
 
-# ---------------------------------------------------------------------------
-# GET /arbitrators/{arb_id}/test-connection
-# ТЗ 15.3, 15.9: SSH + garbd process check для одного арбитратора
-# ---------------------------------------------------------------------------
+# ── GET /arbitrators/{arb_id}/test-connection ─────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/test-connection")
 async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
+    """ТЗ 15.3, 15.9: SSH + garbd process check для одного арбитратора."""
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
 
@@ -602,17 +585,14 @@ async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
     )
 
     return {
-        "arbitrator_id": arb["id"],
+        "arbitrator_id":   arb["id"],
         "arbitrator_name": arb["name"],
-        "host": arb["host"],
+        "host":            arb["host"],
         **result,
     }
 
 
-# ---------------------------------------------------------------------------
-# GET /arbitrators/{arb_id}/log
-# ТЗ 15.8: journalctl -u garbd -n N / fallback tail
-# ---------------------------------------------------------------------------
+# ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/log")
 async def arbitrator_log(
@@ -620,6 +600,7 @@ async def arbitrator_log(
         arb_id: int,
         lines: int = Query(default=50, ge=1, le=500, description="Number of log lines"),
 ) -> dict:
+    """ТЗ 15.8: journalctl -u garbd -n N / fallback tail."""
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
 

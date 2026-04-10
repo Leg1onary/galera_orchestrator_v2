@@ -1,4 +1,6 @@
 from __future__ import annotations
+from cryptography.fernet import Fernet
+import base64
 
 import sys
 from functools import lru_cache
@@ -49,6 +51,29 @@ class Settings(BaseSettings):
                 "WARNING: JWT_SECRET_KEY is set to default value. "
                 "Change it before production use.",
                 file=sys.stderr,
+            )
+        return v
+
+    @field_validator("FERNET_SECRET_KEY")
+    @classmethod
+    def fernet_key_valid(cls, v: str) -> str:
+        if v == "change-me-fernet-base64-key":
+            print(
+                "WARNING: FERNET_SECRET_KEY is set to default value. "
+                "Change it before production use.",
+                file=sys.stderr,
+            )
+            # Дефолтный ключ невалиден для Fernet — заменяем на заглушку
+            # чтобы не падать при импорте; реальные операции шифрования
+            # всё равно не будут выполняться с этим ключом в prod
+            return v
+        # Валидируем что это корректный Fernet-ключ (32 bytes URL-safe base64)
+        try:
+            Fernet(v.encode())
+        except Exception:
+            raise ValueError(
+                "FERNET_SECRET_KEY must be a valid URL-safe base64-encoded 32-byte key. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
         return v
 

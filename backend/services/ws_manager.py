@@ -10,7 +10,6 @@ Failed/disconnected clients are removed automatically.
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from fastapi import WebSocket
 

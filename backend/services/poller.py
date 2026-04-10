@@ -440,6 +440,17 @@ async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
     )
     if state_changed:
         await _broadcast_arbitrator_state_changed(cluster_id, arb_id, arb["name"], new_state)
+        await asyncio.to_thread(
+            _write_event_log,
+            cluster_id=cluster_id,
+            arbitrator_id=arb_id,
+            source="ssh",
+            message=(
+                f"Arbitrator '{arb['name']}' state changed: "
+                f"ssh_ok={prev_ssh_ok}→{new_state.ssh_ok}, "
+                f"garbd_running={prev_garbd_running}→{new_state.garbd_running}"
+            ),
+        )
 
 
 def _collect_arbitrator_state(arb: dict) -> LiveArbitratorState:
@@ -524,31 +535,30 @@ def _write_event_log(
         *,
         cluster_id: int,
         node_id: int | None = None,
+        arbitrator_id: int | None = None,
         source: str,
         message: str,
+        level: str = "INFO",
 ) -> None:
-    """
-    Write a single row to event_logs table synchronously.
-    Per ТЗ раздел 11: all SSH/DB/system events are logged.
-    Called via asyncio.to_thread() — do not call from async context directly.
-    """
     try:
         with engine.begin() as conn:
             conn.execute(
                 text(
                     """
                     INSERT INTO event_logs
-                        (cluster_id, node_id, source, message, created_at)
+                        (cluster_id, node_id, arbitrator_id, source, level, message, ts)
                     VALUES
-                        (:cluster_id, :node_id, :source, :message, :created_at)
+                        (:cluster_id, :node_id, :arbitrator_id, :source, :level, :message, :ts)
                     """
                 ),
                 {
-                    "cluster_id": cluster_id,
-                    "node_id":    node_id,
-                    "source":     source,
-                    "message":    message,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "cluster_id":     cluster_id,
+                    "node_id":        node_id,
+                    "arbitrator_id":  arbitrator_id,
+                    "source":         source,
+                    "level":          level,
+                    "message":        message,
+                    "ts":             datetime.now(timezone.utc).isoformat(),
                 },
             )
     except Exception as exc:

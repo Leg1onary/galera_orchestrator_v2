@@ -61,20 +61,13 @@ async def log_event_async(
         cluster_id: Optional[int] = None,
         operation_id: Optional[int] = None,
 ) -> None:
-    from database import get_connection
+    from database import engine
 
     def _write() -> None:
-        with get_connection() as conn:
-            log_event(
-                conn,
-                level=level,
-                source=source,
-                message=message,
-                node_id=node_id,
-                arbitrator_id=arbitrator_id,
-                cluster_id=cluster_id,
-                operation_id=operation_id,
-            )
+        with engine.begin() as conn:
+            log_event(conn, level=level, source=source, message=message,
+                      node_id=node_id, arbitrator_id=arbitrator_id,
+                      cluster_id=cluster_id, operation_id=operation_id)
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _write)
@@ -95,22 +88,15 @@ def write_event(
     Opens its own DB connection, no need to pass conn explicitly.
     Falls back silently on error to avoid breaking the calling request.
     """
-    from database import get_connection
+    from database import engine
 
     if source not in ALLOWED_SOURCES:
         source = "system"
 
     try:
-        with get_connection() as conn:
-            log_event(
-                conn,
-                level=level,
-                source=source,
-                message=message,
-                cluster_id=cluster_id,
-                node_id=node_id,
-                arbitrator_id=arbitrator_id,
-                operation_id=operation_id,
-            )
+        with engine.begin() as conn:
+            log_event(conn, level=level, source=source, message=message,
+                      cluster_id=cluster_id, node_id=node_id,
+                      arbitrator_id=arbitrator_id, operation_id=operation_id)
     except Exception:
         logger.exception("write_event failed silently: %s", message)

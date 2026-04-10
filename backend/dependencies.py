@@ -43,11 +43,6 @@ def require_auth(
 def get_db() -> Generator[Connection, None, None]:
     """
     FastAPI dependency — yield a SQLAlchemy Core Connection.
-
-    Usage:
-        @router.get("/items")
-        async def get_items(conn: Connection = Depends(get_db)):
-            ...
+    get_connection() is a plain generator (not a context manager).
     """
-    with get_connection() as conn:
-        yield conn
+    yield from get_connection()

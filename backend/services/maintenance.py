@@ -23,10 +23,12 @@ from database import engine
 from services.ssh_client import SSHClient, SSHError
 from services.db_client import DBClient, DBError
 from services.ws_manager import ws_manager
+from services.event_log import write_event
 from services.operations import (
     create_operation,
     set_operation_status,
     is_cancel_requested,
+    assert_no_active_operation,
 )
 from services.recovery import (
     _broadcast_progress,
@@ -51,6 +53,8 @@ async def start_rolling_restart(cluster_id: int, created_by: str) -> int:
     Create a 'rolling_restart' operation and launch the async task.
     Returns the new operation id.
     """
+    await asyncio.to_thread(assert_no_active_operation, cluster_id)
+
     op_id = await asyncio.to_thread(
         create_operation,
         cluster_id=cluster_id,
@@ -117,7 +121,7 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
                     logger.warning("[%s] Enter maintenance failed: %s (continuing)", node["name"], exc)
             else:
                 logger.info("[%s] Already in maintenance, skipping enter", node["name"])
-                entered_maintenance = True  # считаем что вошли (для exit в конце)
+                entered_maintenance = True
 
             # b. Restart
             await _broadcast_progress(
@@ -144,11 +148,12 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
             )
 
             # d. Exit maintenance (always, even if cancel_requested)
-            try:
-                await asyncio.to_thread(_set_read_only, node, on=False)
-                await asyncio.to_thread(_set_node_maintenance_flag, node["id"], False)
-            except (DBError, SSHError) as exc:
-                logger.warning("[%s] Exit maintenance failed: %s", node["name"], exc)
+            if entered_maintenance:
+                try:
+                    await asyncio.to_thread(_set_read_only, node, on=False)
+                    await asyncio.to_thread(_set_node_maintenance_flag, node["id"], False)
+                except (DBError, SSHError) as exc:
+                    logger.warning("[%s] Exit maintenance failed: %s", node["name"], exc)
 
             if not synced:
                 if await asyncio.to_thread(is_cancel_requested, op_id):
@@ -170,11 +175,27 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
             cluster_id, op_id, success=True,
             message=f"Rolling restart complete — {total} nodes restarted",
         )
+        await asyncio.to_thread(
+            write_event,
+            level="INFO",
+            source="maintenance",
+            message=f"Rolling restart op {op_id} completed for cluster {cluster_id}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         logger.info("Rolling restart op %d completed for cluster %d", op_id, cluster_id)
 
     except RecoveryError as exc:
         logger.error("Rolling restart op %d failed: %s", op_id, exc)
         await asyncio.to_thread(set_operation_status, op_id, "failed", str(exc))
+        await asyncio.to_thread(
+            write_event,
+            level="ERROR",
+            source="maintenance",
+            message=f"Rolling restart op {op_id} failed for cluster {cluster_id}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=False, message=str(exc))
     except asyncio.CancelledError:
         await asyncio.to_thread(set_operation_status, op_id, "cancelled")
@@ -182,6 +203,14 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
     except Exception as exc:
         logger.exception("Unexpected error in rolling restart op %d", op_id)
         await asyncio.to_thread(set_operation_status, op_id, "failed", str(exc))
+        await asyncio.to_thread(
+            write_event,
+            level="ERROR",
+            source="maintenance",
+            message=f"Rolling restart op {op_id} failed for cluster {cluster_id}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=False, message=f"Internal error: {exc}")
 
 

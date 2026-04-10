@@ -26,13 +26,16 @@ from datetime import datetime, timezone
 from database import engine
 from services.ssh_client import SSHClient, SSHError
 from services.ws_manager import ws_manager
+from services.event_log import write_event
 from services.operations import (
     create_operation,
     set_operation_status,
     is_cancel_requested,
-    get_active_operation,
+    assert_no_active_operation,
 )
 from sqlalchemy import text
+
+from services.event_log import write_event
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +54,12 @@ async def start_bootstrap(cluster_id: int, created_by: str) -> int:
     Create a 'bootstrap' operation and launch the async wizard.
     Returns the new operation id.
     """
+    await asyncio.to_thread(assert_no_active_operation, cluster_id)
+
     op_id = await asyncio.to_thread(
         create_operation,
         cluster_id=cluster_id,
-        op_type="bootstrap",
+        op_type="recovery_bootstrap",
         created_by=created_by,
     )
     asyncio.create_task(
@@ -69,10 +74,12 @@ async def start_rejoin(cluster_id: int, node_id: int, created_by: str) -> int:
     Create a 'rejoin' operation for a single node and launch it.
     Returns the new operation id.
     """
+    await asyncio.to_thread(assert_no_active_operation, cluster_id)
+
     op_id = await asyncio.to_thread(
         create_operation,
         cluster_id=cluster_id,
-        op_type="rejoin",
+        op_type="recovery_rejoin",
         target_node_id=node_id,
         created_by=created_by,
     )
@@ -185,12 +192,28 @@ async def _run_bootstrap(cluster_id: int, op_id: int) -> None:
                 )
 
         await asyncio.to_thread(set_operation_status, op_id, "success")
+        await asyncio.to_thread(
+            write_event,
+            level="INFO",
+            source="recovery",
+            message=f"Bootstrap operation {op_id} completed successfully",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=True, message="Bootstrap complete")
         logger.info("Bootstrap operation %d completed successfully", op_id)
 
     except RecoveryError as exc:
         logger.error("Bootstrap operation %d failed: %s", op_id, exc)
         await asyncio.to_thread(set_operation_status, op_id, "failed", str(exc))
+        await asyncio.to_thread(
+            write_event,
+            level="ERROR",
+            source="recovery",
+            message=f"Bootstrap operation {op_id} failed: {exc}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=False, message=str(exc))
     except asyncio.CancelledError:
         await asyncio.to_thread(set_operation_status, op_id, "cancelled")
@@ -198,6 +221,14 @@ async def _run_bootstrap(cluster_id: int, op_id: int) -> None:
     except Exception as exc:
         logger.exception("Unexpected error in bootstrap op %d", op_id)
         await asyncio.to_thread(set_operation_status, op_id, "failed", str(exc))
+        await asyncio.to_thread(
+            write_event,
+            level="ERROR",
+            source="recovery",
+            message=f"Bootstrap operation {op_id} failed: {exc}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=False, message=f"Internal error: {exc}")
 
 
@@ -237,10 +268,26 @@ async def _run_rejoin(cluster_id: int, op_id: int, node_id: int) -> None:
             )
 
         await asyncio.to_thread(set_operation_status, op_id, "success")
+        await asyncio.to_thread(
+            write_event,
+            level="INFO",
+            source="recovery",
+            message=f"Rejoin operation {op_id}: {node['name']} rejoined successfully",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=True, message=f"{node['name']} rejoined successfully")
 
     except RecoveryError as exc:
         await asyncio.to_thread(set_operation_status, op_id, "failed", str(exc))
+        await asyncio.to_thread(
+            write_event,
+            level="ERROR",
+            source="recovery",
+            message=f"Rejoin operation {op_id} failed: {exc}",
+            cluster_id=cluster_id,
+            operation_id=op_id,
+        )
         await _broadcast_finished(cluster_id, op_id, success=False, message=str(exc))
     except asyncio.CancelledError:
         await asyncio.to_thread(set_operation_status, op_id, "cancelled")
@@ -254,29 +301,25 @@ async def _run_rejoin(cluster_id: int, op_id: int, node_id: int) -> None:
 # ── SSH helpers (all blocking, called via to_thread) ─────────────────────────────
 
 def _scan_grastate(nodes: list[dict]) -> list[dict]:
-    """
-    Read /var/lib/mysql/grastate.dat from each node via SSH.
-    Returns list of scan result dicts, one per node.
-
-    Per ТЗ раздел 13.7: parse safe_to_bootstrap and seqno.
-    """
     results = []
     for node in nodes:
         result = {
-            "id":               node["id"],
-            "name":             node["name"],
-            "host":             node["host"],
+            "id":                node["id"],
+            "name":              node["name"],
+            "host":              node["host"],
             "safe_to_bootstrap": False,
-            "seqno":            -1,
-            "error":            None,
+            "seqno":             -1,
+            "error":             None,
         }
         try:
             with SSHClient(
-                host=node["host"],
-                port=int(node.get("ssh_port") or 22),
-                username=node.get("ssh_user") or "root",
+                    host=node["host"],
+                    port=int(node.get("ssh_port") or 22),
+                    username=node.get("ssh_user") or "root",
             ) as ssh:
-                content = ssh.read_file("/var/lib/mysql/grastate.dat")
+                content, err = ssh.execute("cat /var/lib/mysql/grastate.dat")
+                if err and not content:
+                    raise SSHError(f"cat grastate.dat error: {err[:200]}")
                 result["safe_to_bootstrap"] = _parse_grastate_bool(content, "safe_to_bootstrap")
                 result["seqno"] = _parse_grastate_int(content, "seqno")
         except SSHError as exc:
@@ -415,18 +458,17 @@ async def _wait_node_synced(
 
 
 def _get_wsrep_state_via_ssh(node: dict) -> str:
-    """
-    Read wsrep_local_state_comment via SSH + mysql CLI.
-    Returns state string, or 'OFFLINE' if unreachable.
-    """
     try:
         with SSHClient(
-            host=node["host"],
-            port=int(node.get("ssh_port") or 22),
-            username=node.get("ssh_user") or "root",
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
         ) as ssh:
+            # Используем db_user если есть, иначе доверяем ~/.my.cnf
+            db_user = node.get("db_user") or ""
+            user_flag = f"-u{db_user}" if db_user else ""
             out, _ = ssh.execute(
-                "mysql -Nse \"SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment'\""
+                f"mysql -Nse \"SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment'\" {user_flag}"
             )
             parts = out.strip().split()
             return parts[1] if len(parts) >= 2 else (parts[0] if parts else "OFFLINE")
@@ -454,10 +496,12 @@ def _load_cluster_nodes(cluster_id: int) -> list[dict]:
 
 
 def _load_node(node_id: int) -> dict | None:
-    """Load a single node row by id."""
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password FROM nodes WHERE id = :id"),
+            text(
+                "SELECT id, name, host, port, ssh_port, ssh_user, "
+                "db_user, db_password, maintenance FROM nodes WHERE id = :id"
+            ),
             {"id": node_id},
         ).mappings().fetchone()
     return dict(row) if row else None

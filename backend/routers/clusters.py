@@ -101,28 +101,34 @@ def _calc_cluster_status(
 ) -> str:
     """
     ТЗ 7.1:
-      healthy  — все enabled-ноды в Primary Component
-      critical — split-brain (wsrep_cluster_status != Primary)
-      degraded — всё остальное (часть нод недоступна, но не split-brain)
+      healthy  — все enabled-ноды ssh_ok + wsrep_cluster_status=PRIMARY
+                 + wsrep_local_state_comment in {SYNCED, DONOR, JOINER}
+      critical — split-brain: хотя бы одна db_ok нода видит non-Primary
+      degraded — всё остальное
     """
     enabled_nodes = [n for n in nodes if n["enabled"]]
-    if not enabled_nodes or not node_states:
+    if not enabled_nodes:
         return "degraded"
 
-    # Split-brain: хотя бы одна нода с db_ok видит non-Primary
+    # Split-brain check
     for s in node_states.values():
         if s.db_ok and s.wsrep_cluster_status.upper() != "PRIMARY":
             return "critical"
 
-    # Healthy: все enabled-ноды ssh_ok + SYNCED/DONOR/JOINER
-    online_ids = {
-        node["id"] for node in enabled_nodes
-        if node_states.get(node["id"]) and node_states[node["id"]].ssh_ok
-    }
-    if len(online_ids) == len(enabled_nodes):
-        return "healthy"
+    # Healthy: все enabled-ноды онлайн, видят Primary, в рабочем состоянии
+    _LIVE_STATES = {"SYNCED", "DONOR", "JOINER"}
+    for node in enabled_nodes:
+        s = node_states.get(node["id"])
+        if not s or not s.ssh_ok:
+            return "degraded"
+        if not s.db_ok:
+            return "degraded"
+        if s.wsrep_cluster_status.upper() != "PRIMARY":
+            return "degraded"
+        if s.wsrep_local_state_comment.upper() not in _LIVE_STATES:
+            return "degraded"
 
-    return "degraded"
+    return "healthy"
 
 
 def _build_cluster_live_summary(
@@ -146,7 +152,7 @@ def _build_cluster_live_summary(
         1 for n in nodes
         if node_states.get(n["id"])
         and node_states[n["id"]].ssh_ok
-        and node_states[n["id"]].wsrep_local_state_comment == "SYNCED"
+        and node_states[n["id"]].wsrep_local_state_comment.upper() == "SYNCED"
     )
 
     return {
@@ -239,6 +245,18 @@ async def cluster_status(cluster_id: int) -> dict:
     online_nodes = sum(1 for n in nodes_out if n["live"] and n["live"].get("ssh_ok"))
     online_arbs  = sum(1 for a in arbitrators_out if a["live"] and a["live"].get("ssh_ok"))
 
+    primary = any(
+        s.db_ok and s.wsrep_cluster_status.upper() == "PRIMARY"
+        for s in node_states.values()
+    )
+
+    # last_update_ts: берём max last_check_ts среди живых нод
+    ts_values = [
+        s.last_check_ts for s in node_states.values()
+        if s.last_check_ts is not None
+    ]
+    last_update_ts = max(ts_values).isoformat() if ts_values else None
+
     # wsrep_cluster_size из любой живой ноды
     wsrep_cluster_size = None
     for s in node_states.values():
@@ -266,14 +284,14 @@ async def cluster_status(cluster_id: int) -> dict:
         "name":              cluster["name"],
         "contour":           cluster["contour_name"],
         "status":            cluster_status_str,
-        "primary":           cluster_status_str != "critical",
+        "primary":           primary,
         "wsrep_cluster_size": wsrep_cluster_size,
         "online_nodes":      online_nodes,
         "total_nodes":       len(nodes),
         "online_arbitrators": online_arbs,
         "total_arbitrators": len(arbitrators),
         "has_live_data":     has_live,
-        "last_update_ts":    None,  # поллер проставит через live state
+        "last_update_ts":    last_update_ts,  # поллер проставит через live state
         "nodes":             nodes_out,
         "arbitrators":       arbitrators_out,
         "active_operation":  active_operation,

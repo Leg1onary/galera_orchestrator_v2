@@ -22,6 +22,8 @@ import logging
 import time
 from typing import Self
 
+import shlex
+
 import paramiko
 
 from config import settings
@@ -125,18 +127,6 @@ class SSHClient:
     # ── Command execution ─────────────────────────────────────────────────────
 
     def execute(self, command: str) -> tuple[str, str]:
-        """
-        Execute a shell command over SSH.
-
-        Args:
-            command: shell command string
-
-        Returns:
-            (stdout, stderr) as stripped strings
-
-        Raises:
-            SSHError: if not connected, or if execution times out / fails
-        """
         if self._client is None:
             raise SSHError("Not connected — call connect() first")
 
@@ -145,9 +135,16 @@ class SSHClient:
                 command,
                 timeout=SSH_EXECUTE_TIMEOUT_SEC,
             )
-            # Read output — blocks until command finishes or timeout fires
+            # Устанавливаем channel timeout чтобы stdout.read() не блокировал вечно
+            stdout.channel.settimeout(SSH_EXECUTE_TIMEOUT_SEC)
+            stderr.channel.settimeout(SSH_EXECUTE_TIMEOUT_SEC)
+
             out = stdout.read().decode("utf-8", errors="replace").strip()
             err = stderr.read().decode("utf-8", errors="replace").strip()
+        except TimeoutError as exc:
+            raise SSHError(
+                f"SSH exec timed out [{self.host}:{self.port}] `{command}`"
+            ) from exc
         except paramiko.SSHException as exc:
             raise SSHError(
                 f"SSH exec failed [{self.host}:{self.port}] `{command}`: {exc}"
@@ -193,38 +190,15 @@ class SSHClient:
         )
         return round(latency_ms, 2)
 
-    def check_process_running(self, process_name: str) -> bool:
-        """
-        Check whether a process is running on the remote host.
-        Used for garbd arbitrator checks per ТЗ раздел 7.4.
-
-        Args:
-            process_name: e.g. "garbd"
-
-        Returns:
-            True if at least one process with that name is running
-        """
-        try:
-            out, _ = self.execute(f"pgrep -x {process_name} | head -1")
-            return bool(out.strip())
-        except SSHError:
-            return False
-
     def read_file(self, path: str) -> str:
-        """
-        Read a remote file via `cat`.
-        Used for grastate.dat reading in Recovery per ТЗ раздел 13.7.
-
-        Args:
-            path: absolute path on remote host
-
-        Returns:
-            file contents as string
-
-        Raises:
-            SSHError: if file cannot be read
-        """
-        out, err = self.execute(f"cat {path}")
+        out, err = self.execute(f"cat {shlex.quote(path)}")
         if err and not out:
             raise SSHError(f"Cannot read {path} on {self.host}: {err}")
         return out
+
+    def check_process_running(self, process_name: str) -> bool:
+        try:
+            out, _ = self.execute(f"pgrep -x {shlex.quote(process_name)} | head -1")
+            return bool(out.strip())
+        except SSHError:
+            return False

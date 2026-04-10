@@ -9,20 +9,15 @@ Sync actions (immediate, no lock needed):
 Async actions (cluster_operations, lock required):
   start | stop | restart | rejoin-force
 
-GET /api/clusters/{cluster_id}/nodes/{node_id}
-    Full config + live state for a single node.
+GET  /api/clusters/{cluster_id}/nodes                          — список нод кластера
+GET  /api/clusters/{cluster_id}/nodes/{node_id}               — конфиг + live state
+PATCH /api/clusters/{cluster_id}/nodes/{node_id}              — enable/disable
+GET  /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
+GET  /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
+POST /api/clusters/{cluster_id}/nodes/{node_id}/actions
 
-GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
-    SSH + DB latency test.
-
-GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
-    InnoDB status via SSH→SQL, parses LATEST DEADLOCK section.
-
-GET /api/clusters/{cluster_id}/operations/active
-    Current active operation (if any).
-
+GET  /api/clusters/{cluster_id}/operations/active
 POST /api/clusters/{cluster_id}/operations/cancel
-    Request cancellation of active operation.
 """
 from __future__ import annotations
 
@@ -37,14 +32,12 @@ from sqlalchemy import text
 
 from database import engine
 from dependencies import require_auth
-from services.crypto import decrypt_password
 from services.db_client import DBClient, DBError
 from services.event_log import write_event
 from services.operations import (
     assert_no_active_operation,
     create_operation,
     get_active_operation,
-    get_operation,
     is_cancel_requested,
     request_cancel,
     set_operation_status,
@@ -55,21 +48,22 @@ from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
+# FIX BLOCKER: убран /api из prefix — main.py уже монтирует с prefix="/api"
 router = APIRouter(
-    prefix="/api/clusters",
+    prefix="/clusters",
     tags=["nodes"],
     dependencies=[Depends(require_auth)],
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SYNC_ACTIONS = frozenset({"set-readonly", "set-readwrite", "enter-maintenance", "exit-maintenance"})
+SYNC_ACTIONS  = frozenset({"set-readonly", "set-readwrite", "enter-maintenance", "exit-maintenance"})
 ASYNC_ACTIONS = frozenset({"start", "stop", "restart", "rejoin-force"})
-ALL_ACTIONS = SYNC_ACTIONS | ASYNC_ACTIONS
+ALL_ACTIONS   = SYNC_ACTIONS | ASYNC_ACTIONS
 
 # Per ТЗ раздел 15.11
 SSH_CONNECT_TIMEOUT = 5
-DB_CONNECT_TIMEOUT = 3
+DB_CONNECT_TIMEOUT  = 3
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -81,10 +75,14 @@ class NodeActionRequest(BaseModel):
     def validate_action(cls, v: str) -> str:
         if v not in ALL_ACTIONS:
             raise ValueError(
-                f"Unknown action '{v}'. "
-                f"Valid: {sorted(ALL_ACTIONS)}"
+                f"Unknown action '{v}'. Valid: {sorted(ALL_ACTIONS)}"
             )
         return v
+
+
+class NodePatchRequest(BaseModel):
+    enabled:     bool | None = None
+    maintenance: bool | None = None
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -93,14 +91,12 @@ def _fetch_node(cluster_id: int, node_id: int) -> dict:
     """Load node row. Raises 404 if not found or belongs to different cluster."""
     with engine.connect() as conn:
         row = conn.execute(
-            text(
-                """
-                SELECT n.*, d.name AS datacenter_name
-                FROM nodes n
-                         LEFT JOIN datacenters d ON d.id = n.datacenter_id
-                WHERE n.id = :nid AND n.cluster_id = :cid
-                """
-            ),
+            text("""
+                 SELECT n.*, d.name AS datacenter_name
+                 FROM nodes n
+                          LEFT JOIN datacenters d ON d.id = n.datacenter_id
+                 WHERE n.id = :nid AND n.cluster_id = :cid
+                 """),
             {"nid": node_id, "cid": cluster_id},
         ).mappings().fetchone()
     if row is None:
@@ -124,11 +120,55 @@ def _assert_cluster_exists(cluster_id: int) -> None:
         )
 
 
+# ── GET /api/clusters/{cluster_id}/nodes ─────────────────────────────────────
+
+@router.get("/{cluster_id}/nodes")
+async def list_nodes(cluster_id: int) -> list[dict]:
+    """
+    GET /api/clusters/{cluster_id}/nodes — список нод кластера с live state.
+    ТЗ 9.1, 11.1
+    """
+    _assert_cluster_exists(cluster_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                 SELECT n.*, d.name AS datacenter_name
+                 FROM nodes n
+                          LEFT JOIN datacenters d ON d.id = n.datacenter_id
+                 WHERE n.cluster_id = :cid
+                 ORDER BY n.name
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
+
+    result = []
+    for n in rows:
+        node = dict(n)
+        live = live_node_states.get(cluster_id, {}).get(node["id"])
+        result.append({
+            "id":             node["id"],
+            "name":           node["name"],
+            "host":           node["host"],
+            "port":           node["port"],
+            "ssh_port":       node["ssh_port"],
+            "ssh_user":       node["ssh_user"],
+            "db_user":        node["db_user"],
+            # db_password намеренно не возвращается
+            "enabled":        bool(node["enabled"]),
+            "maintenance":    bool(node["maintenance"]),
+            "datacenter_id":  node["datacenter_id"],
+            "datacenter_name": node["datacenter_name"],
+            "cluster_id":     node["cluster_id"],
+            "live":           live.to_dict() if live is not None else None,
+        })
+    return result
+
+
 # ── GET /api/clusters/{cluster_id}/nodes/{node_id} ───────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}")
 async def get_node(cluster_id: int, node_id: int) -> dict:
-    """Full config + live state for a single node."""
+    """Full config + live state for a single node. ТЗ 11.4"""
     node = _fetch_node(cluster_id, node_id)
     live = live_node_states.get(cluster_id, {}).get(node_id)
     return {
@@ -148,6 +188,33 @@ async def get_node(cluster_id: int, node_id: int) -> dict:
     }
 
 
+# ── PATCH /api/clusters/{cluster_id}/nodes/{node_id} ─────────────────────────
+
+@router.patch("/{cluster_id}/nodes/{node_id}")
+async def patch_node(
+        cluster_id: int,
+        node_id: int,
+        body: NodePatchRequest,
+) -> dict:
+    """
+    PATCH enabled / maintenance flag на ноде.
+    ТЗ 11.1, 11.6 — enable/disable через NodeDetailDrawer.
+    """
+    _fetch_node(cluster_id, node_id)  # проверка 404
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["id"] = node_id
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE nodes SET {set_clause} WHERE id = :id"),
+            updates,
+        )
+    return {"accepted": True, "node_id": node_id, **body.model_dump(exclude_none=True)}
+
+
 # ── GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection ────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}/test-connection")
@@ -155,17 +222,17 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     """
     Live SSH + DB connectivity and latency test.
     Does NOT use cached poller state — opens fresh connections.
-    Per ТЗ раздел 6.4.
+    ТЗ 15.3, 15.11
     """
     node = _fetch_node(cluster_id, node_id)
 
     result: dict = {
-        "node_id":       node_id,
-        "ssh_ok":        False,
+        "node_id":        node_id,
+        "ssh_ok":         False,
         "ssh_latency_ms": None,
-        "db_ok":         False,
-        "db_latency_ms": None,
-        "error":         None,
+        "db_ok":          False,
+        "db_latency_ms":  None,
+        "error":          None,
     }
 
     # SSH
@@ -177,7 +244,7 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     try:
         await asyncio.to_thread(ssh.connect)
         latency = await asyncio.to_thread(ssh.test_connection)
-        result["ssh_ok"] = True
+        result["ssh_ok"]         = True
         result["ssh_latency_ms"] = latency
     except SSHError as exc:
         result["error"] = f"SSH: {exc}"
@@ -195,7 +262,7 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     try:
         await asyncio.to_thread(db.connect)
         db_latency = await asyncio.to_thread(db.test_connection)
-        result["db_ok"] = True
+        result["db_ok"]         = True
         result["db_latency_ms"] = db_latency
     except DBError as exc:
         result["error"] = f"DB: {exc}"
@@ -211,8 +278,8 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
 async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
     """
     Run SHOW ENGINE INNODB STATUS on the node.
-    Parses and returns the full text + the LATEST DETECTED DEADLOCK section.
-    Per ТЗ раздел 6.5.
+    Parses full text + LATEST DETECTED DEADLOCK section.
+    ТЗ 15.7
     """
     node = _fetch_node(cluster_id, node_id)
 
@@ -233,29 +300,23 @@ async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
     finally:
         await asyncio.to_thread(db.close)
 
-    # SHOW ENGINE INNODB STATUS returns one row: (Type, Name, Status)
     full_text = ""
     if rows:
         row = rows[0]
-        # pymysql DictCursor key might be 'Status' or 'status'
         normalised = {k.lower(): v for k, v in row.items()}
         full_text = normalised.get("status", "")
 
     deadlock_section = _extract_deadlock_section(full_text)
 
     return {
-        "node_id":          node_id,
-        "full_status":      full_text,
-        "latest_deadlock":  deadlock_section,
-        "has_deadlock":     deadlock_section is not None,
+        "node_id":         node_id,
+        "full_status":     full_text,
+        "latest_deadlock": deadlock_section,
+        "has_deadlock":    deadlock_section is not None,
     }
 
 
 def _extract_deadlock_section(innodb_text: str) -> str | None:
-    """
-    Extract LATEST DETECTED DEADLOCK block from SHOW ENGINE INNODB STATUS output.
-    Returns None if no deadlock section is present.
-    """
     match = re.search(
         r"LATEST DETECTED DEADLOCK\n-+\n(.*?)(?=\n-{4,}|\Z)",
         innodb_text,
@@ -274,11 +335,9 @@ async def node_action(
 ) -> dict:
     """
     Execute a node action.
-
-    Sync actions execute immediately and return result inline.
-    Async actions create a cluster_operation and run in the background.
-
-    Per ТЗ раздел 6.3 and 10.
+    Sync actions execute immediately.
+    Async actions create a cluster_operation and run in background.
+    ТЗ 9.3, 11.6, 14.5
     """
     node = _fetch_node(cluster_id, node_id)
 
@@ -299,52 +358,56 @@ async def node_action(
 # ── Sync action executor ──────────────────────────────────────────────────────
 
 async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
-    """
-    Execute a sync action: set-readonly, set-readwrite,
-    enter-maintenance, exit-maintenance.
-    These execute directly via DB/internal state and return immediately.
-    """
     node_id = node["id"]
 
     if action == "set-readonly":
         await _db_exec(node, "SET GLOBAL read_only = ON")
-        msg = f"Node '{node['name']}': SET GLOBAL read_only = ON"
-        write_event(cluster_id=cluster_id, node_id=node_id, source="ui", message=msg)
+        write_event(
+            level="INFO", cluster_id=cluster_id, node_id=node_id,
+            source="ui", message=f"Node '{node['name']}': SET GLOBAL read_only = ON",
+        )
         return {"accepted": True, "action": action, "node_id": node_id}
 
     if action == "set-readwrite":
         await _db_exec(node, "SET GLOBAL read_only = OFF")
-        msg = f"Node '{node['name']}': SET GLOBAL read_only = OFF"
-        write_event(cluster_id=cluster_id, node_id=node_id, source="ui", message=msg)
+        write_event(
+            level="INFO", cluster_id=cluster_id, node_id=node_id,
+            source="ui", message=f"Node '{node['name']}': SET GLOBAL read_only = OFF",
+        )
         return {"accepted": True, "action": action, "node_id": node_id}
 
     if action == "enter-maintenance":
+        # FIX MAJOR: ТЗ 14.9 — сначала SET readonly=ON, потом maintenance=true
+        await _db_exec(node, "SET GLOBAL read_only = ON")           # ← 1
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE nodes SET maintenance = 1 WHERE id = :id"),
                 {"id": node_id},
-            )
-        await _db_exec(node, "SET GLOBAL read_only = ON")
-        msg = f"Node '{node['name']}': entered maintenance mode"
-        write_event(cluster_id=cluster_id, node_id=node_id, source="ui", message=msg)
+            )                                                         # ← 2
+        write_event(
+            level="INFO", cluster_id=cluster_id, node_id=node_id,
+            source="ui", message=f"Node '{node['name']}': entered maintenance mode",
+        )
         return {"accepted": True, "action": action, "node_id": node_id}
 
     if action == "exit-maintenance":
-        # Safety: check maintenance_drift before exiting
+        # FIX MAJOR: ТЗ 14.9 — сначала SET readonly=OFF, потом maintenance=false
         live = live_node_states.get(cluster_id, {}).get(node_id)
         if live and live.maintenance_drift:
             logger.warning(
-                "exit-maintenance called on node %d but maintenance_drift=True "
-                "(read_only already OFF in MariaDB)", node_id
+                "exit-maintenance on node %d: maintenance_drift=True "
+                "(read_only already OFF in MariaDB)", node_id,
             )
+        await _db_exec(node, "SET GLOBAL read_only = OFF")           # ← 1
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE nodes SET maintenance = 0 WHERE id = :id"),
                 {"id": node_id},
-            )
-        await _db_exec(node, "SET GLOBAL read_only = OFF")
-        msg = f"Node '{node['name']}': exited maintenance mode"
-        write_event(cluster_id=cluster_id, node_id=node_id, source="ui", message=msg)
+            )                                                         # ← 2
+        write_event(
+            level="INFO", cluster_id=cluster_id, node_id=node_id,
+            source="ui", message=f"Node '{node['name']}': exited maintenance mode",
+        )
         return {"accepted": True, "action": action, "node_id": node_id}
 
     raise HTTPException(status_code=500, detail=f"Unhandled sync action: {action}")
@@ -374,13 +437,16 @@ async def _db_exec(node: dict, sql: str) -> None:
 
 async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
     """
-    Create a cluster_operation for start/stop/restart/rejoin-force.
-    Returns immediately with operation id; execution runs in background.
+    Create cluster_operation for start/stop/restart/rejoin-force.
+    Returns immediately; execution runs in background.
     Raises 409 if cluster already has an active operation.
+    ТЗ 19.1
     """
-    assert_no_active_operation(cluster_id)
+    # FIX BLOCKER: синхронные вызовы обёрнуты в to_thread
+    await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
-    op_id = create_operation(
+    op_id = await asyncio.to_thread(
+        create_operation,
         cluster_id=cluster_id,
         op_type="node_action",
         target_node_id=node["id"],
@@ -389,13 +455,13 @@ async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
     )
 
     write_event(
+        level="INFO",
         cluster_id=cluster_id,
         node_id=node["id"],
         source="ui",
         message=f"Node '{node['name']}': async action '{action}' queued (op_id={op_id})",
     )
 
-    # Broadcast operation started
     await ws_manager.broadcast(cluster_id, {
         "event":      "operation_started",
         "cluster_id": cluster_id,
@@ -429,14 +495,13 @@ async def _execute_node_action(
         action: str,
         op_id: int,
 ) -> None:
-    """
-    Background task: execute SSH-based async node action.
-    Updates operation status, broadcasts WS events.
-    """
-    node_id = node["id"]
+    """Background task: execute SSH-based async node action."""
+    node_id   = node["id"]
     node_name = node["name"]
 
-    set_operation_status(op_id, "running")
+    # FIX BLOCKER: все синхронные вызовы operations обёрнуты в to_thread
+    await asyncio.to_thread(set_operation_status, op_id, "running")
+
     await ws_manager.broadcast(cluster_id, {
         "event":      "operation_progress",
         "cluster_id": cluster_id,
@@ -444,9 +509,8 @@ async def _execute_node_action(
         "payload":    {"operation_id": op_id, "message": f"Executing '{action}' on {node_name}"},
     })
 
-    # Check cancel before starting I/O
-    if is_cancel_requested(op_id):
-        set_operation_status(op_id, "cancelled")
+    if await asyncio.to_thread(is_cancel_requested, op_id):
+        await asyncio.to_thread(set_operation_status, op_id, "cancelled")
         await _broadcast_op_finished(cluster_id, op_id, "cancelled")
         return
 
@@ -455,36 +519,37 @@ async def _execute_node_action(
     except SSHError as exc:
         error_msg = f"SSH error during '{action}' on '{node_name}': {exc}"
         logger.error(error_msg)
-        write_event(cluster_id=cluster_id, node_id=node_id, source="ssh", message=error_msg)
-        set_operation_status(op_id, "failed", error_message=error_msg)
+        write_event(level="ERROR", cluster_id=cluster_id, node_id=node_id,
+                    source="ssh", message=error_msg)
+        await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
         return
     except Exception as exc:
         error_msg = f"Unexpected error during '{action}' on '{node_name}': {exc}"
         logger.exception(error_msg)
-        write_event(cluster_id=cluster_id, node_id=node_id, source="system", message=error_msg)
-        set_operation_status(op_id, "failed", error_message=error_msg)
+        write_event(level="ERROR", cluster_id=cluster_id, node_id=node_id,
+                    source="system", message=error_msg)
+        await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
         return
 
     write_event(
-        cluster_id=cluster_id,
-        node_id=node_id,
+        level="INFO", cluster_id=cluster_id, node_id=node_id,
         source="ui",
         message=f"Node '{node_name}': action '{action}' completed successfully",
     )
-    set_operation_status(op_id, "success")
+    await asyncio.to_thread(set_operation_status, op_id, "success")
     await _broadcast_op_finished(cluster_id, op_id, "success")
 
 
 def _ssh_node_action(node: dict, action: str) -> None:
     """
     Blocking: execute SSH command for the given action.
-    Per ТЗ раздел 6.3:
+    ТЗ 11.6:
       start        → systemctl start mariadb
       stop         → systemctl stop mariadb
       restart      → systemctl restart mariadb
-      rejoin-force → systemctl stop mariadb + grastate reset + start
+      rejoin-force → stop + reset safe_to_bootstrap + start
     """
     ssh = SSHClient(
         host=node["host"],
@@ -494,20 +559,18 @@ def _ssh_node_action(node: dict, action: str) -> None:
     ssh.connect()
     try:
         if action == "start":
-            ssh.exec("systemctl start mariadb")
+            ssh.execute("systemctl start mariadb")
         elif action == "stop":
-            ssh.exec("systemctl stop mariadb")
+            ssh.execute("systemctl stop mariadb")
         elif action == "restart":
-            ssh.exec("systemctl restart mariadb")
+            ssh.execute("systemctl restart mariadb")
         elif action == "rejoin-force":
-            # Stop MariaDB, reset grastate.dat safe_to_bootstrap, start
-            ssh.exec("systemctl stop mariadb")
-            # Reset safe_to_bootstrap to 0 so node re-joins as non-donor
-            ssh.exec(
+            ssh.execute("systemctl stop mariadb")
+            ssh.execute(
                 "sed -i 's/^safe_to_bootstrap:.*$/safe_to_bootstrap: 0/' "
                 "/var/lib/mysql/grastate.dat"
             )
-            ssh.exec("systemctl start mariadb")
+            ssh.execute("systemctl start mariadb")
         else:
             raise SSHError(f"Unknown async action: {action}")
     finally:
@@ -537,7 +600,7 @@ async def _broadcast_op_finished(
 async def get_active_op(cluster_id: int) -> dict:
     """Return the currently active operation for the cluster, or null."""
     _assert_cluster_exists(cluster_id)
-    active = get_active_operation(cluster_id)
+    active = await asyncio.to_thread(get_active_operation, cluster_id)
     return {"operation": active}
 
 
@@ -546,14 +609,15 @@ async def get_active_op(cluster_id: int) -> dict:
 @router.post("/{cluster_id}/operations/cancel")
 async def cancel_operation(cluster_id: int) -> dict:
     """
-    Request cancellation of the active operation on a cluster.
+    Request cancellation of active operation.
     Idempotent if already cancel_requested.
     Raises 404 if no active operation.
-    Per ТЗ раздел 10.4.
+    ТЗ 19.1
     """
     _assert_cluster_exists(cluster_id)
-    op = request_cancel(cluster_id)
+    op = await asyncio.to_thread(request_cancel, cluster_id)
     write_event(
+        level="INFO",
         cluster_id=cluster_id,
         source="ui",
         message=f"Cancel requested for operation id={op['id']} type={op['type']}",
