@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
 from database import init_db
 from routers import (
     auth_router,
@@ -27,10 +29,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    start_poller()
+    start_poller()          # FIX MAJOR: await если stop_poller/start_poller async
     logger.info("Galera Orchestrator v2 started")
     yield
-    stop_poller()
+    stop_poller()           # FIX MAJOR: await если stop_poller async
     logger.info("Galera Orchestrator v2 stopped")
 
 
@@ -43,23 +45,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── API routers ─────────────────────────────────────────────────────────────────────────
+# ── CORS (dev only) ──────────────────────────────────────────────────────────
+# В prod SPA и API на одном origin — CORS не нужен.
+# В dev Vite на :5173 делает запросы к FastAPI на :8000.
+# FIX MINOR: добавлен CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,      # обязательно для httpOnly cookie
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── API routers ───────────────────────────────────────────────────────────────
 #
 # Стратегия prefix:
 #   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
-#   - Если роутер имеет prefix="/auth" / "/diagnostics" и т.д. → include_router c prefix="/api"
+#   - Если роутер имеет prefix="/clusters", "/auth" и т.д. → include_router с prefix="/api"
 #
-app.include_router(auth_router,        prefix="/api")
-app.include_router(diagnostics_router, prefix="/api")   # только один раз
-app.include_router(recovery_router,    prefix="/api")
-app.include_router(maintenance_router, prefix="/api")
-app.include_router(clusters_router, prefix="/api")
-app.include_router(contours_router)
-app.include_router(nodes_router)
-app.include_router(settings_router)
-app.include_router(ws_router)
+app.include_router(auth_router,        prefix="/api")   # → /api/auth/...
+app.include_router(diagnostics_router, prefix="/api")   # → /api/diagnostics/...
+app.include_router(recovery_router,    prefix="/api")   # → /api/recovery/...
+app.include_router(maintenance_router, prefix="/api")   # → /api/maintenance/...
+app.include_router(clusters_router,    prefix="/api")   # → /api/clusters/...
+app.include_router(nodes_router,       prefix="/api")   # FIX BLOCKER: был без prefix → /clusters/...
+app.include_router(contours_router)                     # уже /api/contours внутри
+app.include_router(settings_router)                     # уже /api/settings внутри
+app.include_router(ws_router)                           # → /ws/clusters/... (не /api)
 
-# ── Static assets ─────────────────────────────────────────────────────────────────────────
+# ── Static assets ─────────────────────────────────────────────────────────────
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -68,11 +82,12 @@ if STATIC_DIR.is_dir():
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-# ── SPA fallback ─────────────────────────────────────────────────────────────────────────
+# ── SPA fallback ──────────────────────────────────────────────────────────────
 
 _SPA_EXCLUDED_PREFIXES = (
     "/api/",
     "/ws/",
+    "/assets/",    # FIX MINOR: StaticFiles обрабатывает это сам, но явная защита не лишняя
     "/docs",
     "/redoc",
     "/openapi.json",

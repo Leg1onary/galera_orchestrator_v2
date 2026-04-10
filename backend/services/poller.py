@@ -145,16 +145,26 @@ def _get_polling_interval() -> int:
 # ── Cluster-level dispatch ────────────────────────────────────────────────────
 
 async def _poll_all_clusters() -> None:
-    """
-    Load all enabled nodes + arbitrators, dispatch parallel cluster polls.
-    """
-    nodes_by_cluster, arbitrators_by_cluster = await asyncio.to_thread(
-        _load_all_targets
-    )
+    nodes_by_cluster, arbitrators_by_cluster = await asyncio.to_thread(_load_all_targets)
 
     cluster_ids = set(nodes_by_cluster) | set(arbitrators_by_cluster)
     if not cluster_ids:
         return
+
+    # FIX MINOR: удаляем stale кластеры из live state
+    for stale_cid in list(live_node_states.keys()):
+        if stale_cid not in cluster_ids:
+            del live_node_states[stale_cid]
+    for stale_cid in list(live_arbitrator_states.keys()):
+        if stale_cid not in cluster_ids:
+            del live_arbitrator_states[stale_cid]
+
+    # удаляем stale ноды внутри кластера
+    for cid, node_states in live_node_states.items():
+        active_node_ids = {n["id"] for n in nodes_by_cluster.get(cid, [])}
+        for stale_nid in list(node_states.keys()):
+            if stale_nid not in active_node_ids:
+                del node_states[stale_nid]
 
     await asyncio.gather(
         *[
@@ -212,13 +222,16 @@ async def _poll_cluster(
         nodes: list[dict],
         arbitrators: list[dict],
 ) -> None:
-    """Poll all nodes and arbitrators of a single cluster in parallel."""
     tasks = (
             [_poll_node(cluster_id, node) for node in nodes]
             + [_poll_arbitrator(cluster_id, arb) for arb in arbitrators]
     )
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+    if not tasks:
+        return
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for r in results:
+        if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+            logger.warning("Poll task error in cluster %d: %s", cluster_id, r)
 
 
 # ── Node polling ──────────────────────────────────────────────────────────────
