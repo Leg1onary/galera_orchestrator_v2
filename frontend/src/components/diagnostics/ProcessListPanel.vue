@@ -50,10 +50,10 @@
                   class="search-input"
               />
             </div>
-            <div class="toggle-row">
+            <label class="toggle-row">
               <ToggleSwitch v-model="hideSystem" />
               <span class="toggle-label">Hide system</span>
-            </div>
+            </label>
             <span v-if="filtered.length" class="row-count">
               <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
               {{ filtered.length }}
@@ -244,21 +244,21 @@ async function handleKill(row: ProcessRow) {
 </script>
 
 <style scoped>
-/* ── Layout ────────────────────────────────────────── */
+/* ── Layout ──────────────────────────────────────── */
 .diag-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-/* ── Node selector ───────────────────────────────── */
+/* ── Node selector ──────────────────────────────── */
 .node-select {
   width: 160px;
   min-width: 140px;
   flex-shrink: 0;
 }
 
-/* ── Error alert ─────────────────────────────────── */
+/* ── Error alert ───────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -272,7 +272,7 @@ async function handleKill(row: ProcessRow) {
 }
 .error-alert .pi { font-size: var(--text-base); flex-shrink: 0; }
 
-/* ── Table wrapper ───────────────────────────────── */
+/* ── Table wrapper ──────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -285,18 +285,17 @@ async function handleKill(row: ProcessRow) {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  /* (5) увеличенный padding для header */
   padding: var(--space-4) var(--space-5);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border-muted);
 }
 
-/* (1) search растянуть — flex-grow: 1 */
+/* search — flex-grow */
 .search-wrap {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 auto;        /* растягивается на свободное пространство */
+  flex: 1 1 auto;
   min-width: 160px;
   max-width: 480px;
 }
@@ -310,7 +309,6 @@ async function handleKill(row: ProcessRow) {
   z-index: 1;
 }
 
-/* (1) input тоже на 100% ширины обёртки */
 .search-input {
   width: 100% !important;
 }
@@ -318,14 +316,20 @@ async function handleKill(row: ProcessRow) {
   padding-left: calc(var(--space-3) + 16px);
 }
 
-/* ── Toggle row ───────────────────────────────────── */
+/* ── Toggle row ─────────────────────────────────── */
+/*
+  Используем <label> вместо <div> — это разрешает PrimeVue ToggleSwitch
+  пробрасывать клик на label напрямую через <input type=checkbox>
+  Без height/overflow ограничений — PrimeVue рендерит position:relative
+  на рут элементе, что мешало flex align-items.
+*/
 .toggle-row {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
-  /* (2) принудительная высота, чтобы PrimeVue toggle не съезжал */
-  height: 32px;
+  cursor: pointer;
+  /* НЕТ height, НЕТ overflow — пусть PrimeVue сам расправляется */
 }
 
 .toggle-label {
@@ -336,16 +340,27 @@ async function handleKill(row: ProcessRow) {
   user-select: none;
 }
 
-/* (2) ToggleSwitch — явная вертикальная центровка */
-:deep(.toggle-row .p-toggleswitch) {
-  flex-shrink: 0;
-  display: inline-flex;
+/*
+  Прямой :deep без вложенного селектора — Vue scoped + :deep(X)
+  работает как: [data-v-xxx] .p-toggleswitch
+  Устанавливаем position: static — убираем inline position:relative
+  чтобы flex мог нормально центрировать элемент.
+*/
+:deep(.p-toggleswitch) {
+  position: static !important;
+  display: inline-flex !important;
   align-items: center;
-  align-self: center;
-  margin-top: 0;
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 
-/* ── Row count badge ──────────────────────────────── */
+:deep(.p-toggleswitch-slider) {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+/* ── Row count badge ─────────────────────────────── */
 .row-count {
   flex-shrink: 0;
   display: inline-flex;
@@ -361,33 +376,24 @@ async function handleKill(row: ProcessRow) {
   padding: 2px var(--space-3);
 }
 
-/* ──────────────────────────────────────────────────
-   (3) Увеличенный горизонтальный padding для всех ячеек
-   (4) Таблица на 100% ширины, column-layout
-   (5) Заголовки: крупнее шрифт, больше padding
-───────────────────────────────────────────────── */
-
-/* (4) таблица растянута на 100% */
+/* ── DataTable column & cell overrides ──────────────── */
 :deep(.diag-table .p-datatable-table) {
   width: 100%;
   table-layout: fixed;
 }
 
-/* (5) заголовки: шрифт крупнее + padding больше */
 :deep(.diag-table .p-datatable-thead > tr > th) {
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  /* (3) + (5) увеличенный паддинг */
   padding: var(--space-3) var(--space-5);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
-/* (3) + (4) ячейки данных: отступ от левого края */
 :deep(.diag-table .p-datatable-tbody > tr > td) {
   padding: var(--space-3) var(--space-5);
   vertical-align: middle;
@@ -399,7 +405,7 @@ async function handleKill(row: ProcessRow) {
   border-bottom: none;
 }
 
-/* ── Cells ────────────────────────────────────────── */
+/* ── Cells ───────────────────────────────────────── */
 .cell-id {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
@@ -454,20 +460,20 @@ async function handleKill(row: ProcessRow) {
   font-size: var(--text-xs);
 }
 
-/* ── Time cell ─────────────────────────────────────── */
+/* ── Time cell ───────────────────────────────────── */
 .cell-time {
   font-size: var(--text-sm);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-.cell-time--ok { color: var(--color-text-muted); }
+.cell-time--ok   { color: var(--color-text-muted); }
 .cell-time--warn {
   color: var(--color-warning);
   text-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 40%, transparent);
 }
 
-/* ── Query cell ────────────────────────────────────── */
+/* ── Query cell ───────────────────────────────────── */
 .cell-query {
   display: block;
   overflow: hidden;
@@ -480,7 +486,7 @@ async function handleKill(row: ProcessRow) {
 }
 :deep(tr:hover) .cell-query { color: var(--color-text); }
 
-/* ── State badge ───────────────────────────────────── */
+/* ── State badge ─────────────────────────────────── */
 .state-badge {
   display: inline-flex;
   align-items: center;
@@ -536,7 +542,7 @@ async function handleKill(row: ProcessRow) {
 }
 .badge--query .state-dot { background: var(--color-info); }
 
-/* ── Empty state ──────────────────────────────────── */
+/* ── Empty state ────────────────────────────────── */
 .empty-row {
   display: flex;
   flex-direction: column;
@@ -549,7 +555,7 @@ async function handleKill(row: ProcessRow) {
 }
 .empty-row .pi { font-size: 1.5rem; opacity: 0.4; }
 
-/* ── PrimeVue: paginator ───────────────────────────── */
+/* ── Paginator ───────────────────────────────────── */
 :deep(.p-paginator) {
   background: var(--color-surface-2);
   border-top: 1px solid var(--color-border-muted);
