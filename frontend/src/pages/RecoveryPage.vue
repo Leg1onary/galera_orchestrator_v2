@@ -13,7 +13,7 @@
       <p>No cluster selected.</p>
     </div>
 
-    <!-- ✅ Guard в шаблоне — recovery заблокирован при healthy кластере (ТЗ 14) -->
+    <!-- Guard: recovery заблокирован при healthy кластере (ТЗ 14) -->
     <div v-else-if="clusterIsHealthy" class="healthy-guard">
       <i class="pi pi-check-circle" style="color: var(--color-success); font-size: 1.5rem" />
       <div>
@@ -89,17 +89,12 @@ const clusterStatus = computed(() => {
   )
 })
 
+// fix: удален дубликат через clusterStore.statusSummary
 const clusterIsHealthy = computed(
     () => clusterStatus.value?.cluster_status === 'healthy'
 )
 
 const STEP_LABELS = ['Scan nodes', 'Select bootstrap node', 'Rejoin', 'Done']
-
-// Если кластер healthy — блокируем вход в wizard
-// Читаем из clusterStore.statusSummary (уже загружен Overview/polling)
-const clusterIsHealthy = computed(() =>
-    clusterStore.statusSummary?.cluster_status === 'healthy'
-)
 
 watch(
     () => clusterStore.selectedClusterId,
