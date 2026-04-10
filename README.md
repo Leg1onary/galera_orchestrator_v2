@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/mariadb-corporation/mariadb-community-columnstore-engine/main/docs/images/mariadb-logo.png" width="72" alt="MariaDB" />
-
 # 🕷️ Galera Orchestrator v2
 
 **Self-hosted web panel for monitoring and managing MariaDB Galera clusters.**
