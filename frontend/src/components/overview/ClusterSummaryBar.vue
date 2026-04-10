@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Tag from 'primevue/tag'
-import { formatTime } from '@/utils/time'
+import { formatRelative } from '@/utils/time'
 
 interface ClusterStatus {
   status: 'healthy' | 'degraded' | 'critical'
@@ -51,7 +51,7 @@ function severityForStatus(s: ClusterStatus['status']) {
     </div>
     <div class="summary-item">
       <span class="label">Обновлено</span>
-      <span class="value ts">{{ status.last_update_ts ? formatTime(status.last_update_ts) : '—' }}</span>
+      <span class="value ts">{{ formatRelative(status.last_update_ts) }}</span>
     </div>
   </div>
 </template>
