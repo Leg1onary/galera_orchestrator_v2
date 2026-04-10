@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { onWsEvent } from '@/stores/ws'
 import { useSettingsStore } from '@/stores/settings'
-import type { NodeListItem } from '@/api/nodes'
+import type { NodeStatusItem } from '@/api/nodes'
 import type { TopoArbitrator } from '@/api/topology'
 
 export interface ClusterEvent {
@@ -17,11 +17,23 @@ export interface ClusterEvent {
   node_name?: string | null
 }
 
+// Точная схема GET /api/clusters/{id}/status
 export interface ClusterStatusResponse {
-  cluster_status: string | null       // значение wsrep_cluster_status кластера
-  nodes: NodeListItem[]
+  id: number
+  name: string
+  contour: string
+  status: string | null
+  primary: boolean
+  wsrep_cluster_size: number | null
+  online_nodes: number
+  total_nodes: number
+  online_arbitrators: number
+  total_arbitrators: number
+  has_live_data: boolean
+  last_update_ts: string | null
+  nodes: NodeStatusItem[]
   arbitrators: TopoArbitrator[]
-  recent_events: ClusterEvent[]
+  active_operation: unknown | null
 }
 
 export function useClusterStatus(clusterId: Ref<number | null>) {

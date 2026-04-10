@@ -10,6 +10,7 @@ export type NodeAction =
     | 'restart'
     | 'rejoin-force'
 
+// Используется в GET /api/clusters/{id}/nodes (список без live-данных)
 export interface NodeListItem {
     id: number
     name: string
@@ -40,6 +41,44 @@ export interface NodeDetails extends NodeListItem {
     version: string | null
     sparkline_flow_control: number[]
     sparkline_recv_queue: number[]
+}
+
+// Вложенный live-объект из GET /api/clusters/{id}/status → nodes[].live
+export interface NodeLiveData {
+    wsrep_cluster_status: string | null
+    wsrep_cluster_size: number | null
+    wsrep_connected: string | null      // 'ON' | 'OFF'
+    wsrep_ready: string | null          // 'ON' | 'OFF'
+    wsrep_local_state_comment: string | null
+    wsrep_local_recv_queue: number | null
+    wsrep_local_send_queue: number | null
+    wsrep_flow_control_paused: number | null
+    readonly: boolean
+    maintenance_drift: boolean
+    ssh_ok: boolean
+    db_ok: boolean
+    ssh_latency_ms: number | null
+    db_latency_ms: number | null
+    error: string | null
+    last_check_ts: string | null
+    flow_control_history: number[]
+    recv_queue_history: number[]
+}
+
+// Используется в GET /api/clusters/{id}/status → nodes[] (с live-данными)
+export interface NodeStatusItem {
+    id: number
+    name: string
+    host: string
+    port: number
+    ssh_port: number
+    ssh_user: string
+    db_user: string
+    enabled: boolean
+    maintenance: boolean
+    dc_id: number | null
+    dc_name: string | null
+    live: NodeLiveData
 }
 
 export interface TestConnectionResult {
@@ -94,7 +133,6 @@ export const nodesApi = {
             .then((r) => r.data),
 
     // ТЗ п.11.6: PATCH /api/clusters/{cluster_id}/nodes/{id}
-    // Используется для включения/отключения ноды (поле enabled)
     patch: (clusterId: number, nodeId: number, data: NodePatch) =>
         api
             .patch<NodeListItem>(
@@ -115,8 +153,6 @@ export const nodesApi = {
             .get<InnoDbStatus>(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
-    // fix: добавлен getNodeLogs — используется в NodeDetailDrawer
-    // ТЗ п.8.2: GET /api/clusters/{cluster_id}/nodes/{node_id}/logs
     getNodeLogs: (clusterId: number, nodeId: number, limit = 100) =>
         api
             .get<NodeLogEntry[]>(

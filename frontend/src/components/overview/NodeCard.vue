@@ -1,28 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { nodesApi } from '@/api/nodes'
-import type { NodeAction } from '@/api/nodes'
+import type { NodeAction, NodeStatusItem } from '@/api/nodes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useOperationsStore } from '@/stores/operations'
 import { useConfirm } from 'primevue/useconfirm'
 
-interface NodeLive {
-  id: number
-  name: string
-  host: string
-  port: number
-  dc?: { name: string } | null
-  wsrep_local_state_comment: string | null | undefined
-  wsrep_cluster_status: string | null | undefined
-  wsrep_cluster_size: number | null | undefined
-  wsrep_flow_control_paused: number | null | undefined
-  wsrep_local_recv_queue: number | null | undefined
-  wsrep_ready: string | null | undefined
-  ssh_ok: boolean
-  readonly: boolean
-}
-
-const props    = defineProps<{ node: NodeLive; clusterId: number }>()
+const props    = defineProps<{ node: NodeStatusItem; clusterId: number }>()
 const qc       = useQueryClient()
 const opsStore = useOperationsStore()
 const confirm  = useConfirm()
@@ -31,7 +15,6 @@ const actionLoading  = ref<NodeAction | null>(null)
 const pingLoading    = ref(false)
 const pingResult     = ref<{ ssh_ok: boolean; db_ok: boolean; ssh_latency_ms: number | null } | null>(null)
 const pingVisible    = ref(false)
-const actionsOpen    = ref(false)
 let   pingTimer: ReturnType<typeof setTimeout> | null = null
 
 const isLocked = computed(() => {
@@ -40,11 +23,11 @@ const isLocked = computed(() => {
 })
 
 const nodeState = computed(() => {
-  const n   = props.node
-  const raw = (n.wsrep_local_state_comment ?? '').toUpperCase()
-  if (!n.ssh_ok || raw === 'OFFLINE') return 'OFFLINE'
-  if (n.wsrep_ready === 'OFF')        return 'NOT_READY'
-  if (raw === 'SYNCED' && n.readonly) return 'SYNCED_RO'
+  const live = props.node.live
+  const raw  = (live.wsrep_local_state_comment ?? '').toUpperCase()
+  if (!live.ssh_ok || raw === 'OFFLINE') return 'OFFLINE'
+  if (live.wsrep_ready === 'OFF')        return 'NOT_READY'
+  if (raw === 'SYNCED' && live.readonly)  return 'SYNCED_RO'
   return raw || 'UNKNOWN'
 })
 
@@ -62,19 +45,19 @@ const STATE_MAP: Record<string, { label: string; cls: string; severity: string }
 const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
 
 const flowControlDisplay = computed(() => {
-  const v = props.node.wsrep_flow_control_paused
+  const v = props.node.live.wsrep_flow_control_paused
   if (v == null) return '\u2014'
   return v.toFixed(3)
 })
 
 const recvQueueDisplay = computed(() => {
-  const v = props.node.wsrep_local_recv_queue
+  const v = props.node.live.wsrep_local_recv_queue
   if (v == null) return '\u2014'
   return String(v)
 })
 
-const recvQueueWarn = computed(() => (props.node.wsrep_local_recv_queue ?? 0) > 0)
-const flowWarn      = computed(() => (props.node.wsrep_flow_control_paused ?? 0) > 0)
+const recvQueueWarn = computed(() => (props.node.live.wsrep_local_recv_queue ?? 0) > 0)
+const flowWarn      = computed(() => (props.node.live.wsrep_flow_control_paused ?? 0) > 0)
 
 const pingResultText = computed(() => {
   if (!pingResult.value) return ''
@@ -114,7 +97,6 @@ async function ping() {
 
 function confirmDestructive(action: NodeAction, label: string) {
   if (isLocked.value) return
-  actionsOpen.value = false
   confirm.require({
     message:     `Run "${label}" on node ${props.node.name}?`,
     header:      'Confirm action',
@@ -136,7 +118,7 @@ function confirmDestructive(action: NodeAction, label: string) {
       <div class="nc-header">
         <div class="nc-title-group">
           <span class="nc-name">{{ node.name }}</span>
-          <span v-if="node.dc?.name" class="nc-dc">{{ node.dc.name }}</span>
+          <span v-if="node.dc_name" class="nc-dc">{{ node.dc_name }}</span>
         </div>
         <Tag
           :value="stateInfo.label"
@@ -149,8 +131,8 @@ function confirmDestructive(action: NodeAction, label: string) {
       <div class="nc-host-row">
         <i class="pi pi-server nc-host-icon" />
         <span class="nc-host-addr">{{ node.host }}:{{ node.port }}</span>
-        <span class="nc-mode-badge" :class="node.readonly ? 'mode-ro' : 'mode-rw'">
-          {{ node.readonly ? 'RO' : 'RW' }}
+        <span class="nc-mode-badge" :class="node.live.readonly ? 'mode-ro' : 'mode-rw'">
+          {{ node.live.readonly ? 'RO' : 'RW' }}
         </span>
       </div>
 
@@ -158,11 +140,11 @@ function confirmDestructive(action: NodeAction, label: string) {
       <div class="nc-metrics">
         <div class="nc-metric">
           <span class="nc-mk">Cluster Size</span>
-          <span class="nc-mv">{{ node.wsrep_cluster_size ?? '\u2014' }}</span>
+          <span class="nc-mv">{{ node.live.wsrep_cluster_size ?? '\u2014' }}</span>
         </div>
         <div class="nc-metric">
           <span class="nc-mk">Component</span>
-          <span class="nc-mv nc-mv--mono">{{ node.wsrep_cluster_status ?? '\u2014' }}</span>
+          <span class="nc-mv nc-mv--mono">{{ node.live.wsrep_cluster_status ?? '\u2014' }}</span>
         </div>
         <div class="nc-metric">
           <span class="nc-mk">Flow Ctrl</span>
@@ -179,9 +161,9 @@ function confirmDestructive(action: NodeAction, label: string) {
       </div>
 
       <!-- SSH -->
-      <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
-        <i :class="node.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
-        <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
+      <div class="nc-ssh" :class="node.live.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
+        <i :class="node.live.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
+        <span>SSH {{ node.live.ssh_ok ? 'OK' : 'FAIL' }}</span>
       </div>
 
       <!-- PING RESULT -->
