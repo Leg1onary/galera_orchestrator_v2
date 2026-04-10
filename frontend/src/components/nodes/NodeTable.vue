@@ -34,13 +34,15 @@
       </template>
     </Column>
 
-    <!-- Read-only -->
-    <Column field="readonly" header="R/O" ...>
+    <!-- Read-only — field read_only (snake_case) согласно NodeListItem из api/nodes.ts -->
+    <Column field="read_only" header="R/O" :sortable="true" style="width: 70px">
       <template #body="{ data }">
-        <Tag v-if="data.readonly !== null"
-             :value="data.readonly ? 'RO' : 'RW'"
-             :severity="data.readonly ? 'warn' : 'success'"
+        <Tag
+          v-if="data.read_only !== null"
+          :value="data.read_only ? 'RO' : 'RW'"
+          :severity="data.read_only ? 'warn' : 'success'"
         />
+        <span v-else class="text-muted-color text-xs">—</span>
       </template>
     </Column>
 
@@ -94,7 +96,7 @@
     </Column>
 
     <!-- Last seen -->
-    <Column field="last_check_ts" header="Last seen" ...>
+    <Column field="last_check_ts" header="Last seen" :sortable="true" style="width: 120px">
       <template #body="{ data }">
         {{ data.last_check_ts ? formatRelative(data.last_check_ts) : '—' }}
       </template>
