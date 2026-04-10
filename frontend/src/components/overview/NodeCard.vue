@@ -126,7 +126,7 @@ function confirmDestructive(action: NodeAction, label: string) {
         </span>
       </div>
 
-      <!-- METRICS — отделены бордером сверху -->
+      <!-- METRICS -->
       <div class="nc-metrics">
         <div class="nc-metric">
           <span class="nc-mk">Cluster Size</span>
@@ -249,7 +249,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 .node-card--unknown  { --node-stripe: var(--color-text-faint); }
 
 /* ═══════════════════════════════════════
-   BODY — умеренные отступы, воздух через border-секции
+   BODY
 ═══════════════════════════════════════ */
 .nc-body {
   flex: 1;
@@ -257,7 +257,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
-  /* маленький gap — дышать будем через border-top у секций */
   gap: var(--space-3);
 }
 
@@ -269,7 +268,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  /* чуть больше снизу чтобы имя ноды визуально дышало */
   padding-bottom: var(--space-1);
 }
 .nc-title-group {
@@ -295,12 +293,107 @@ function confirmDestructive(action: NodeAction, label: string) {
   letter-spacing: 0.1em;
   font-weight: 600;
 }
+
+/* ═══════════════════════════════════════
+   STATE TAG — увеличенный padding + градиент по статусу
+═══════════════════════════════════════ */
 .nc-state-tag {
-  font-size: 0.72rem !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   flex-shrink: 0;
+}
+
+/* Базовые стили тега через :deep */
+:deep(.nc-state-tag.p-tag) {
+  padding: 5px 10px !important;
+  font-size: 0.7rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  border-radius: var(--radius-md) !important;
+  border: 1px solid transparent !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Gradient layer поверх фона через псевдоэлемент */
+:deep(.nc-state-tag.p-tag)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, oklch(1 0 0 / 0.12) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* OFFLINE — красный, более насыщенный с warm-красным градиентом */
+.node-card--offline :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-offline) 22%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-offline) 45%, transparent) !important;
+  color: var(--color-offline) !important;
+  box-shadow: 0 0 0 0 transparent;
+}
+.node-card--offline :deep(.nc-state-tag.p-tag)::after {
+  background: linear-gradient(135deg,
+    oklch(from var(--color-offline) calc(l + 0.15) c h / 0.2) 0%,
+    transparent 55%
+  );
+}
+
+/* SYNCED — зелёный */
+.node-card--synced :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-synced) 40%, transparent) !important;
+  color: var(--color-synced) !important;
+}
+.node-card--synced :deep(.nc-state-tag.p-tag)::after {
+  background: linear-gradient(135deg,
+    oklch(from var(--color-synced) calc(l + 0.15) c h / 0.18) 0%,
+    transparent 55%
+  );
+}
+
+/* SYNCED RO — жёлтый/warn */
+.node-card--readonly :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-readonly) 18%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-readonly) 40%, transparent) !important;
+  color: var(--color-readonly) !important;
+}
+.node-card--readonly :deep(.nc-state-tag.p-tag)::after {
+  background: linear-gradient(135deg,
+    oklch(from var(--color-readonly) calc(l + 0.12) c h / 0.18) 0%,
+    transparent 55%
+  );
+}
+
+/* DONOR/JOINER/DESYNCED — синий */
+.node-card--donor :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-donor) 18%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important;
+  color: var(--color-donor) !important;
+}
+.node-card--donor :deep(.nc-state-tag.p-tag)::after {
+  background: linear-gradient(135deg,
+    oklch(from var(--color-donor) calc(l + 0.15) c h / 0.18) 0%,
+    transparent 55%
+  );
+}
+
+/* DEGRADED/NOT_READY — оранжевый */
+.node-card--degraded :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-degraded) 18%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-degraded) 40%, transparent) !important;
+  color: var(--color-degraded) !important;
+}
+.node-card--degraded :deep(.nc-state-tag.p-tag)::after {
+  background: linear-gradient(135deg,
+    oklch(from var(--color-degraded) calc(l + 0.12) c h / 0.18) 0%,
+    transparent 55%
+  );
+}
+
+/* UNKNOWN — muted */
+.node-card--unknown :deep(.nc-state-tag.p-tag) {
+  background: color-mix(in oklch, var(--color-text-faint) 15%, transparent) !important;
+  border-color: color-mix(in oklch, var(--color-text-faint) 30%, transparent) !important;
+  color: var(--color-text-muted) !important;
 }
 
 /* ═══════════════════════════════════════
@@ -345,7 +438,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 }
 
 /* ═══════════════════════════════════════
-   METRICS — отделены бордером, внутренний padding создаёт воздух
+   METRICS
 ═══════════════════════════════════════ */
 .nc-metrics {
   display: grid;
@@ -355,13 +448,11 @@ function confirmDestructive(action: NodeAction, label: string) {
   background: var(--color-surface-offset);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  /* ключевое: визуальный отрыв от host-row через margin-top */
   margin-top: var(--space-1);
 }
 .nc-metric {
   display: flex;
   flex-direction: column;
-  /* gap между label и value — основной источник «воздуха» внутри метрики */
   gap: var(--space-2);
 }
 .nc-mk {
@@ -410,7 +501,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 }
 
 /* ═══════════════════════════════════════
-   ACTION BAR — отделён бордером сверху
+   ACTION BAR
 ═══════════════════════════════════════ */
 .nc-actions {
   display: flex;
