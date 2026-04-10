@@ -1,16 +1,16 @@
 import { api } from '@/api/client'
 
-// ── Operation states ──────────────────────────────────────────────────────────
+// ── Operation states ───────────────────────────────────────────────────────────────────
 // ТЗ п.2.8 — точные строки, которые отдаёт бэкенд
 export type OperationStatus =
     | 'pending'
     | 'running'
-    | 'finished'          // бэкенд отдаёт 'finished', не 'success'
+    | 'success'
     | 'failed'
     | 'cancel_requested'
     | 'cancelled'
 
-// ── Active operation ──────────────────────────────────────────────────────────
+// ── Active operation ────────────────────────────────────────────────────────────────
 // ТЗ п.9.1: полный набор полей которые читает store.init()
 export type ActiveOperation = {
     id:                  string        // UUID строка — store.operationId: ref<string|null>
@@ -26,13 +26,12 @@ export type ActiveOperation = {
     started_at:          string | null
 }
 
-// ── Status response ───────────────────────────────────────────────────────────
+// ── Status response ───────────────────────────────────────────────────────────────────
 export type MaintenanceStatusResponse = {
     active_operation: ActiveOperation | null
 }
 
-// ── Node state ────────────────────────────────────────────────────────────────
-// BLOCKER fix: id/name вместо node_id/node_name — единообразие с NodeListItem и store
+// ── Node state ──────────────────────────────────────────────────────────────────────
 export type MaintenanceNodeState = {
     id:                number
     name:              string
@@ -45,7 +44,7 @@ export type MaintenanceNodeState = {
     enabled:           boolean
 }
 
-// ── Rolling restart ───────────────────────────────────────────────────────────
+// ── Rolling restart ───────────────────────────────────────────────────────────────────
 export type RollingRestartConfig = {
     node_order?:        number[]
     wait_timeout_sec?:  number
@@ -70,7 +69,7 @@ export type RollingRestartStatus = {
     finished_at:         string | null
 }
 
-// ── API ───────────────────────────────────────────────────────────────────────
+// ── API ──────────────────────────────────────────────────────────────────────────────────
 export const maintenanceApi = {
     // ТЗ п.9.2: GET /api/clusters/{cluster_id}/maintenance/nodes
     // MAJOR fix: отдельный endpoint для maintenance-состояния нод, не /nodes
@@ -84,14 +83,14 @@ export const maintenanceApi = {
     enterMaintenance: (clusterId: number, nodeId: number) =>
         api
             .post(`/api/clusters/${clusterId}/nodes/${nodeId}/actions`, {
-                action: 'enter_maintenance',
+                action: 'enter-maintenance',
             })
             .then((r) => r.data),
 
     exitMaintenance: (clusterId: number, nodeId: number) =>
         api
             .post(`/api/clusters/${clusterId}/nodes/${nodeId}/actions`, {
-                action: 'exit_maintenance',
+                action: 'exit-maintenance',
             })
             .then((r) => r.data),
 
