@@ -48,17 +48,15 @@ const confirmDialogPT = {
   dialog: {
     style: [
       'background: var(--color-surface)',
-      // Subtle top-edge highlight — gives depth on dark bg
       'border: 1px solid var(--color-border)',
       'border-top: 1px solid color-mix(in oklch, var(--color-border) 60%, white)',
       'border-radius: var(--radius-xl)',
-      // Layered shadow: contact shadow + wide ambient + faint red glow
       'box-shadow: 0 2px 4px oklch(0 0 0 / 0.3), 0 16px 48px oklch(0 0 0 / 0.45), 0 0 0 1px oklch(from var(--color-error) l c h / 0.08)',
       'padding: 0',
       'min-width: 340px',
       'max-width: 440px',
       'width: 90vw',
-      'overflow: hidden',
+      // overflow:hidden убран — header теперь сам скругляет верхние углы
     ].join(';'),
   },
   header: {
@@ -68,8 +66,9 @@ const confirmDialogPT = {
       'display: flex',
       'align-items: center',
       'gap: var(--space-3)',
-      // Subtle surface gradient on header
-      'background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface) 100%)',
+      // Скругляем только верхние углы, без градиента
+      'border-radius: var(--radius-xl) var(--radius-xl) 0 0',
+      'background: var(--color-surface-2)',
     ].join(';'),
   },
   title: {
@@ -92,7 +91,6 @@ const confirmDialogPT = {
     ].join(';'),
   },
   icon: {
-    // Larger warning icon with amber glow
     style: [
       'color: var(--color-warning)',
       'font-size: 1.4rem',
@@ -112,41 +110,20 @@ const confirmDialogPT = {
       'gap: var(--space-3)',
       'border-top: 1px solid var(--color-border)',
       'background: linear-gradient(0deg, var(--color-surface-offset) 0%, var(--color-surface) 100%)',
+      // Скругляем только нижние углы
+      'border-radius: 0 0 var(--radius-xl) var(--radius-xl)',
     ].join(';'),
   },
   rejectButton: {
     root: {
-      style: [
-        'background: transparent',
-        'border: 1px solid var(--color-border)',
-        'color: var(--color-text-muted)',
-        'border-radius: var(--radius-md)',
-        // Bigger padding
-        'padding: 10px var(--space-6)',
-        'font-size: var(--text-sm)',
-        'font-weight: 600',
-        'cursor: pointer',
-        'letter-spacing: 0.01em',
-        'transition: background 160ms ease, border-color 160ms ease, color 160ms ease',
-      ].join(';'),
+      // !important через style не работает — используем min-height + padding напрямую
+      // PrimeVue сбрасывает padding кнопок через свои классы, поэтому задаём через class
+      class: 'confirm-btn-reject',
     },
   },
   acceptButton: {
     root: {
-      style: [
-        // Gradient on accept for the "wow" moment
-        'background: linear-gradient(135deg, var(--color-error) 0%, color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%)',
-        'border: 1px solid var(--color-error)',
-        'color: #fff',
-        'border-radius: var(--radius-md)',
-        'padding: 10px var(--space-6)',
-        'font-size: var(--text-sm)',
-        'font-weight: 700',
-        'cursor: pointer',
-        'letter-spacing: 0.01em',
-        'box-shadow: 0 2px 8px color-mix(in oklch, var(--color-error) 45%, transparent)',
-        'transition: box-shadow 160ms ease, filter 160ms ease',
-      ].join(';'),
+      class: 'confirm-btn-accept',
     },
   },
 }
@@ -171,6 +148,45 @@ const confirmDialogPT = {
     :pt="confirmDialogPT"
   />
 </template>
+
+<style>
+/* Унифицированные стили кнопок диалога — глобальные (без scoped),
+   чтобы перекрыть PrimeVue specificity */
+.confirm-btn-reject.p-button {
+  background: transparent !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-muted) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 10px 24px !important;
+  font-size: var(--text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
+  box-shadow: none !important;
+}
+.confirm-btn-reject.p-button:hover {
+  background: var(--color-surface-offset) !important;
+  border-color: var(--color-text-faint) !important;
+  color: var(--color-text) !important;
+}
+
+.confirm-btn-accept.p-button {
+  background: linear-gradient(135deg, var(--color-error) 0%, color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%) !important;
+  border: 1px solid var(--color-error) !important;
+  color: #fff !important;
+  border-radius: var(--radius-md) !important;
+  padding: 10px 24px !important;
+  font-size: var(--text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  box-shadow: 0 2px 10px color-mix(in oklch, var(--color-error) 45%, transparent) !important;
+  transition: filter 160ms ease, box-shadow 160ms ease !important;
+}
+.confirm-btn-accept.p-button:hover {
+  filter: brightness(1.12) !important;
+  box-shadow: 0 4px 16px color-mix(in oklch, var(--color-error) 55%, transparent) !important;
+}
+</style>
 
 <style scoped>
 .app-shell {
