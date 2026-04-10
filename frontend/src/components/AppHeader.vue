@@ -1,8 +1,6 @@
 <!-- ТЗ 6.2: лого, выбор контура, выбор кластера, статус кластера, logout -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
-import { api } from '@/api/client'
 import type { Contour, Cluster } from '@/stores/cluster'
 import type { SelectChangeEvent } from 'primevue/select'
 
@@ -12,6 +10,7 @@ const props = defineProps<{
   clusters: Cluster[]
   selectedContourId: number | null
   selectedClusterId: number | null
+  clusterStatus?: { status: 'healthy' | 'degraded' | 'critical' } | null
 }>()
 
 const emit = defineEmits<{
@@ -20,19 +19,9 @@ const emit = defineEmits<{
   (e: 'logout'): void
 }>()
 
-// Статус выбранного кластера для индикатора в хедере
-const props = defineProps<{
-  username: string | null
-  contours: Contour[]
-  clusters: Cluster[]
-  selectedContourId: number | null
-  selectedClusterId: number | null
-  clusterStatus?: { status: 'healthy' | 'degraded' | 'critical' } | null  // ← добавить
-}>()
-
 const statusClass = computed(() => {
-  const s = clusterStatus.value?.status
-  if (s === 'healthy') return 'status-healthy'
+  const s = props.clusterStatus?.status
+  if (s === 'healthy')  return 'status-healthy'
   if (s === 'degraded') return 'status-degraded'
   if (s === 'critical') return 'status-critical'
   return 'status-unknown'
@@ -43,23 +32,13 @@ const statusClass = computed(() => {
   <header class="app-header">
     <!-- Лого -->
     <div class="header-logo">
-      <span class="logo-icon">⬡</span>
+      <span class="logo-icon">⭡</span>
       <span class="logo-text">Galera Orchestrator</span>
     </div>
 
-    <!-- Выбор контура -->
+    <!-- Селекторы -->
     <div class="header-selectors">
-      <Dropdown
-          :options="contours"
-          :model-value="selectedContourId"
-          option-label="name"
-          option-value="id"
-          placeholder="Контур"
-          class="selector-contour"
-          @change="(e: any) => emit('select-contour', e.value)"
-      />
-
-      <!-- Выбор кластера -->
+      <!-- Выбор контура -->
       <Select
           :options="contours"
           :model-value="selectedContourId"
@@ -70,9 +49,20 @@ const statusClass = computed(() => {
           @change="(e: SelectChangeEvent) => emit('select-contour', e.value)"
       />
 
+      <!-- Выбор кластера -->
+      <Select
+          :options="clusters"
+          :model-value="selectedClusterId"
+          option-label="name"
+          option-value="id"
+          placeholder="Кластер"
+          class="selector-cluster"
+          @change="(e: SelectChangeEvent) => emit('select-cluster', e.value)"
+      />
+
       <!-- Статус индикатор (ТЗ 6.2) -->
-      <span v-if="clusterStatus" :class="['cluster-status-badge', statusClass]">
-        {{ clusterStatus.status }}
+      <span v-if="props.clusterStatus" :class="['cluster-status-badge', statusClass]">
+        {{ props.clusterStatus.status }}
       </span>
     </div>
 
@@ -92,17 +82,24 @@ const statusClass = computed(() => {
 
 <style scoped>
 .app-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  height: 56px;
   background: var(--p-navigation-background, var(--p-surface-section));
   border-bottom: 1px solid var(--p-content-border-color);
+  flex-shrink: 0;
 }
-.header-logo { color: var(--p-primary-color); }
-.username { color: var(--p-text-muted-color); }
 
-/* Бэджи статуса через семантические цвета */
-.status-healthy  { background: var(--p-green-950); color: var(--p-green-400); }
-.status-degraded { background: var(--p-yellow-950); color: var(--p-yellow-400); }
-.status-critical { background: var(--p-red-950); color: var(--p-red-400); }
-.status-unknown  { background: var(--p-surface-section); color: var(--p-text-muted-color); }
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--p-primary-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 .logo-icon { font-size: 1.25rem; }
 
@@ -125,6 +122,12 @@ const statusClass = computed(() => {
   letter-spacing: 0.05em;
 }
 
+/* Бэджи статуса через семантические цвета */
+.status-healthy  { background: var(--p-green-950);  color: var(--p-green-400); }
+.status-degraded { background: var(--p-yellow-950); color: var(--p-yellow-400); }
+.status-critical { background: var(--p-red-950);    color: var(--p-red-400); }
+.status-unknown  { background: var(--p-surface-section); color: var(--p-text-muted-color); }
+
 .header-user {
   display: flex;
   align-items: center;
@@ -132,4 +135,8 @@ const statusClass = computed(() => {
   margin-left: auto;
 }
 
+.username {
+  color: var(--p-text-muted-color);
+  font-size: 0.875rem;
+}
 </style>
