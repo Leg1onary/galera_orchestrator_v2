@@ -1,6 +1,7 @@
 // ТЗ раздел 6.1, 4.2: все роуты кроме /login требуют auth.
 // Guard: один вызов checkAuth() до первого resolved, потом смотрим isAuthenticated.
 // Lazy-load всех страниц кроме Login (она маленькая и нужна сразу).
+// router/index.ts
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginPage from '@/pages/LoginPage.vue'
@@ -17,7 +18,8 @@ const router = createRouter({
         {
             path: '/',
             component: () => import('@/layouts/AppLayout.vue'),
-            // Все дочерние роуты — protected
+            // meta на родителе — явная семантика, что все дочерние защищены
+            meta: { requiresAuth: true },
             children: [
                 {
                     path: '',
@@ -61,8 +63,13 @@ const router = createRouter({
                 },
             ],
         },
-        // SPA fallback — любой неизвестный путь → overview
-        { path: '/:pathMatch(.*)*', redirect: '/' },
+        // NotFoundPage — всегда публичная, без auth
+        {
+            path: '/:pathMatch(.*)*',
+            name: 'not-found',
+            component: () => import('@/pages/NotFoundPage.vue'),
+            meta: { public: true },
+        },
     ],
 })
 
@@ -71,11 +78,23 @@ const router = createRouter({
 router.beforeEach(async (to) => {
     const auth = useAuthStore()
 
+    // Один вызов checkAuth за сессию — с защитой от сетевых ошибок
     if (!auth.authChecked) {
-        await auth.checkAuth()
+        try {
+            await auth.checkAuth()
+        } catch {
+            // Сеть недоступна или 500 — считаем неавторизованным,
+            // authChecked всё равно должен быть выставлен в auth.ts в finally
+        }
     }
 
-    if (to.meta.public) return true
+    // Авторизованный юзер на /login → редирект на overview
+    if (to.meta.public) {
+        if (auth.isAuthenticated && to.name === 'login') {
+            return { name: 'overview' }
+        }
+        return true
+    }
 
     if (!auth.isAuthenticated) {
         return { name: 'login', query: { redirect: to.fullPath } }

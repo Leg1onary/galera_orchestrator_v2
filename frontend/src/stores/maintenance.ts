@@ -54,16 +54,42 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
     )
 
     // ── Actions ───────────────────────────────────────────────────────────────
-    function init(cId: number) {
+    async function init(cId: number) {
+        wsUnsub?.() // явная отписка перед reset
         clusterId.value = cId
-        // Дефолтный порядок — все enabled ноды по id
         nodeOrder.value = []
         wizardOpen.value = false
         wizardStep.value = 1
         rrStatus.value = null
         operationId.value = null
         subscribeWs()
-        loadNodes()
+        await loadNodes()
+
+        // [MAJOR FIX] Polling fallback: восстанавливаем состояние при заходе во время активной операции
+        // ТЗ п.14: если rolling restart уже идёт — открываем wizard на Step 2
+        try {
+            const status = await maintenanceApi.getStatus(cId)
+            const op = status.active_operation
+            if (op && ['pending', 'running', 'cancel_requested'].includes(op.status)) {
+                operationId.value = op.id
+                rrStatus.value = {
+                    operation_id: op.id,
+                    state: op.status as RollingRestartStatus['state'],
+                    current_node_id: op.current_node_id ?? null,
+                    completed_node_ids: op.completed_node_ids ?? [],
+                    failed_node_id: op.failed_node_id ?? null,
+                    progress_pct: op.progress_pct ?? 0,
+                    message: op.message ?? null,
+                    error: op.error_message ?? null,
+                    started_at: op.started_at ?? null,
+                    finished_at: null,
+                }
+                wizardOpen.value = true
+                wizardStep.value = 2
+            }
+        } catch {
+            // нет активной операции — норма
+        }
     }
 
     async function loadNodes() {
@@ -92,7 +118,10 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
             } else {
                 await maintenanceApi.exitMaintenance(clusterId.value, nodeId)
             }
-            await loadNodes()  // обновляем состояние после sync-операции
+            await loadNodes()
+        } catch (err) {
+            // [MAJOR FIX] пробрасываем — UI должен показать ошибку
+            throw err
         } finally {
             nodeActionLoading.value = { ...nodeActionLoading.value, [nodeId]: false }
         }
@@ -159,30 +188,36 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 rrStatus.value = {
                     ...rrStatus.value,
                     state: 'running',
-                    progress_pct: event.payload?.progress_pct ?? rrStatus.value.progress_pct,
-                    message: event.payload?.message ?? rrStatus.value.message,
-                    current_node_id: event.payload?.current_node_id ?? rrStatus.value.current_node_id,
-                    completed_node_ids: event.payload?.completed_node_ids ?? rrStatus.value.completed_node_ids,
+                    progress_pct: (event.payload?.progress_pct as number) ?? rrStatus.value.progress_pct,
+                    message: (event.payload?.message as string) ?? rrStatus.value.message,
+                    current_node_id: (event.payload?.current_node_id as number) ?? rrStatus.value.current_node_id,
+                    completed_node_ids: (event.payload?.completed_node_ids as number[]) ?? rrStatus.value.completed_node_ids,
                 }
             }
+
             if (event.event === 'operation_finished' && rrStatus.value) {
+                // [BLOCKER FIX] читаем payload.status как строку, не payload.success как bool
+                // [BLOCKER FIX] operation_cancelled не существует — обрабатываем здесь
+                const status = event.payload?.status as string
+
                 rrStatus.value = {
                     ...rrStatus.value,
-                    state: event.payload?.success ? 'finished' : 'failed',
+                    // [BLOCKER FIX] 'success' вместо 'finished'
+                    state: status === 'failed'
+                        ? 'failed'
+                        : status === 'cancelled'
+                            ? 'cancelled'
+                            : 'success',
                     progress_pct: 100,
-                    error: event.payload?.error ?? null,
+                    error: (event.payload?.error_message as string) ?? null,
                     finished_at: new Date().toISOString(),
                 }
                 wizardStep.value = 3
-                loadNodes()  // обновить maintenance-состояния после завершения
-            }
-            if (event.event === 'operation_cancelled' && rrStatus.value) {
-                rrStatus.value = { ...rrStatus.value, state: 'cancelled' }
-                wizardStep.value = 3
                 loadNodes()
             }
-            // Обновляем состояние нод при каждом node_state_changed
-            if (event.event === 'node_state_changed') {
+
+            // [MAJOR FIX] debounce через nodesLoading guard — не спамим запросами
+            if (event.event === 'node_state_changed' && !nodesLoading.value) {
                 loadNodes()
             }
         })

@@ -1,78 +1,98 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { recoveryApi, type RecoveryScanResult, type NodeGrastate } from '@/api/recovery'
+import { recoveryApi, type RecoveryStatus } from '@/api/recovery'
 import { useWsStore } from '@/stores/ws'
+import type { NodeListItem } from '@/api/nodes'
 
 export type WizardStep = 1 | 2 | 3 | 4
 
+export type RecoveryOperationState =
+    | 'pending'
+    | 'running'
+    | 'success'
+    | 'failed'
+    | 'cancel_requested'
+    | 'cancelled'
+    | null
+
 export const useRecoveryStore = defineStore('recovery', () => {
-    // ── Wizard state ────────────────────────────────────────────────────────
     const step = ref<WizardStep>(1)
     const clusterId = ref<number | null>(null)
 
-    // Step 1 — scan
-    const scanResult = ref<RecoveryScanResult | null>(null)
-    const scanning = ref(false)
-    const scanError = ref<string | null>(null)
+    // Step 1 — данные из GET /api/clusters/{id}/status (ТЗ п.13.7 шаг 1)
+    // [BLOCKER FIX] scan() удалён, scanResult заменён на clusterStatus
+    const clusterStatus = ref<any | null>(null)
+    const statusLoading = ref(false)
+    const statusError = ref<string | null>(null)
 
     // Step 2 — bootstrap selection
     const selectedBootstrapNodeId = ref<number | null>(null)
-    const bootstrapForce = ref(false)
+    // [BLOCKER FIX] bootstrapForce удалён — ТЗ не фиксирует этот параметр
     const bootstrapping = ref(false)
     const bootstrapError = ref<string | null>(null)
 
-    // Step 3 — rejoin
-    const operationId = ref<string | null>(null)
+    // Step 3 — progress
+    const operationId = ref<number | null>(null)
     const progressPct = ref(0)
     const progressMessage = ref<string | null>(null)
-    const operationState = ref<'pending' | 'running' | 'finished' | 'failed' | 'cancelled' | null>(null)
+    const operationState = ref<RecoveryOperationState>(null)
     const operationError = ref<string | null>(null)
     const cancelling = ref(false)
 
-    // ── Computed ─────────────────────────────────────────────────────────────
-    const recommendedNode = computed<NodeGrastate | null>(() => {
-        if (!scanResult.value) return null
-        const id = scanResult.value.recommended_bootstrap_node_id
-        return scanResult.value.nodes.find((n) => n.node_id === id) ?? null
-    })
-
-    const reachableNodes = computed<NodeGrastate[]>(() =>
-        scanResult.value?.nodes.filter((n) => n.reachable) ?? []
+    // ── Computed ──────────────────────────────────────────────────────────
+    const offlineNodes = computed<NodeListItem[]>(() =>
+        clusterStatus.value?.nodes?.filter(
+            (n: NodeListItem) =>
+                n.wsrep_local_state_comment === null ||
+                !n.wsrep_connected
+        ) ?? []
     )
 
-    const nodesNeedingRejoin = computed<NodeGrastate[]>(() =>
-        scanResult.value?.nodes.filter(
-            (n) => n.node_id !== selectedBootstrapNodeId.value
+    const recommendedBootstrapNodeId = computed<number | null>(() =>
+        // backend рекомендует ноду с наибольшим seqno и safe_to_bootstrap=1
+        // ТЗ п.13.7: логика выбора на бэке, фронт отображает
+        clusterStatus.value?.recommended_bootstrap_node_id ?? null
+    )
+
+    // [MINOR FIX] только OFFLINE ноды нуждаются в rejoin
+    const nodesNeedingRejoin = computed<NodeListItem[]>(() =>
+        clusterStatus.value?.nodes?.filter(
+            (n: NodeListItem) =>
+                n.node_id !== selectedBootstrapNodeId.value &&
+                (!n.wsrep_connected || n.wsrep_local_state_comment !== 'Synced')
         ) ?? []
     )
 
     // ── Actions ───────────────────────────────────────────────────────────────
     async function init(cId: number) {
+        // [MAJOR FIX] отписываем предыдущую WS-подписку перед reset
+        wsUnsub?.()
+        wsUnsub = null
         clusterId.value = cId
         reset()
         subscribeWs()
         // Polling-fallback: восстанавливаем прогресс если зашли во время активной операции
         try {
             const status = await recoveryApi.getStatus(cId)
-            if (status.state === 'running' || status.state === 'pending') {
-                operationId.value = status.operation_id
-                operationState.value = status.state
-                progressPct.value = status.progress_pct
-                progressMessage.value = status.message
+            // [MAJOR FIX] правильный маппинг из RecoveryStatus
+            const op = status.active_operation
+            if (op && ['pending', 'running', 'cancel_requested'].includes(op.status)) {
+                operationId.value = op.id
+                operationState.value = op.status as RecoveryOperationState
+                progressPct.value = 0
                 step.value = 3
             }
         } catch {
-            // 404 = нет активной операции, норма
+            // нет активной операции — норма
         }
     }
 
     function reset() {
         step.value = 1
-        scanResult.value = null
-        scanning.value = false
-        scanError.value = null
+        clusterStatus.value = null
+        statusLoading.value = false
+        statusError.value = null
         selectedBootstrapNodeId.value = null
-        bootstrapForce.value = false
         bootstrapping.value = false
         bootstrapError.value = null
         operationId.value = null
@@ -83,18 +103,24 @@ export const useRecoveryStore = defineStore('recovery', () => {
         cancelling.value = false
     }
 
-    async function scan() {
+    async function loadStatus() {
         if (!clusterId.value) return
-        scanning.value = true
-        scanError.value = null
+        statusLoading.value = true
+        statusError.value = null
         try {
-            scanResult.value = await recoveryApi.scan(clusterId.value)
-            // Рекомендуем backend-выбор как дефолт
-            selectedBootstrapNodeId.value = scanResult.value.recommended_bootstrap_node_id
+            // используем cluster status endpoint — содержит nodes с wsrep-данными
+            const { data } = await import('@/api/client').then(m =>
+                m.api.get(`/api/clusters/${clusterId.value}/status`)
+            )
+            clusterStatus.value = data
+            // Автовыбор рекомендованной ноды
+            if (data.recommended_bootstrap_node_id) {
+                selectedBootstrapNodeId.value = data.recommended_bootstrap_node_id
+            }
         } catch (err: any) {
-            scanError.value = err?.response?.data?.detail ?? err.message
+            statusError.value = err?.response?.data?.detail ?? err.message
         } finally {
-            scanning.value = false
+            statusLoading.value = false
         }
     }
 
@@ -103,12 +129,12 @@ export const useRecoveryStore = defineStore('recovery', () => {
         bootstrapping.value = true
         bootstrapError.value = null
         try {
+            // [BLOCKER FIX] bootstrap без force — ТЗ п.9.1
             const res = await recoveryApi.bootstrap(
                 clusterId.value,
                 selectedBootstrapNodeId.value,
-                bootstrapForce.value,
             )
-            operationId.value = res.operation_id
+            operationId.value = res.operation_id ?? null
             operationState.value = 'running'
             progressPct.value = 0
             step.value = 3
@@ -116,6 +142,18 @@ export const useRecoveryStore = defineStore('recovery', () => {
             bootstrapError.value = err?.response?.data?.detail ?? err.message
         } finally {
             bootstrapping.value = false
+        }
+    }
+
+    async function startRejoin(nodeId: number) {
+        if (!clusterId.value) return
+        try {
+            const res = await recoveryApi.rejoin(clusterId.value, nodeId)
+            operationId.value = res.operation_id ?? null
+            operationState.value = 'running'
+            step.value = 3
+        } catch (err: any) {
+            operationError.value = err?.response?.data?.detail ?? err.message
         }
     }
 
@@ -129,34 +167,44 @@ export const useRecoveryStore = defineStore('recovery', () => {
         }
     }
 
-    // ── WS subscription ───────────────────────────────────────────────────────
+    // ── WS subscription ───────────────────────────────────────────────────
     let wsUnsub: (() => void) | null = null
 
     function subscribeWs() {
         const wsStore = useWsStore()
-        wsUnsub?.()
         wsUnsub = wsStore.on((event) => {
-            if (event.event === 'operation_started' && event.payload?.operation_type?.startsWith('recovery')) {
+            // [MAJOR FIX] фильтр по payload.type вместо payload.operation_type
+            if (
+                event.event === 'operation_started' &&
+                (event.payload?.type as string)?.startsWith('recovery')
+            ) {
                 operationState.value = 'running'
                 progressPct.value = 0
+                operationId.value = (event.payload?.id as number) ?? operationId.value
             }
+
             if (event.event === 'operation_progress') {
-                progressPct.value = event.payload?.progress_pct ?? progressPct.value
-                progressMessage.value = event.payload?.message ?? null
+                progressPct.value = (event.payload?.progress_pct as number) ?? progressPct.value
+                progressMessage.value = (event.payload?.message as string) ?? null
             }
+
             if (event.event === 'operation_finished') {
-                progressPct.value = 100
-                progressMessage.value = event.payload?.message ?? 'Completed'
-                if (event.payload?.success === false) {
+                const status = event.payload?.status as string
+                progressMessage.value = (event.payload?.message as string) ?? 'Completed'
+
+                // [BLOCKER FIX] 'operation_cancelled' не существует в ТЗ —
+                // отмена приходит через operation_finished с status='cancelled'
+                if (status === 'cancelled' || status === 'cancel_requested') {
+                    operationState.value = 'cancelled'
+                } else if (status === 'failed') {
+                    progressPct.value = 100
                     operationState.value = 'failed'
-                    operationError.value = event.payload?.error ?? 'Unknown error'
+                    operationError.value = (event.payload?.error_message as string) ?? 'Unknown error'
                 } else {
-                    operationState.value = 'finished'
+                    // [MAJOR FIX] 'success' вместо 'finished'
+                    progressPct.value = 100
+                    operationState.value = 'success'
                 }
-                step.value = 4
-            }
-            if (event.event === 'operation_cancelled') {
-                operationState.value = 'cancelled'
                 step.value = 4
             }
         })
@@ -169,15 +217,12 @@ export const useRecoveryStore = defineStore('recovery', () => {
     }
 
     return {
-        // state
         step, clusterId,
-        scanResult, scanning, scanError,
-        selectedBootstrapNodeId, bootstrapForce, bootstrapping, bootstrapError,
+        clusterStatus, statusLoading, statusError,
+        selectedBootstrapNodeId, bootstrapping, bootstrapError,
         operationId, progressPct, progressMessage, operationState, operationError,
         cancelling,
-        // computed
-        recommendedNode, reachableNodes, nodesNeedingRejoin,
-        // actions
-        init, reset, scan, startBootstrap, cancelOperation, destroy,
+        offlineNodes, recommendedBootstrapNodeId, nodesNeedingRejoin,
+        init, reset, loadStatus, startBootstrap, startRejoin, cancelOperation, destroy,
     }
 })
