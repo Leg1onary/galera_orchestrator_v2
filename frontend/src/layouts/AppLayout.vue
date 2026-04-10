@@ -11,11 +11,8 @@ const route        = useRoute()
 const clusterStore = useClusterStore()
 const wsStore      = useWsStore()
 
-// Загружаем контуры при монтировании layout (один раз за сессию).
-// loadContours внутри вызывает loadClusters + восстанавливает выбор из localStorage.
 clusterStore.loadContours()
 
-// WS: подключаемся при смене кластера
 watch(
   () => clusterStore.selectedClusterId,
   (id) => {
@@ -27,7 +24,6 @@ watch(
 
 onUnmounted(() => wsStore.disconnect())
 
-// Sidebar collapse
 const sidebarCollapsed = ref<boolean>(
   JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false')
 )
@@ -40,29 +36,40 @@ const showLayout = computed(
   () => route.name !== 'login' && route.name !== 'not-found'
 )
 
-// ConfirmDialog passthrough — переопределяем стили через PT чтобы использовать наши CSS переменные
 const confirmDialogPT = {
   root: { style: 'font-family: var(--font-body, sans-serif)' },
-  mask: { style: 'background: oklch(0 0 0 / 0.55); backdrop-filter: blur(2px)' },
+  mask: {
+    style: [
+      'background: oklch(0 0 0 / 0.6)',
+      'backdrop-filter: blur(6px)',
+      '-webkit-backdrop-filter: blur(6px)',
+    ].join(';'),
+  },
   dialog: {
     style: [
       'background: var(--color-surface)',
+      // Subtle top-edge highlight — gives depth on dark bg
       'border: 1px solid var(--color-border)',
+      'border-top: 1px solid color-mix(in oklch, var(--color-border) 60%, white)',
       'border-radius: var(--radius-xl)',
-      'box-shadow: var(--shadow-lg)',
+      // Layered shadow: contact shadow + wide ambient + faint red glow
+      'box-shadow: 0 2px 4px oklch(0 0 0 / 0.3), 0 16px 48px oklch(0 0 0 / 0.45), 0 0 0 1px oklch(from var(--color-error) l c h / 0.08)',
       'padding: 0',
-      'min-width: 320px',
-      'max-width: 420px',
+      'min-width: 340px',
+      'max-width: 440px',
       'width: 90vw',
+      'overflow: hidden',
     ].join(';'),
   },
   header: {
     style: [
-      'padding: var(--space-5) var(--space-6) var(--space-3)',
+      'padding: var(--space-5) var(--space-6) var(--space-4)',
       'border-bottom: 1px solid var(--color-border)',
       'display: flex',
       'align-items: center',
       'gap: var(--space-3)',
+      // Subtle surface gradient on header
+      'background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface) 100%)',
     ].join(';'),
   },
   title: {
@@ -70,31 +77,41 @@ const confirmDialogPT = {
       'font-size: var(--text-base)',
       'font-weight: 700',
       'color: var(--color-text)',
-      'letter-spacing: -0.01em',
+      'letter-spacing: -0.02em',
     ].join(';'),
   },
   content: {
     style: [
-      'padding: var(--space-5) var(--space-6)',
+      'padding: var(--space-6) var(--space-6) var(--space-5)',
       'color: var(--color-text-muted)',
       'font-size: var(--text-sm)',
-      'line-height: 1.55',
+      'line-height: 1.6',
       'display: flex',
       'align-items: flex-start',
-      'gap: var(--space-3)',
+      'gap: var(--space-4)',
     ].join(';'),
   },
   icon: {
-    style: 'color: var(--color-warning); font-size: 1.2rem; flex-shrink: 0; margin-top: 1px',
+    // Larger warning icon with amber glow
+    style: [
+      'color: var(--color-warning)',
+      'font-size: 1.4rem',
+      'flex-shrink: 0',
+      'margin-top: 2px',
+      'filter: drop-shadow(0 0 6px color-mix(in oklch, var(--color-warning) 55%, transparent))',
+    ].join(';'),
   },
-  message: { style: 'flex: 1' },
+  message: {
+    style: 'flex: 1; color: var(--color-text); font-size: var(--text-sm); font-weight: 500',
+  },
   footer: {
     style: [
-      'padding: var(--space-3) var(--space-6) var(--space-5)',
+      'padding: var(--space-4) var(--space-6) var(--space-5)',
       'display: flex',
       'justify-content: flex-end',
-      'gap: var(--space-2)',
+      'gap: var(--space-3)',
       'border-top: 1px solid var(--color-border)',
+      'background: linear-gradient(0deg, var(--color-surface-offset) 0%, var(--color-surface) 100%)',
     ].join(';'),
   },
   rejectButton: {
@@ -104,26 +121,31 @@ const confirmDialogPT = {
         'border: 1px solid var(--color-border)',
         'color: var(--color-text-muted)',
         'border-radius: var(--radius-md)',
-        'padding: var(--space-2) var(--space-4)',
+        // Bigger padding
+        'padding: 10px var(--space-6)',
         'font-size: var(--text-sm)',
         'font-weight: 600',
         'cursor: pointer',
-        'transition: background 180ms ease, border-color 180ms ease, color 180ms ease',
+        'letter-spacing: 0.01em',
+        'transition: background 160ms ease, border-color 160ms ease, color 160ms ease',
       ].join(';'),
     },
   },
   acceptButton: {
     root: {
       style: [
-        'background: var(--color-error)',
+        // Gradient on accept for the "wow" moment
+        'background: linear-gradient(135deg, var(--color-error) 0%, color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%)',
         'border: 1px solid var(--color-error)',
         'color: #fff',
         'border-radius: var(--radius-md)',
-        'padding: var(--space-2) var(--space-4)',
+        'padding: 10px var(--space-6)',
         'font-size: var(--text-sm)',
-        'font-weight: 600',
+        'font-weight: 700',
         'cursor: pointer',
-        'transition: background 180ms ease',
+        'letter-spacing: 0.01em',
+        'box-shadow: 0 2px 8px color-mix(in oklch, var(--color-error) 45%, transparent)',
+        'transition: box-shadow 160ms ease, filter 160ms ease',
       ].join(';'),
     },
   },
