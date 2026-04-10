@@ -1,30 +1,78 @@
-<!-- src/components/overview/ArbitratorCard.vue -->
 <script setup lang="ts">
-defineProps<{ arbitrator: any }>()
-const stateColors = { online: '#22c55e', degraded: '#f59e0b', offline: '#ef4444' }
+// ── Types (ТЗ 7.4) ────────────────────────────────────────────────────────
+interface ArbitratorLive {
+  id: number
+  name: string
+  host: string
+  state: 'online' | 'degraded' | 'offline'
+  ssh_ok: boolean
+  garbd_running: boolean
+  latency_ssh_ms: number | null
+}
+
+defineProps<{ arbitrator: ArbitratorLive }>()
+
+// Цвета состояний арбитратора (ТЗ 7.4)
+// Согласованы с NodeCard: online=SYNCED, degraded=warn, offline=OFFLINE
+const STATE_COLORS: Record<ArbitratorLive['state'], string> = {
+  online:   '#22c55e',
+  degraded: '#f97316',
+  offline:  '#ef4444',
+}
 </script>
+
 <template>
   <div class="arb-card">
     <div class="arb-header">
-      <span class="state-dot" :style="{ background: stateColors[arbitrator.state as keyof typeof stateColors] ?? '#94a3b8' }" />
+      <span
+          class="state-dot"
+          :style="{ background: STATE_COLORS[arbitrator.state] ?? '#94a3b8' }"
+      />
       <span class="arb-name">{{ arbitrator.name }}</span>
       <span class="arb-host">{{ arbitrator.host }}</span>
     </div>
     <div class="arb-metrics">
-      <div class="metric"><span class="mk">SSH</span><span class="mv">{{ arbitrator.ssh_ok ? '✓' : '✗' }}</span></div>
-      <div class="metric"><span class="mk">garbd</span><span class="mv">{{ arbitrator.garbd_running ? 'running' : 'stopped' }}</span></div>
-      <div class="metric"><span class="mk">Latency</span><span class="mv">{{ arbitrator.latency_ssh_ms ?? '—' }}ms</span></div>
+      <div class="metric">
+        <span class="mk">SSH</span>
+        <span class="mv">
+          <i :class="arbitrator.ssh_ok ? 'pi pi-check' : 'pi pi-times'" />
+        </span>
+      </div>
+      <div class="metric">
+        <span class="mk">garbd</span>
+        <span class="mv">{{ arbitrator.garbd_running ? 'running' : 'stopped' }}</span>
+      </div>
+      <div class="metric">
+        <span class="mk">Latency</span>
+        <span class="mv">
+          {{ arbitrator.latency_ssh_ms != null ? `${arbitrator.latency_ssh_ms}ms` : '—' }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
+
 <style scoped>
-.arb-card { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: 8px; padding: 0.875rem; display: flex; flex-direction: column; gap: 0.625rem; }
-.arb-header { display: flex; align-items: center; gap: 0.5rem; }
+.arb-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.arb-header { display: flex; align-items: center; gap: var(--space-2); }
 .state-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.arb-name { font-weight: 600; font-size: 0.875rem; }
-.arb-host { font-size: 0.72rem; color: var(--text-color-secondary); margin-left: auto; }
-.arb-metrics { display: flex; gap: 1rem; }
-.metric { display: flex; flex-direction: column; gap: 2px; }
-.mk { font-size: 0.68rem; text-transform: uppercase; color: var(--text-color-secondary); }
-.mv { font-size: 0.82rem; font-weight: 600; }
+.arb-name { font-weight: 600; font-size: var(--text-sm); }
+.arb-host { font-size: var(--text-xs); color: var(--color-text-muted); margin-left: auto; }
+.arb-metrics { display: flex; gap: var(--space-4); }
+.metric { display: flex; flex-direction: column; gap: var(--space-1); }
+.mk {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.mv { font-size: var(--text-sm); font-weight: 600; }
 </style>

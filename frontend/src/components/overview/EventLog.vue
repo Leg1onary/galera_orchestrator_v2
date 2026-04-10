@@ -1,31 +1,49 @@
-<!-- src/components/overview/EventLog.vue -->
-<!-- ТЗ 10.5: список событий, авто-скролл вниз при новых -->
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
+import ProgressSpinner from 'primevue/progressspinner'
+import { formatTime } from '@/utils/time'
 import type { EventLogEntry } from '@/stores/events'
 
-const props = defineProps<{ entries: EventLogEntry[]; loading: boolean }>()
+const props = defineProps<{
+  entries: EventLogEntry[]
+  loading: boolean
+}>()
+
 const listEl = ref<HTMLElement | null>(null)
 
-// Авто-скролл при появлении нового события (prepend — скролл вверх)
-watch(() => props.entries.length, async () => {
-  await nextTick()
-  listEl.value?.scrollTo({ top: 0, behavior: 'smooth' })
-})
+// Авто-скролл вверх при новом событии (список — новые сверху)
+watch(
+    () => props.entries.length,
+    async () => {
+      await nextTick()
+      listEl.value?.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+)
 
-const levelClass: Record<string, string> = { INFO: 'info', WARN: 'warn', ERROR: 'error' }
+// ТЗ 10.5: лимит применяется на уровне eventsStore (event_log_limit из system_settings).
+// Компонент отображает всё что пришло — caller отвечает за обрезку.
+const levelClass: Record<string, string> = {
+  INFO:  'info',
+  WARN:  'warn',
+  ERROR: 'error',
+}
 </script>
+
 <template>
   <div class="event-log-wrap">
-    <div v-if="loading" class="log-loading">
-      <ProgressSpinner style="width:24px;height:24px" />
+    <div v-if="loading" class="log-state">
+      <ProgressSpinner style="width: 24px; height: 24px" />
     </div>
-    <div v-else-if="!entries.length" class="log-empty">
+    <div v-else-if="!entries.length" class="log-state log-empty">
       Нет событий
     </div>
     <ul v-else ref="listEl" class="log-list">
-      <li v-for="e in entries" :key="e.id" :class="['log-entry', levelClass[e.level]]">
-        <span class="log-ts">{{ new Date(e.ts).toLocaleTimeString() }}</span>
+      <li
+          v-for="e in entries"
+          :key="e.id"
+          :class="['log-entry', levelClass[e.level] ?? 'info']"
+      >
+        <span class="log-ts">{{ formatTime(e.ts) }}</span>
         <span class="log-level">{{ e.level }}</span>
         <span class="log-source">{{ e.source }}</span>
         <span class="log-msg">{{ e.message }}</span>
@@ -33,18 +51,58 @@ const levelClass: Record<string, string> = { INFO: 'info', WARN: 'warn', ERROR: 
     </ul>
   </div>
 </template>
+
 <style scoped>
-.event-log-wrap { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: 8px; overflow: hidden; }
-.log-loading, .log-empty { display:flex; align-items:center; justify-content:center; padding:2rem; color:var(--text-color-secondary); font-size:0.875rem; }
-.log-list { list-style:none; margin:0; padding:0; max-height:320px; overflow-y:auto; }
-.log-entry { display:grid; grid-template-columns:70px 46px 90px 1fr; align-items:baseline; gap:0.5rem; padding:4px 12px; font-size:0.78rem; border-bottom:1px solid var(--surface-border); font-variant-numeric:tabular-nums; }
-.log-entry.warn  { background: color-mix(in srgb, #f59e0b 6%, transparent); }
-.log-entry.error { background: color-mix(in srgb, #ef4444 7%, transparent); }
-.log-ts { color:var(--text-color-secondary); }
-.log-level { font-weight:600; }
-.log-entry.info  .log-level { color:var(--blue-500); }
-.log-entry.warn  .log-level { color:var(--yellow-600); }
-.log-entry.error .log-level { color:var(--red-500); }
-.log-source { color:var(--text-color-secondary); }
-.log-msg { color:var(--text-color); }
+.event-log-wrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Loading / empty */
+.log-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* List */
+.log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Entry row */
+.log-entry {
+  display: grid;
+  grid-template-columns: 70px 46px minmax(80px, 100px) 1fr;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  border-bottom: 1px solid var(--color-border);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Level backgrounds */
+.log-entry.warn  { background: var(--color-warning-highlight); }
+.log-entry.error { background: var(--color-error-highlight); }
+
+/* Columns */
+.log-ts     { color: var(--color-text-muted); }
+.log-source { color: var(--color-text-muted); }
+.log-msg    { color: var(--color-text); }
+
+/* Level badge colour */
+.log-level { font-weight: 600; }
+.log-entry.info  .log-level { color: var(--color-blue); }
+.log-entry.warn  .log-level { color: var(--color-gold); }
+.log-entry.error .log-level { color: var(--color-notification); }
 </style>
