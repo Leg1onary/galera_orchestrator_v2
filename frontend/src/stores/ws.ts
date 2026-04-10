@@ -1,14 +1,14 @@
 import { defineStore } from 'pinia'
 
-export type WsStatus = 'connected' | 'connecting' | 'disconnected'
+export type WsStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
 
+// [BLOCKER FIX] ТЗ п.5.2: только зафиксированные события. 'operation_cancelled' удалён.
 export type WsEventType =
     | 'node_state_changed'
     | 'arbitrator_state_changed'
     | 'operation_started'
     | 'operation_progress'
     | 'operation_finished'
-    | 'operation_cancelled'
     | 'log_entry'
 
 export interface WsEvent {
@@ -20,7 +20,6 @@ export interface WsEvent {
 
 type WsHandler = (event: WsEvent) => void
 
-// Module-level — вне реактивного state
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 const handlers = new Set<WsHandler>()
@@ -29,6 +28,8 @@ export const useWsStore = defineStore('ws', {
     state: () => ({
         connectionStatus: 'disconnected' as WsStatus,
         connectedClusterId: null as number | null,
+        // [BLOCKER FIX] ТЗ п.8: polling fallback флаг
+        pollingFallbackActive: false,
     }),
 
     actions: {
@@ -42,10 +43,14 @@ export const useWsStore = defineStore('ws', {
             _disconnect(this)
         },
 
-        // ← вот метод .on() который используется в recoveryStore
         on(handler: WsHandler): () => void {
             handlers.add(handler)
             return () => handlers.delete(handler)
+        },
+
+        // [MAJOR FIX] явная очистка всех handlers (при смене кластера)
+        clearHandlers() {
+            handlers.clear()
         },
     },
 })
@@ -59,14 +64,16 @@ function _startConnection(clusterId: number, store: WsStoreInstance) {
     ws = new WebSocket(`${protocol}://${location.host}/ws/clusters/${clusterId}`)
 
     ws.onopen = () => {
-        store.$patch({ connectionStatus: 'connected' })
+        store.$patch({
+            connectionStatus: 'connected',
+            pollingFallbackActive: false, // [BLOCKER FIX] WS восстановлен — polling off
+        })
         _clearReconnectTimer()
     }
 
     ws.onmessage = (msg) => {
         try {
             const event: WsEvent = JSON.parse(msg.data)
-            // ТЗ 5.2: фильтрация по cluster_id
             if (event.cluster_id === store.connectedClusterId) {
                 handlers.forEach((h) => h(event))
             }
@@ -76,7 +83,10 @@ function _startConnection(clusterId: number, store: WsStoreInstance) {
     }
 
     ws.onclose = () => {
-        store.$patch({ connectionStatus: 'disconnected' })
+        store.$patch({
+            connectionStatus: 'disconnected',
+            pollingFallbackActive: true, // [BLOCKER FIX] ТЗ п.8: включаем polling fallback
+        })
         ws = null
         _scheduleReconnect(clusterId, store)
     }
@@ -89,15 +99,21 @@ function _startConnection(clusterId: number, store: WsStoreInstance) {
 function _disconnect(store: WsStoreInstance) {
     _clearReconnectTimer()
     if (ws) {
-        ws.onclose = null  // предотвращаем reconnect при явном disconnect
+        ws.onclose = null
         ws.close()
         ws = null
     }
-    store.$patch({ connectionStatus: 'disconnected', connectedClusterId: null })
+    store.$patch({
+        connectionStatus: 'disconnected',
+        connectedClusterId: null,
+        pollingFallbackActive: false,
+    })
 }
 
 function _scheduleReconnect(clusterId: number, store: WsStoreInstance) {
     _clearReconnectTimer()
+    // [MINOR FIX] ТЗ п.5.3: 5 сек до reconnect — зафиксировано в ТЗ
+    store.$patch({ connectionStatus: 'reconnecting' })
     reconnectTimer = setTimeout(() => _startConnection(clusterId, store), 5000)
 }
 
@@ -108,8 +124,6 @@ function _clearReconnectTimer() {
     }
 }
 
-// Хелпер для использования в компонентах через onMounted/onUnmounted
-// Эквивалентен useWsStore().on(handler)
 export function onWsEvent(handler: WsHandler): () => void {
     const wsStore = useWsStore()
     return wsStore.on(handler)
