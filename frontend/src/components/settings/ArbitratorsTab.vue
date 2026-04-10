@@ -1,4 +1,3 @@
-<!-- Структурно идентичен NodesTab, только без db-полей -->
 <template>
   <div class="tab-content">
     <div class="tab-toolbar">
@@ -9,26 +8,33 @@
       <Column field="name" header="Name" :sortable="true" />
       <Column field="host" header="Host">
         <template #body="{ data }">
-          <span class="font-mono text-xs">{{ data.host }}:{{ data.port }}</span>
+          <span class="mono-cell">{{ data.host }}:{{ data.port }}</span>
         </template>
       </Column>
       <Column field="datacenter_id" header="DC">
         <template #body="{ data }">{{ dcName(data.datacenter_id) }}</template>
       </Column>
-      <Column field="enabled" header="Enabled" style="width: 80px">
+      <Column field="enabled" header="Enabled" :pt="{ root: { style: 'width: 80px' } }">
         <template #body="{ data }">
-          <Tag :value="data.enabled ? 'Yes' : 'No'" :severity="data.enabled ? 'success' : 'secondary'" class="text-xs" />
+          <!-- MAJOR fix: class="text-xs" → :pt -->
+          <Tag
+              :value="data.enabled ? 'Yes' : 'No'"
+              :severity="data.enabled ? 'success' : 'secondary'"
+              :pt="{ root: { class: 'tag-cell' } }"
+          />
         </template>
       </Column>
-      <Column header="" style="width: 80px">
+      <Column header="" :pt="{ root: { style: 'width: 80px' } }">
         <template #body="{ data }">
-          <div class="flex gap-1">
+          <div class="row-actions">
             <Button icon="pi pi-pencil" text rounded size="small" @click="openEdit(data)" />
             <Button icon="pi pi-trash" text rounded size="small" severity="danger" @click="openDelete(data)" />
           </div>
         </template>
       </Column>
-      <template #empty><div class="empty-row">No arbitrators configured.</div></template>
+      <template #empty>
+        <div class="empty-row">No arbitrators configured.</div>
+      </template>
     </DataTable>
 
     <EntityFormModal
@@ -57,64 +63,83 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { DataTable, Column, Button, Tag, useToast } from 'primevue'
+// BLOCKER fix: раздельные импорты
+import DataTable from 'primevue/datatable'
+import Column   from 'primevue/column'
+import Button   from 'primevue/button'
+import Tag      from 'primevue/tag'
+import { useToast } from 'primevue/usetoast'
 import EntityFormModal, { type FormField } from './EntityFormModal.vue'
 import DeleteConfirmModal from './DeleteConfirmModal.vue'
 import { settingsApi, type ArbitratorSetting } from '@/api/settings'
+import { extractApiError } from '@/utils/api'
 import { useClusterStore } from '@/stores/cluster'
 
-const qc = useQueryClient()
-const toast = useToast()
+const qc           = useQueryClient()
+const toast        = useToast()
 const clusterStore = useClusterStore()
-const clusterId = computed(() => clusterStore.selectedClusterId!)
+
+// MAJOR fix: не используем ! в computed — guard в хендлерах
+const clusterId  = computed(() => clusterStore.selectedClusterId)
+const contourId  = computed(() => clusterStore.selectedContourId)
 
 const { data: items, isLoading } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'arbitrators-settings']),
-  queryFn: () => settingsApi.listArbitrators(clusterId.value),
-  enabled: computed(() => !!clusterId.value),
+  queryFn:  () => settingsApi.listArbitrators(clusterId.value!),
+  enabled:  computed(() => !!clusterId.value),
 })
 
+// MAJOR fix: queryKey включает contourId (согласованность с DatacentersTab)
 const { data: datacenters } = useQuery({
-  queryKey: ['datacenters'],
-  queryFn: () => settingsApi.listDatacenters(),
+  queryKey: computed(() => ['datacenters', contourId.value]),
+  queryFn:  () => settingsApi.listDatacenters(contourId.value ?? undefined),
 })
 
 const dcOptions = computed(() => [
   { label: '— None —', value: null },
   ...(datacenters.value ?? []).map((d) => ({ label: d.name, value: d.id })),
 ])
+
 function dcName(id: number | null) {
   return datacenters.value?.find((d) => d.id === id)?.name ?? '—'
 }
 
 const arbFields = computed((): FormField[] => [
-  { key: 'name',          label: 'Name',        required: true, placeholder: 'arb-01' },
-  { key: 'host',          label: 'Host / IP',   required: true, placeholder: '10.0.0.4' },
-  { key: 'port',          label: 'garbd Port',  type: 'number', min: 1, max: 65535, placeholder: '4567' },
-  { key: 'ssh_user',      label: 'SSH User',    placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',    type: 'number', min: 1, max: 65535, placeholder: '22' },
-  { key: 'datacenter_id', label: 'Datacenter',  type: 'select', options: dcOptions.value },
-  { key: 'enabled',       label: 'Enabled',     type: 'toggle', toggleLabel: 'Monitor this arbitrator' },
+  { key: 'name',          label: 'Name',       required: true, placeholder: 'arb-01' },
+  { key: 'host',          label: 'Host / IP',  required: true, placeholder: '10.0.0.4' },
+  { key: 'port',          label: 'garbd Port', type: 'number', min: 1, max: 65535 },
+  { key: 'ssh_user',      label: 'SSH User',   placeholder: 'root' },
+  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535 },
+  { key: 'datacenter_id', label: 'Datacenter', type: 'select', options: dcOptions.value },
+  { key: 'enabled',       label: 'Enabled',    type: 'toggle', toggleLabel: 'Monitor this arbitrator' },
   { key: 'description',   label: 'Description', type: 'textarea' },
 ])
 
-const modal = ref<{ open: boolean; mode: 'create' | 'edit'; id?: number; initial?: Record<string, unknown> }>({
-  open: false, mode: 'create',
-})
+const modal = ref<{
+  open:     boolean
+  mode:     'create' | 'edit'
+  id?:      number
+  initial?: Record<string, unknown>
+}>({ open: false, mode: 'create' })
+
 const deleteTarget = ref<ArbitratorSetting | null>(null)
-const saving = ref(false)
-const deleting = ref(false)
-const apiError = ref<string | null>(null)
+const saving       = ref(false)
+const deleting     = ref(false)
+const apiError     = ref<string | null>(null)
 
 function openCreate() { modal.value = { open: true, mode: 'create' }; apiError.value = null }
 function openEdit(arb: ArbitratorSetting) {
   modal.value = {
     open: true, mode: 'edit', id: arb.id,
     initial: {
-      name: arb.name, host: arb.host, port: arb.port,
-      ssh_user: arb.ssh_user, ssh_port: arb.ssh_port,
-      datacenter_id: arb.datacenter_id, enabled: arb.enabled,
-      description: arb.description ?? '',
+      name:          arb.name,
+      host:          arb.host,
+      port:          arb.port,
+      ssh_user:      arb.ssh_user,
+      ssh_port:      arb.ssh_port,
+      datacenter_id: arb.datacenter_id,
+      enabled:       arb.enabled,
+      description:   arb.description ?? '',
     },
   }
   apiError.value = null
@@ -123,35 +148,48 @@ function openDelete(arb: ArbitratorSetting) { deleteTarget.value = arb }
 function closeModal() { modal.value = { open: false, mode: 'create' } }
 
 async function handleSubmit(values: Record<string, unknown>) {
-  saving.value = true; apiError.value = null
+  // MAJOR fix: guard вместо !
+  if (!clusterId.value) { apiError.value = 'No cluster selected'; return }
+  saving.value = true
+  apiError.value = null
   try {
     if (modal.value.mode === 'create') {
       await settingsApi.createArbitrator(clusterId.value, values as any)
     } else {
       await settingsApi.updateArbitrator(clusterId.value, modal.value.id!, values as any)
     }
-    qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
+    // MAJOR fix: await
+    await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
     toast.add({ severity: 'success', summary: 'Saved', life: 2500 })
     closeModal()
-  } catch (err: any) {
-    apiError.value = err?.response?.data?.detail ?? err.message
+  } catch (err) {
+    apiError.value = extractApiError(err)
   } finally {
     saving.value = false
   }
 }
 
 async function handleDelete() {
-  if (!deleteTarget.value) return
+  if (!deleteTarget.value || !clusterId.value) return
   deleting.value = true
   try {
     await settingsApi.deleteArbitrator(clusterId.value, deleteTarget.value.id)
-    qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
+    await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
     toast.add({ severity: 'success', summary: 'Deleted', life: 2500 })
     deleteTarget.value = null
-  } catch (err: any) {
-    toast.add({ severity: 'error', summary: 'Error', detail: err?.response?.data?.detail ?? err.message, life: 5000 })
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Error', detail: extractApiError(err), life: 5000 })
   } finally {
     deleting.value = false
   }
 }
 </script>
+
+<style scoped>
+.tab-content { display: flex; flex-direction: column; gap: var(--space-4); }
+.tab-toolbar { display: flex; justify-content: flex-end; }
+.row-actions { display: flex; gap: var(--space-1); }
+.mono-cell   { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+.tag-cell    { font-size: var(--text-xs); }
+.empty-row   { padding: var(--space-4); color: var(--color-text-muted); font-size: var(--text-sm); }
+</style>
