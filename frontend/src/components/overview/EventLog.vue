@@ -1,102 +1,149 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
-import ProgressSpinner from 'primevue/progressspinner'
-import { formatRelative } from '@/utils/time'
-import type { EventLogEntry } from '@/stores/events'
+import { computed } from 'vue'
+
+interface ClusterEvent {
+  id: number
+  created_at: string
+  level: 'info' | 'warning' | 'error' | 'critical'
+  message: string
+  node_name?: string | null
+}
 
 const props = defineProps<{
-  entries: EventLogEntry[]
-  loading: boolean
+  events: ClusterEvent[]
+  isLoading?: boolean
 }>()
 
-const listEl = ref<HTMLElement | null>(null)
+const LEVEL_CONFIG: Record<string, { icon: string; cls: string }> = {
+  info:     { icon: 'pi-info-circle', cls: 'info' },
+  warning:  { icon: 'pi-exclamation-triangle', cls: 'warn' },
+  error:    { icon: 'pi-times-circle', cls: 'error' },
+  critical: { icon: 'pi-exclamation-circle', cls: 'critical' },
+}
 
-// Авто-скролл вверх при новом событии (список — новые сверху)
-watch(
-    () => props.entries.length,
-    async () => {
-      await nextTick()
-      listEl.value?.scrollTo({ top: 0, behavior: 'smooth' })
-    },
-)
+function levelConfig(level: string) {
+  return LEVEL_CONFIG[level] ?? LEVEL_CONFIG.info
+}
 
-// ТЗ 10.5: лимит применяется на уровне eventsStore (event_log_limit из system_settings).
-// Компонент отображает всё что пришло — caller отвечает за обрезку.
-const levelClass: Record<string, string> = {
-  INFO:  'info',
-  WARN:  'warn',
-  ERROR: 'error',
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 </script>
 
 <template>
-  <div class="event-log-wrap">
-    <div v-if="loading" class="log-state">
-      <ProgressSpinner style="width: 24px; height: 24px" />
+  <div class="event-log">
+    <div class="event-log-header">
+      <span class="section-title">Event Log</span>
+      <span class="event-count text-faint text-xs" v-if="events.length">
+        {{ events.length }} events
+      </span>
     </div>
-    <div v-else-if="!entries.length" class="log-state log-empty">
-      Нет событий
+
+    <div v-if="isLoading" class="loading-state">
+      <i class="pi pi-spin pi-spinner" />
+      <span>Loading events&hellip;</span>
     </div>
-    <ul v-else ref="listEl" class="log-list">
-      <li
-          v-for="e in entries"
-          :key="e.id"
-          :class="['log-entry', levelClass[e.level] ?? 'info']"
+
+    <div v-else-if="events.length === 0" class="el-empty">
+      <i class="pi pi-check-circle" />
+      <span>No events — all clear</span>
+    </div>
+
+    <div v-else class="el-list">
+      <div
+        v-for="ev in events"
+        :key="ev.id"
+        class="el-row"
+        :class="'el-row--' + levelConfig(ev.level).cls"
       >
-        <span class="log-ts">{{ formatRelative(e.ts) }}</span>
-        <span class="log-level">{{ e.level }}</span>
-        <span class="log-source">{{ e.source }}</span>
-        <span class="log-msg">{{ e.message }}</span>
-      </li>
-    </ul>
+        <i :class="'pi ' + levelConfig(ev.level).icon" class="el-icon" aria-hidden="true" />
+        <span class="el-time">{{ formatTime(ev.created_at) }}</span>
+        <span class="el-node" v-if="ev.node_name">{{ ev.node_name }}</span>
+        <span class="el-msg">{{ ev.message }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.event-log-wrap {
+.event-log {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
-.log-state {
+.event-log-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: var(--space-8);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-muted);
 }
 
-.log-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.event-count {
+  font-family: var(--font-mono);
+}
+
+.el-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-5);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  justify-content: center;
+}
+
+.el-empty i { font-size: 0.9rem; color: var(--color-synced); }
+
+.el-list {
   max-height: 320px;
   overflow-y: auto;
 }
 
-.log-entry {
+.el-row {
   display: grid;
-  grid-template-columns: 70px 46px minmax(80px, 100px) 1fr;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  grid-template-columns: 14px 68px auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--color-border-muted);
   font-size: var(--text-xs);
-  border-bottom: 1px solid var(--color-border);
-  font-variant-numeric: tabular-nums;
+  transition: background var(--transition-fast);
 }
 
-.log-entry.warn  { background: var(--color-warning-highlight); }
-.log-entry.error { background: var(--color-error-highlight); }
+.el-row:last-child { border-bottom: none; }
+.el-row:hover { background: var(--color-surface-2); }
 
-.log-ts     { color: var(--color-text-muted); }
-.log-source { color: var(--color-text-muted); }
-.log-msg    { color: var(--color-text); }
+.el-icon { font-size: 0.7rem; }
 
-.log-level { font-weight: 600; }
-.log-entry.info  .log-level { color: var(--color-blue); }
-.log-entry.warn  .log-level { color: var(--color-gold); }
-.log-entry.error .log-level { color: var(--color-notification); }
+.el-row--info     .el-icon { color: var(--color-info); }
+.el-row--warn     .el-icon { color: var(--color-warning); }
+.el-row--error    .el-icon { color: var(--color-error); }
+.el-row--critical .el-icon { color: var(--color-error); }
+
+.el-time {
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.el-node {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.el-msg {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

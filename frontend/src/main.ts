@@ -34,82 +34,168 @@ import './assets/main.css'
 import App from './App.vue'
 import router from './router'
 
-// ─── Custom PrimeVue Preset ───────────────────────────────────────────────────
-// Строим поверх Aura. Переопределяем только токены — не трогаем логику компонентов.
+// ─── Galera Orchestrator v2 — Terminal Precision theme ───────────────────────
+// Zinc dark surfaces, teal accent (interactive only)
+// Built on Aura base — only semantic tokens overridden
 const GaleraPreset = definePreset(Aura, {
   semantic: {
     primary: {
-      50:  '{teal.50}',
-      100: '{teal.100}',
-      200: '{teal.200}',
-      300: '{teal.300}',
-      400: '{teal.400}',
-      500: '{teal.500}',
-      600: '{teal.600}',
-      700: '{teal.700}',
-      800: '{teal.800}',
-      900: '{teal.900}',
-      950: '{teal.950}',
+      50:  '#f0fdfa',
+      100: '#ccfbf1',
+      200: '#99f6e4',
+      300: '#5eead4',
+      400: '#2dd4bf',
+      500: '#14b8a6',
+      600: '#0d9488',
+      700: '#0f766e',
+      800: '#115e59',
+      900: '#134e4a',
+      950: '#042f2e',
     },
     colorScheme: {
       dark: {
         surface: {
           0:   '#ffffff',
-          50:  '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a',
-          950: '#020617',
+          50:  '#fafafa',
+          100: '#f4f4f5',
+          200: '#e4e4e7',
+          300: '#d4d4d8',
+          400: '#a1a1aa',
+          500: '#71717a',
+          600: '#52525b',
+          700: '#3f3f46',
+          800: '#27272a',
+          900: '#18181b',
+          950: '#09090b',
         },
         primary: {
-          color:          '#2dd4bf',
-          contrastColor:  '#0a0f1e',
-          hoverColor:     '#14b8a6',
-          activeColor:    '#0d9488',
+          color:         '#2dd4bf',
+          contrastColor: '#09090b',
+          hoverColor:    '#14b8a6',
+          activeColor:   '#0d9488',
         },
         highlight: {
-          background:     'rgba(45,212,191,0.12)',
-          focusBackground:'rgba(45,212,191,0.2)',
-          color:          '#2dd4bf',
-          focusColor:     '#2dd4bf',
+          background:      'rgba(45,212,191,0.10)',
+          focusBackground: 'rgba(45,212,191,0.18)',
+          color:           '#2dd4bf',
+          focusColor:      '#5eead4',
         },
       },
     },
   },
   components: {
+    // Button: ghost teal style for primary, semantic for others
     button: {
       colorScheme: {
         dark: {
           root: {
             primary: {
-              background: 'rgba(45,212,191,0.12)',
-              borderColor: 'rgba(45,212,191,0.35)',
-              color: '#2dd4bf',
-              hoverBackground: 'rgba(45,212,191,0.2)',
-              hoverBorderColor: 'rgba(45,212,191,0.55)',
-              hoverColor: '#5eead4',
-              activeBackground: 'rgba(45,212,191,0.28)',
-              activeBorderColor: 'rgba(45,212,191,0.7)',
-              activeColor: '#99f6e4',
+              background:       'rgba(45,212,191,0.10)',
+              borderColor:      'rgba(45,212,191,0.28)',
+              color:            '#2dd4bf',
+              hoverBackground:  'rgba(45,212,191,0.16)',
+              hoverBorderColor: 'rgba(45,212,191,0.48)',
+              hoverColor:       '#5eead4',
+              activeBackground: 'rgba(45,212,191,0.22)',
+              activeBorderColor:'rgba(45,212,191,0.65)',
+              activeColor:      '#99f6e4',
             },
           },
         },
       },
     },
+    // Card overrides
     card: {
       colorScheme: {
         dark: {
           root: {
-            background: '#0d1424',
-            borderColor: 'rgba(45,212,191,0.08)',
-            color: '#e2e8f0',
-            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            background: '#0f1015',
+            borderColor: 'rgba(255,255,255,0.07)',
+            color:       '#e4e4e7',
+            shadow:      '0 4px 16px rgba(0,0,0,0.5)',
+          },
+        },
+      },
+    },
+    // Input text
+    inputtext: {
+      colorScheme: {
+        dark: {
+          root: {
+            background:       '#1a1b24',
+            borderColor:      'rgba(255,255,255,0.07)',
+            color:            '#e4e4e7',
+            placeholderColor: '#3f3f46',
+            focusBorderColor: '#2dd4bf',
+            hoverBorderColor: 'rgba(45,212,191,0.30)',
+            shadow:           'none',
+          },
+        },
+      },
+    },
+    // Select dropdown
+    select: {
+      colorScheme: {
+        dark: {
+          root: {
+            background:       '#1a1b24',
+            borderColor:      'rgba(255,255,255,0.07)',
+            color:            '#e4e4e7',
+            hoverBorderColor: 'rgba(45,212,191,0.30)',
+            focusBorderColor: '#2dd4bf',
+          },
+          overlay: {
+            background:  '#14151c',
+            borderColor: 'rgba(255,255,255,0.07)',
+            shadow:      '0 16px 48px rgba(0,0,0,0.65)',
+          },
+          option: {
+            focusBackground:    '#1a1b24',
+            selectedBackground: 'rgba(45,212,191,0.10)',
+            selectedColor:      '#2dd4bf',
+          },
+        },
+      },
+    },
+    // Dialog
+    dialog: {
+      colorScheme: {
+        dark: {
+          root: {
+            background:  '#14151c',
+            borderColor: 'rgba(255,255,255,0.07)',
+            color:       '#e4e4e7',
+          },
+        },
+      },
+    },
+    // Drawer
+    drawer: {
+      colorScheme: {
+        dark: {
+          root: {
+            background:  '#14151c',
+            borderColor: 'rgba(255,255,255,0.07)',
+          },
+        },
+      },
+    },
+    // DataTable
+    datatable: {
+      colorScheme: {
+        dark: {
+          root: {
+            borderColor: 'rgba(255,255,255,0.07)',
+          },
+          header: {
+            background: '#14151c',
+            borderColor: 'rgba(255,255,255,0.07)',
+            color:       '#71717a',
+          },
+          bodyRow: {
+            background:      '#0f1015',
+            hoverBackground: '#1a1b24',
+            borderColor:     'rgba(255,255,255,0.04)',
           },
         },
       },

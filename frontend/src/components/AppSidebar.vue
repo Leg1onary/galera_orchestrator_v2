@@ -1,274 +1,286 @@
-<!-- ТЗ 6.3: навигация + активный маршрут + collapse -->
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { useOperationsStore } from '@/stores/operations'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 
-const route = useRoute()
-const operationsStore = useOperationsStore()
+const props = defineProps<{ collapsed: boolean }>()
+const emit  = defineEmits<{ toggle: [] }>()
+
+const route        = useRoute()
+const router       = useRouter()
 const clusterStore = useClusterStore()
+const clusterId    = computed(() => clusterStore.currentCluster?.id ?? '')
 
-const collapsed = ref(false)
+interface NavItem {
+  key:   string
+  label: string
+  icon:  string
+  to?:   () => object
+  group?: string
+}
 
-const navGroups = [
-  {
-    label: 'МОНИТОРИНГ',
-    items: [
-      { name: 'overview',    label: 'Обзор',       icon: 'pi pi-home' },
-      { name: 'nodes',       label: 'Ноды',        icon: 'pi pi-server' },
-      { name: 'topology',    label: 'Топология',   icon: 'pi pi-sitemap' },
-    ],
-  },
-  {
-    label: 'УПРАВЛЕНИЕ',
-    items: [
-      { name: 'recovery',    label: 'Recovery',    icon: 'pi pi-replay' },
-      { name: 'maintenance', label: 'Обслуживание',icon: 'pi pi-wrench' },
-      { name: 'diagnostics', label: 'Диагностика', icon: 'pi pi-chart-bar' },
-      { name: 'settings',    label: 'Настройки',   icon: 'pi pi-cog' },
-    ],
-  },
-  {
-    label: 'СПРАВКА',
-    items: [
-      { name: 'docs',        label: 'Документация',icon: 'pi pi-book' },
-    ],
-  },
+const navItems = computed((): NavItem[] => [
+  { key: 'overview',    label: 'Overview',    icon: 'pi-chart-bar',    group: 'monitor',  to: () => ({ name: 'overview',    params: { clusterId: clusterId.value } }) },
+  { key: 'topology',   label: 'Topology',    icon: 'pi-sitemap',      group: 'monitor',  to: () => ({ name: 'topology',    params: { clusterId: clusterId.value } }) },
+  { key: 'nodes',      label: 'Nodes',       icon: 'pi-server',       group: 'monitor',  to: () => ({ name: 'nodes',       params: { clusterId: clusterId.value } }) },
+  { key: 'recovery',   label: 'Recovery',    icon: 'pi-replay',       group: 'ops',      to: () => ({ name: 'recovery',    params: { clusterId: clusterId.value } }) },
+  { key: 'maintenance',label: 'Maintenance', icon: 'pi-wrench',       group: 'ops',      to: () => ({ name: 'maintenance', params: { clusterId: clusterId.value } }) },
+  { key: 'diagnostics',label: 'Diagnostics', icon: 'pi-search',       group: 'ops',      to: () => ({ name: 'diagnostics', params: { clusterId: clusterId.value } }) },
+  { key: 'settings',   label: 'Settings',    icon: 'pi-sliders-h',    group: 'system',   to: () => ({ name: 'settings',    params: { clusterId: clusterId.value } }) },
+])
+
+const groups: { key: string; label: string }[] = [
+  { key: 'monitor', label: 'Monitor' },
+  { key: 'ops',     label: 'Operations' },
+  { key: 'system',  label: 'System' },
 ]
 
-const hasActiveOp = computed(() =>
-  clusterStore.selectedClusterId
-    ? operationsStore.isLocked(clusterStore.selectedClusterId)
-    : false
-)
+function isActive(item: NavItem): boolean {
+  return route.name === item.key
+}
 
-function isActive(name: string) {
-  return route.name === name
+function navigate(item: NavItem) {
+  if (item.to) router.push(item.to())
 }
 </script>
 
 <template>
-  <nav :class="['app-sidebar', { 'app-sidebar--collapsed': collapsed }]" aria-label="Основная навигация">
-    <!-- Collapse toggle -->
-    <button
-        class="collapse-btn"
-        :aria-expanded="String(!collapsed)"
-        :title="collapsed ? 'Развернуть' : 'Свернуть'"
-        @click="collapsed = !collapsed"
-    >
-      <i :class="collapsed ? 'pi pi-chevron-right' : 'pi pi-chevron-left'" />
-    </button>
+  <nav class="sidebar" :class="{ 'sidebar--collapsed': collapsed }" aria-label="Main navigation">
 
-    <!-- Nav groups -->
-    <div class="nav-scroll">
-      <div
-          v-for="group in navGroups"
-          :key="group.label"
-          class="nav-group"
-      >
-        <span v-if="!collapsed" class="nav-group-label">{{ group.label }}</span>
-
-        <ul class="nav-list">
-          <li v-for="item in group.items" :key="item.name">
-            <router-link
-                :to="{ name: item.name }"
-                :class="['nav-item', { 'nav-item--active': isActive(item.name) }]"
-                :title="collapsed ? item.label : undefined"
-            >
-              <span class="nav-icon-wrap">
-                <i :class="item.icon" />
-              </span>
-              <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
-
-              <!-- Active op indicator for recovery/maintenance -->
-              <span
-                  v-if="hasActiveOp && ['recovery', 'maintenance'].includes(item.name)"
-                  class="op-dot"
-                  :class="{ 'op-dot--collapsed': collapsed }"
-              />
-            </router-link>
-          </li>
-        </ul>
+    <!-- Logo + collapse -->
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <circle cx="11" cy="11" r="10" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+          <circle cx="11" cy="11" r="6"  stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+          <circle cx="11" cy="11" r="2.5" fill="currentColor"/>
+        </svg>
       </div>
+      <span class="logo-text" v-if="!collapsed">Galera</span>
+      <button
+        class="collapse-btn"
+        :class="{ 'collapse-btn--far': !collapsed }"
+        @click="emit('toggle')"
+        :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        v-tooltip.right="collapsed ? 'Expand' : ''"
+      >
+        <i :class="collapsed ? 'pi pi-chevron-right' : 'pi pi-chevron-left'" />
+      </button>
     </div>
 
-    <!-- Bottom cluster info -->
-    <div v-if="!collapsed" class="sidebar-footer">
-      <span class="sidebar-version">v2</span>
+    <!-- Cluster selector (shows current cluster) -->
+    <div class="sidebar-cluster" v-if="clusterStore.currentCluster && !collapsed">
+      <span class="cluster-label">cluster</span>
+      <span class="cluster-name">{{ clusterStore.currentCluster.name }}</span>
     </div>
+
+    <!-- Navigation -->
+    <div class="sidebar-nav">
+      <template v-for="group in groups" :key="group.key">
+        <div class="nav-group-label" v-if="!collapsed">{{ group.label }}</div>
+        <div class="nav-group-sep" v-else />
+        <button
+          v-for="item in navItems.filter(i => i.group === group.key)"
+          :key="item.key"
+          class="nav-item"
+          :class="{ 'nav-item--active': isActive(item) }"
+          @click="navigate(item)"
+          v-tooltip.right="collapsed ? item.label : ''"
+          :aria-label="item.label"
+          :aria-current="isActive(item) ? 'page' : undefined"
+        >
+          <i :class="'pi ' + item.icon" class="nav-icon" />
+          <span class="nav-label" v-if="!collapsed">{{ item.label }}</span>
+          <span
+            class="nav-active-indicator"
+            v-if="isActive(item)"
+            aria-hidden="true"
+          />
+        </button>
+      </template>
+    </div>
+
   </nav>
 </template>
 
 <style scoped>
-.app-sidebar {
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
   width: var(--sidebar-width);
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  z-index: 50;
   transition: width var(--transition-slow);
-  position: relative;
   overflow: hidden;
 }
 
-.app-sidebar--collapsed {
-  width: var(--sidebar-width-collapsed);
-}
+.sidebar--collapsed { width: var(--sidebar-width-collapsed); }
 
-/* Subtle left glow accent */
-.app-sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  width: 1px;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(45,212,191,0.2) 30%,
-    rgba(45,212,191,0.2) 70%,
-    transparent 100%
-  );
-  pointer-events: none;
-}
-
-/* ── Collapse button ── */
-.collapse-btn {
+/* ── Logo ── */
+.sidebar-logo {
+  height: var(--header-height);
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 40px;
-  width: 100%;
+  padding: 0 var(--space-3);
+  gap: var(--space-3);
   border-bottom: 1px solid var(--color-border-muted);
-  color: var(--color-text-faint);
-  font-size: 0.7rem;
-  transition: all var(--transition-normal);
   flex-shrink: 0;
 }
 
-.collapse-btn:hover {
+.logo-mark {
+  flex-shrink: 0;
   color: var(--color-primary);
-  background: var(--color-primary-dim);
+  display: flex;
+  align-items: center;
 }
 
-/* ── Nav scroll container ── */
-.nav-scroll {
+.logo-text {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+  white-space: nowrap;
+  flex: 1;
+  overflow: hidden;
+}
+
+.collapse-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  transition: all var(--transition-normal);
+  margin-left: auto;
+}
+
+.collapse-btn--far { margin-left: auto; }
+
+.collapse-btn:hover {
+  color: var(--color-text-muted);
+  background: var(--color-surface-3);
+}
+
+/* ── Cluster badge ── */
+.sidebar-cluster {
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) var(--space-3) var(--space-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cluster-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+  font-weight: 500;
+}
+
+.cluster-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+/* ── Nav ── */
+.sidebar-nav {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--space-3) 0;
+  padding: var(--space-2) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-/* ── Group ── */
-.nav-group { margin-bottom: var(--space-2); }
-
 .nav-group-label {
-  display: block;
-  padding: var(--space-3) var(--space-4) var(--space-1);
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--color-text-faint);
+  font-size: var(--text-xs);
   text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  padding: var(--space-3) var(--space-2) var(--space-1);
   white-space: nowrap;
 }
 
-/* ── Nav list ── */
-.nav-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.nav-group-sep {
+  height: 1px;
+  background: var(--color-border-muted);
+  margin: var(--space-2) var(--space-2);
 }
 
-/* ── Nav item ── */
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  margin: 1px var(--space-2);
+  padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 450;
-  position: relative;
+  cursor: pointer;
   transition: all var(--transition-normal);
-  text-decoration: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nav-item:hover {
-  background: var(--color-surface-4);
   color: var(--color-text);
+  background: var(--color-surface-3);
 }
 
 .nav-item--active {
+  color: var(--color-primary);
   background: var(--color-primary-dim);
-  color: var(--color-primary) !important;
   font-weight: 500;
 }
 
-.nav-item--active .nav-icon-wrap {
-  filter: drop-shadow(0 0 4px rgba(45,212,191,0.5));
+.nav-item--active:hover {
+  background: rgba(45,212,191,0.14);
 }
 
-/* Left accent bar for active item */
-.nav-item--active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 16px;
-  border-radius: 0 2px 2px 0;
-  background: var(--color-primary);
-  box-shadow: 0 0 8px var(--color-primary-glow);
-}
-
-.nav-icon-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  flex-shrink: 0;
+.nav-icon {
   font-size: 0.875rem;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
 }
 
 .nav-label {
-  white-space: nowrap;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
 }
 
-/* ── Op indicator dot ── */
-.op-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-warning);
-  box-shadow: 0 0 6px rgba(245,158,11,0.6);
-  flex-shrink: 0;
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.op-dot--collapsed {
+.nav-active-indicator {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  margin-left: 0;
-}
-
-/* ── Footer ── */
-.sidebar-footer {
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--color-border-muted);
-  flex-shrink: 0;
-}
-
-.sidebar-version {
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-  font-variant-numeric: tabular-nums;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  background: var(--color-primary);
+  border-radius: 1px 0 0 1px;
+  margin-right: 0;
 }
 </style>
