@@ -71,6 +71,11 @@ export interface NodeLogEntry {
     operation_id: number | null
 }
 
+// ТЗ п.11.6: поля которые можно обновить через PATCH
+export interface NodePatch {
+    enabled?: boolean
+}
+
 export const nodesApi = {
     list: (clusterId: number) =>
         api.get<NodeListItem[]>(`/api/clusters/${clusterId}/nodes`).then((r) => r.data),
@@ -85,6 +90,16 @@ export const nodesApi = {
             .post<NodeActionResponse>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/actions`,
                 { action }
+            )
+            .then((r) => r.data),
+
+    // ТЗ п.11.6: PATCH /api/clusters/{cluster_id}/nodes/{id}
+    // Используется для включения/отключения ноды (поле enabled)
+    patch: (clusterId: number, nodeId: number, data: NodePatch) =>
+        api
+            .patch<NodeListItem>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}`,
+                data
             )
             .then((r) => r.data),
 
