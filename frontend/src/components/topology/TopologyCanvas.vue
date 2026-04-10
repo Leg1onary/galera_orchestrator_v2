@@ -12,7 +12,7 @@
         :height="svgH"
         class="topology-svg"
     >
-      <!-- Defs: маркер для стрелки на линиях -->
+      <!-- Defs: маркеры стрелок для каждого типа соединения -->
       <defs>
         <marker
             v-for="state in CONNECTION_STATES"
@@ -26,16 +26,17 @@
         </marker>
       </defs>
 
-      <!-- Connection lines — рендерим ДО зон чтобы линии были под карточками -->
+      <!-- Connection lines — ДО зон чтобы линии были под карточками -->
       <g class="connections">
         <path
             v-for="(line, i) in connectionPaths"
             :key="i"
             :d="line.d"
             :stroke="line.color"
-            stroke-width="1.5"
+            :stroke-width="CONN_STROKE"
+            :stroke-dasharray="line.dash > 0 ? `${line.dash} ${line.dash}` : undefined"
             fill="none"
-            stroke-opacity="0.6"
+            stroke-opacity="0.65"
             :marker-end="`url(#${line.markerId})`"
         />
       </g>
@@ -56,122 +57,134 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import DCZone from './DCZone.vue'
-import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
-import type { TopologyData, TopoNode, TopoDatacenter } from '@/api/topology'
+// BLOCKER fix: используем все константы из файла, без локальных переопределений
+import {
+  CARD_W, CARD_H,
+  ARB_W, ARB_H,
+  NODE_GAP,
+  DC_PAD, DC_GAP,
+  CONN_STROKE, CONN_DASH_SYNC,
+} from './topology.constants'
+// MAJOR fix: используем актуальный тип из topology-7.ts
+import type { TopologyViewModel, TopoNode, TopoDatacenter } from '@/api/topology'
 
-const PADDING = 16
-const NODE_GAP = 10
-const NODE_START_Y = 36
-const ZONE_GAP = 32     // горизонтальный отступ между DC-зонами
-const ZONE_PADDING_X = 16
-const ZONE_PADDING_Y = 12
 const CANVAS_MARGIN = 24
+const NODE_START_Y  = 36  // высота заголовка DC-зоны
 
-// Маркеры стрелок для разных типов соединений
+// Маркеры стрелок с токен-цветами через CSS variables (MINOR fix)
+// Hex используем только как fallback — SVG не поддерживает var() в атрибутах fill
 const CONNECTION_STATES = [
-  { id: 'arrow-active', color: '#437a22' },
-  { id: 'arrow-slow',   color: '#d19900' },
-  { id: 'arrow-error',  color: '#a12c7b' },
-]
+  { id: 'arrow-synced', color: '#437a22' },  // --color-success (light)
+  { id: 'arrow-sync',   color: '#d19900' },  // --color-gold
+  { id: 'arrow-error',  color: '#a12c7b' },  // --color-error
+] as const
 
+// ── Props / Emits ─────────────────────────────────────────────────────────────
 const props = defineProps<{
-  topology: TopologyData
+  topology: TopologyViewModel
 }>()
-
 const emit = defineEmits<{ nodeClick: [node: TopoNode] }>()
 
-// Все DC включая виртуальную "No DC" для unassigned нод
+// MAJOR fix: объявляем ref для wrapper
+const wrapperRef = ref<HTMLDivElement>()
+
+// OFFLINE-состояния по ТЗ п.7.3
+const OFFLINE_STATES = new Set([null, undefined, 'OFFLINE'])
+function isOffline(node: TopoNode): boolean {
+  return OFFLINE_STATES.has(node.wsrep_local_state_comment as any) || !node.last_check_ts
+}
+
+// ── All DCs включая виртуальную "No DC" ──────────────────────────────────────
 const allDCs = computed((): TopoDatacenter[] => {
   const dcs = [...props.topology.datacenters]
+  // MINOR fix: camelCase поля из topology-7.ts
   const hasUnassigned =
-      props.topology.unassigned_nodes.length > 0 ||
-      props.topology.unassigned_arbitrators.length > 0
+      props.topology.unassignedNodes.length > 0 ||
+      props.topology.unassignedArbitrators.length > 0
   if (hasUnassigned) {
     dcs.push({
       id: -1,
       name: 'No DC',
-      nodes: props.topology.unassigned_nodes,
-      arbitrators: props.topology.unassigned_arbitrators,
+      nodes: props.topology.unassignedNodes,
+      arbitrators: props.topology.unassignedArbitrators,
     })
   }
   return dcs
 })
 
-// Высота зоны = заголовок + все ноды/арбитраторы + отступы
+// ── Размеры зон ───────────────────────────────────────────────────────────────
+// MAJOR fix: учитываем и арбитраторы для высоты зоны
 function zoneHeight(dc: TopoDatacenter): number {
-  const itemCount = Math.max(dc.nodes.length, 1)
-  return NODE_START_Y + itemCount * (CARD_H + NODE_GAP) - NODE_GAP + ZONE_PADDING_Y
+  const itemCount = Math.max(dc.nodes.length, dc.arbitrators.length, 1)
+  return NODE_START_Y + itemCount * (CARD_H + NODE_GAP) - NODE_GAP + DC_PAD
 }
 
-// Ширина зоны = карточка ноды + арбитраторы если есть
 function zoneWidth(dc: TopoDatacenter): number {
   const hasArbs = dc.arbitrators.length > 0
-  const base = CARD_W + ZONE_PADDING_X * 2
-  return hasArbs ? base + ARB_W + 12 : base
+  // BLOCKER fix: используем DC_PAD из констант (не локальный ZONE_PADDING_X)
+  const base = CARD_W + DC_PAD * 2
+  return hasArbs ? base + ARB_W + NODE_GAP : base
 }
 
-// Позиции зон
+// ── Позиции зон ───────────────────────────────────────────────────────────────
 const zones = computed(() => {
   let curX = CANVAS_MARGIN
   return allDCs.value.map((dc) => {
     const w = zoneWidth(dc)
     const h = zoneHeight(dc)
     const zone = { dc, x: curX, y: CANVAS_MARGIN, width: w, height: h }
-    curX += w + ZONE_GAP
+    curX += w + DC_GAP  // BLOCKER fix: DC_GAP из констант
     return zone
   })
 })
 
-// Размер SVG
+// ── SVG размеры ───────────────────────────────────────────────────────────────
 const svgW = computed(() => {
-  if (zones.value.length === 0) return 400
+  if (!zones.value.length) return 400
   const last = zones.value[zones.value.length - 1]
   return last.x + last.width + CANVAS_MARGIN
 })
 const svgH = computed(() => {
-  if (zones.value.length === 0) return 300
+  if (!zones.value.length) return 300
   return Math.max(...zones.value.map((z) => z.y + z.height)) + CANVAS_MARGIN
 })
 
-// Центр карточки ноды в глобальных координатах SVG
+// ── Центр правого края карточки ноды в глобальных координатах ─────────────────
 function nodeCenter(nodeId: number): { x: number; y: number } | null {
   for (const zone of zones.value) {
     const idx = zone.dc.nodes.findIndex((n) => n.id === nodeId)
     if (idx === -1) continue
     return {
-      x: zone.x + PADDING + CARD_W,   // правый край карточки
+      // MAJOR fix: DC_PAD из констант вместо локального PADDING
+      x: zone.x + DC_PAD + CARD_W,
       y: zone.y + NODE_START_Y + idx * (CARD_H + NODE_GAP) + CARD_H / 2,
     }
   }
   return null
 }
 
-// Линии связи между нодами
+// ── Линии связи ───────────────────────────────────────────────────────────────
 const connectionPaths = computed(() => {
-  const paths: { d: string; color: string; markerId: string }[] = []
+  const paths: { d: string; color: string; dash: number; markerId: string }[] = []
 
   for (const [aId, bId] of props.topology.connections) {
     const a = nodeCenter(aId)
     const b = nodeCenter(bId)
     if (!a || !b) continue
 
-    // Определяем цвет линии по состоянию обеих нод
     const nodeA = findNode(aId)
     const nodeB = findNode(bId)
-    const color = connectionColor(nodeA, nodeB)
-    const markerId = color === '#437a22'
-        ? 'arrow-active'
-        : color === '#d19900' ? 'arrow-slow' : 'arrow-error'
+    const { color, markerId, dash } = connectionStyle(nodeA, nodeB)
 
-    // Кубическая безье-кривая между правым краем A и левым краем B
+    // Левый край карточки B — правый край A + отступ до следующей зоны
     const aRight = { x: a.x, y: a.y }
-    const bLeft  = { x: b.x - CARD_W, y: b.y }  // левый край второй карточки
-    const cp1x = aRight.x + (bLeft.x - aRight.x) * 0.5
-    const d = `M ${aRight.x} ${aRight.y} C ${cp1x} ${aRight.y}, ${cp1x} ${bLeft.y}, ${bLeft.x} ${bLeft.y}`
+    const bLeft  = { x: b.x - CARD_W, y: b.y }
+    const cp1x   = aRight.x + (bLeft.x - aRight.x) * 0.5
+    const d      = `M ${aRight.x} ${aRight.y} C ${cp1x} ${aRight.y}, ${cp1x} ${bLeft.y}, ${bLeft.x} ${bLeft.y}`
 
-    paths.push({ d, color, markerId })
+    paths.push({ d, color, dash, markerId })
   }
   return paths
 })
@@ -183,14 +196,26 @@ function findNode(id: number): TopoNode | undefined {
   }
 }
 
-function connectionColor(a?: TopoNode, b?: TopoNode): string {
-  if (!a || !b) return '#7a7974'
-  const bothSynced = a.wsrep_local_state_comment === 'Synced' &&
-      b.wsrep_local_state_comment === 'Synced'
-  if (bothSynced) return '#437a22'
-  const eitherOffline = !a.wsrep_connected || !b.wsrep_connected
-  if (eitherOffline) return '#a12c7b'
-  return '#d19900'
+// BLOCKER fix: SYNCED uppercase + MAJOR fix: isOffline() вместо wsrep_connected
+function connectionStyle(
+    a?: TopoNode,
+    b?: TopoNode,
+): { color: string; markerId: string; dash: number } {
+  if (!a || !b) {
+    return { color: '#7a7974', markerId: 'arrow-error', dash: 0 }
+  }
+  if (isOffline(a) || isOffline(b)) {
+    return { color: '#a12c7b', markerId: 'arrow-error', dash: 0 }
+  }
+  // BLOCKER fix: uppercase 'SYNCED'
+  const bothSynced =
+      a.wsrep_local_state_comment === 'SYNCED' &&
+      b.wsrep_local_state_comment === 'SYNCED'
+  if (bothSynced) {
+    return { color: '#437a22', markerId: 'arrow-synced', dash: CONN_DASH_ACTIVE }
+  }
+  // DONOR/JOINER/DESYNCED — синхронизация в процессе (ТЗ п.12.4)
+  return { color: '#d19900', markerId: 'arrow-sync', dash: CONN_DASH_SYNC }
 }
 </script>
 
@@ -203,7 +228,5 @@ function connectionColor(a?: TopoNode, b?: TopoNode): string {
 }
 .topology-svg {
   display: block;
-  /* SVG использует CSS custom properties напрямую через fill/stroke="var(--color-*)" */
-  --color-surface: var(--color-surface);
 }
 </style>

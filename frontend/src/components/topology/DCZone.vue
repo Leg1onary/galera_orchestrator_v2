@@ -1,34 +1,31 @@
 <template>
   <g :transform="`translate(${x}, ${y})`">
+
     <!-- Zone border -->
     <rect
         :width="width"
         :height="height"
-        rx="12"
+        rx="10"
         fill="var(--color-surface-offset)"
-        :stroke="ZONE_STROKE"
+        stroke="var(--color-divider)"
         stroke-width="1"
         stroke-dasharray="6 3"
     />
-    <!-- DC label -->
+
+    <!-- DC label (MAJOR fix: text-transform и font-size через style) -->
     <text
-        x="16"
+        :x="DC_PAD"
         y="22"
-        font-size="11"
-        font-weight="700"
-        letter-spacing="0.05em"
+        style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;"
         fill="var(--color-text-muted)"
-        text-transform="uppercase"
-    >
-      {{ dc.name.toUpperCase() }}
-    </text>
+    >{{ dc.name }}</text>
 
     <!-- Nodes -->
     <TopoNodeCard
         v-for="(node, i) in dc.nodes"
         :key="'n' + node.id"
         :node="node"
-        :x="PADDING"
+        :x="DC_PAD"
         :y="NODE_START_Y + i * (CARD_H + NODE_GAP)"
         @click="emit('nodeClick', node)"
     />
@@ -38,21 +35,22 @@
         v-for="(arb, i) in dc.arbitrators"
         :key="'a' + arb.id"
         :arb="arb"
-        :x="PADDING + CARD_W + ARB_OFFSET_X"
+        :x="DC_PAD + CARD_W + NODE_GAP"
         :y="NODE_START_Y + i * (ARB_H + NODE_GAP)"
     />
+
   </g>
 </template>
 
 <script setup lang="ts">
-import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
+// BLOCKER fix: импортируем компоненты
+import TopoNodeCard from './TopoNodeCard.vue'
+import TopoArbitratorCard from './TopoArbitratorCard.vue'
+// BLOCKER fix: убраны локальные дубли, всё из topology.constants
+import { CARD_W, CARD_H, ARB_H, NODE_GAP, DC_PAD } from './topology.constants'
 import type { TopoDatacenter, TopoNode } from '@/api/topology'
 
-const PADDING = 16
-const NODE_GAP = 10
-const NODE_START_Y = 36
-const ARB_OFFSET_X = 12
-const ZONE_STROKE = 'var(--color-divider)'
+const NODE_START_Y = 36  // высота заголовка зоны — не в topology.constants (специфично для DCZone)
 
 const props = defineProps<{
   dc: TopoDatacenter

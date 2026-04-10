@@ -1,48 +1,52 @@
 <template>
-  <g
-      :transform="`translate(${x}, ${y})`"
-  >
-    <!-- Ромб — визуальное отличие арбитратора от ноды -->
+  <g :transform="`translate(${x}, ${y})`">
+
+    <!-- Ромб -->
     <polygon
         :points="diamondPoints"
-        :fill="isRunning ? 'var(--color-surface)' : 'var(--color-surface-offset)'"
-        :stroke="isRunning ? '#006494' : 'var(--color-border)'"
+        :fill="arbFill"
+        :stroke="arbStroke"
         stroke-width="1.5"
     />
+
+    <!-- Имя (MAJOR fix: font-size 12px) -->
     <text
         :x="CX"
-        :y="CY - 5"
+        :y="CY - 6"
         text-anchor="middle"
-        font-size="10"
-        font-weight="600"
+        style="font-size: 12px; font-weight: 600;"
         fill="var(--color-text)"
-    >{{ truncate(arb.name, 12) }}</text>
+    >{{ truncate(arb.name, 10) }}</text>
+
+    <!-- ARB label (MAJOR fix: font-size 10px) -->
     <text
         :x="CX"
         :y="CY + 7"
         text-anchor="middle"
-        font-size="8"
-        font-family="monospace"
+        style="font-size: 10px;"
         fill="var(--color-text-muted)"
     >ARB</text>
 
-    <!-- Running indicator -->
+    <!-- State indicator — привязан к правому углу ромба (MINOR fix) -->
     <circle
-        :cx="CX + 22" :cy="CY - 14"
+        :cx="CX + hw - 4"
+        :cy="CY - hh + 4"
         r="4"
-        :fill="isRunning ? '#437a22' : '#7a7974'"
+        :fill="indicatorColor"
     />
   </g>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CARD_W, CARD_H,  ARB_W, ARB_H } from './topology.constants'
+// MINOR fix: убраны CARD_W, CARD_H — не используются
+import { ARB_W, ARB_H } from './topology.constants'
 import type { TopoArbitrator } from '@/api/topology'
 
-// Размеры — ромб вписан в прямоугольник 80x56
 const CX = ARB_W / 2
 const CY = ARB_H / 2
+const hw = CX - 4   // half-width ромба
+const hh = CY - 4   // half-height ромба
 
 const props = defineProps<{
   arb: TopoArbitrator
@@ -50,14 +54,41 @@ const props = defineProps<{
   y: number
 }>()
 
-const isRunning = computed(() => props.arb.is_running && props.arb.last_seen)
+// MAJOR fix: вычисляем state по ТЗ п.7.4: online/degraded/offline
+// online   = sshOk && garbdRunning
+// degraded = sshOk && !garbdRunning
+// offline  = !sshOk
+const arbState = computed((): 'online' | 'degraded' | 'offline' => {
+  // BLOCKER fix: garbdRunning (camelCase из topology-7.ts), lastCheckTs
+  if (!props.arb.sshOk || !props.arb.lastCheckTs) return 'offline'
+  if (!props.arb.garbdRunning) return 'degraded'
+  return 'online'
+})
 
-// Точки ромба
+const indicatorColor = computed(() => {
+  switch (arbState.value) {
+    case 'online':   return '#437a22'   // --color-success
+    case 'degraded': return '#d19900'   // --color-gold
+    case 'offline':  return '#7a7974'   // muted
+  }
+})
+
+const arbFill = computed(() =>
+    arbState.value === 'offline'
+        ? 'var(--color-surface-offset)'
+        : 'var(--color-surface)'
+)
+
+const arbStroke = computed(() => {
+  switch (arbState.value) {
+    case 'online':   return '#006494'              // --color-blue
+    case 'degraded': return 'var(--color-gold)'
+    case 'offline':  return 'var(--color-border)'
+  }
+})
+
 const diamondPoints = computed(() => {
-  const [cx, cy] = [CX, CY]
-  const hw = CX - 4   // half-width
-  const hh = CY - 4   // half-height
-  return `${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}`
+  return `${CX},${CY - hh} ${CX + hw},${CY} ${CX},${CY + hh} ${CX - hw},${CY}`
 })
 
 function truncate(s: string, n: number) {

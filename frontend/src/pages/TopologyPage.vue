@@ -1,5 +1,6 @@
 <template>
   <div class="topology-page">
+
     <!-- Toolbar -->
     <div class="page-toolbar">
       <h1 class="page-title">Topology</h1>
@@ -14,7 +15,7 @@
       </div>
     </div>
 
-    <!-- Legend -->
+    <!-- Legend (ТЗ п.12.6) -->
     <div class="legend">
       <span v-for="item in LEGEND" :key="item.label" class="legend-item">
         <span class="legend-dot" :style="{ background: item.color }" />
@@ -37,11 +38,11 @@
       />
     </div>
 
-    <!-- Node detail mini-drawer (reuse NodeDetailDrawer) -->
+    <!-- Node detail drawer -->
     <NodeDetailDrawer
         v-if="selectedNode"
         :node="selectedNode"
-        :cluster-id="clusterId.value"
+        :cluster-id="clusterId"
         @close="selectedNode = null"
     />
   </div>
@@ -49,7 +50,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import Button from 'primevue/button'
 import TopologyCanvas from '@/components/topology/TopologyCanvas.vue'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
@@ -58,23 +59,25 @@ import type { TopoNode } from '@/api/topology'
 import type { NodeListItem } from '@/api/nodes'
 import { useClusterStore } from '@/stores/cluster'
 import { onWsEvent } from '@/stores/ws'
-import { useQueryClient } from '@tanstack/vue-query'
 import { useSettingsStore } from '@/stores/settings'
-import { NODE_STATUS_COLORS } from '@/components/topology/topology.constants'
 
-const clusterStore = useClusterStore()
-const queryClient = useQueryClient()
-const settingsStore = useSettingsStore()
-const LEGEND = [
-  { label: 'Synced',         color: NODE_STATUS_COLORS.synced },
-  { label: 'Donor/Desynced', color: NODE_STATUS_COLORS.donor },
-  { label: 'Joining',        color: NODE_STATUS_COLORS.joiner },
-  { label: 'Error',          color: NODE_STATUS_COLORS.desynced },
-  { label: 'Offline',        color: NODE_STATUS_COLORS.offline },
-]
+const clusterStore   = useClusterStore()
+const queryClient    = useQueryClient()
+const settingsStore  = useSettingsStore()
 
-// ← тип NodeListItem, а не TopoNode — совместимо с NodeDetailDrawer
+// BLOCKER fix: clusterId объявлен
+const clusterId = computed(() => clusterStore.clusterId)
+
 const selectedNode = ref<NodeListItem | null>(null)
+
+// BLOCKER fix: один LEGEND без дубля.
+// Цвета по ТЗ п.7.3 + легенда по ТЗ п.12.6
+const LEGEND = [
+  { label: 'Synced (RW)', color: '#437a22' },   // --color-success
+  { label: 'Synced (RO)', color: '#eab308' },   // yellow по ТЗ п.7.3
+  { label: 'Donor/Joiner', color: '#38bdf8' },  // sky по ТЗ п.7.3 — MAJOR fix
+  { label: 'Offline',      color: '#7a7974' },  // muted
+] as const
 
 const { data: topology, isLoading, isFetching, refetch } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'topology']),
@@ -86,9 +89,10 @@ const { data: topology, isLoading, isFetching, refetch } = useQuery({
   refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
 })
 
+// MAJOR fix: имена событий по ТЗ п.5.2 — без underscore
 const unsubWs = onWsEvent((event) => {
   if (
-      (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed') &&
+      (event.event === 'nodestatechanged' || event.event === 'arbitratorstatechanged') &&
       event.cluster_id === clusterId.value
   ) {
     queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'topology'] })
@@ -97,24 +101,15 @@ const unsubWs = onWsEvent((event) => {
 
 onUnmounted(() => unsubWs())
 
-// Конвертируем TopoNode → NodeListItem, добавляя поля которых нет в TopoNode
+// TopoNode → NodeListItem: добавляем поля которых нет в TopoNode
 function handleNodeClick(topoNode: TopoNode) {
   selectedNode.value = {
     ...topoNode,
-    // Поля NodeListItem которых нет в TopoNode — ставим null
-    wsrep_flow_control_paused: null,
-    wsrep_local_recv_queue_avg: null,
-    last_error: null,
-  } satisfies NodeListItem
+    wsrep_flow_control_paused:   null,
+    wsrep_local_recv_queue_avg:  null,
+    last_error:                  null,
+  } as NodeListItem
 }
-
-const LEGEND = [
-  { label: 'Synced',         color: '#437a22' },
-  { label: 'Donor/Desynced', color: '#006494' },
-  { label: 'Joining',        color: '#d19900' },
-  { label: 'Error',          color: '#a12c7b' },
-  { label: 'Offline',        color: '#7a7974' },
-]
 </script>
 
 <style scoped>
@@ -134,6 +129,7 @@ const LEGEND = [
 }
 .page-title { font-size: var(--text-lg); font-weight: 600; }
 .toolbar-right { display: flex; align-items: center; gap: var(--space-2); }
+
 .legend {
   display: flex;
   align-items: center;
@@ -141,6 +137,7 @@ const LEGEND = [
   padding: var(--space-2) var(--space-6);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .legend-item {
   display: flex;
@@ -150,11 +147,13 @@ const LEGEND = [
   color: var(--color-text-muted);
 }
 .legend-dot {
-  width: 8px; height: 8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .legend-arb-icon { font-size: 12px; color: var(--color-text-muted); }
+
 .canvas-area {
   flex: 1;
   overflow: hidden;
