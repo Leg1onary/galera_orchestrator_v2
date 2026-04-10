@@ -42,7 +42,7 @@ from services.operations import (
     request_cancel,
     set_operation_status,
 )
-from services.poller import live_node_states
+from services.poller import live_node_states, poll_single_node
 from services.ssh_client import SSHClient, SSHError
 from services.ws_manager import ws_manager
 
@@ -523,6 +523,8 @@ async def _execute_node_action(
                     source="ssh", message=error_msg)
         await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
+        # Poll immediately so frontend sees the (possibly unchanged) state ASAP
+        await _safe_poll_node(cluster_id, node)
         return
     except Exception as exc:
         error_msg = f"Unexpected error during '{action}' on '{node_name}': {exc}"
@@ -531,6 +533,8 @@ async def _execute_node_action(
                     source="system", message=error_msg)
         await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
+        # Poll immediately so frontend sees the (possibly unchanged) state ASAP
+        await _safe_poll_node(cluster_id, node)
         return
 
     write_event(
@@ -540,6 +544,17 @@ async def _execute_node_action(
     )
     await asyncio.to_thread(set_operation_status, op_id, "success")
     await _broadcast_op_finished(cluster_id, op_id, "success")
+    # Per ТЗ п.5.2 — emit node_state_changed immediately after action completes
+    await _safe_poll_node(cluster_id, node)
+
+
+async def _safe_poll_node(cluster_id: int, node: dict) -> None:
+    """Fire-and-forget poll after action; swallows exceptions so they
+    never propagate into the operation result."""
+    try:
+        await poll_single_node(cluster_id, node)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("post-action poll failed for node %d: %s", node["id"], exc)
 
 
 def _ssh_node_action(node: dict, action: str) -> None:
