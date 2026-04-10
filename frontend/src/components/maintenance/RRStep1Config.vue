@@ -231,11 +231,6 @@ async function handleStart() {
 }
 
 /* ── Timeout row ─────────────────────────────────────────────────────── */
-/*
-  Grid layout: [label auto-stretch] [input 130px fixed]
-  Hint занимает всю ширину на второй строке.
-  Так InputNumber физически ограничен своей grid-колонкой и не вылезает.
-*/
 .timeout-row {
   display: grid;
   grid-template-columns: 1fr 130px;
@@ -262,10 +257,9 @@ async function handleStart() {
   grid-column: 2;
   grid-row: 1;
   width: 130px;
-  /* Ограничиваем внутренний p-inputtext чтобы не вылезал за grid-ячейку */
 }
-/* PrimeVue InputNumber рендерит .p-inputnumber > .p-inputtext внутри себя.
-   Без этого override input растягивается и выходит за границы. */
+
+/* PrimeVue InputNumber: фиксируем внешний блок, задаём высоту 40px и padding внутри input */
 :deep(.timeout-input.p-inputnumber) {
   width: 130px;
   max-width: 130px;
@@ -274,6 +268,15 @@ async function handleStart() {
 :deep(.timeout-input .p-inputtext) {
   width: 100%;
   min-width: 0;
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: var(--space-3);
+  box-sizing: border-box;
+}
+/* Стрелки тоже должны соответствовать высоте */
+:deep(.timeout-input .p-inputnumber-button) {
+  height: 20px;
 }
 
 .timeout-hint {
