@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
+from sqlalchemy import text
+from database import engine
+from services.poller import live_node_states   # уже используется в nodes.py
+
 from dependencies import require_auth
 from services.event_log import write_event
 from services.maintenance import start_rolling_restart
@@ -47,6 +51,47 @@ async def maintenance_status(cluster_id: int) -> dict:
 
     return {"active_operation": op}
 
+@router.get("/{cluster_id}/maintenance/nodes")
+async def maintenance_nodes(cluster_id: int) -> list[dict]:
+    """
+    Ноды кластера с maintenance-полями + live state для Maintenance страницы.
+    Возвращает только enabled=True ноды.
+    ТЗ п.14.x
+    """
+    def _fetch() -> list[dict]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                     SELECT id, name, host, port, maintenance, enabled
+                     FROM nodes
+                     WHERE cluster_id = :cid AND enabled = 1
+                     ORDER BY name
+                     """),
+                {"cid": cluster_id},
+            ).mappings().fetchall()
+        return [dict(r) for r in rows]
+
+    nodes = await asyncio.to_thread(_fetch)
+
+    result = []
+    for n in nodes:
+        live = live_node_states.get(cluster_id, {}).get(n["id"])
+        result.append({
+            "id":          n["id"],
+            "name":        n["name"],
+            "host":        n["host"],
+            "port":        n["port"],
+            "maintenance": bool(n["maintenance"]),
+            "enabled":     bool(n["enabled"]),
+            # live поля — None если поллер ещё не успел
+            "wsrep_local_state_comment": live.wsrep_local_state_comment if live else None,
+            "readonly":                  live.readonly                  if live else None,
+            "maintenance_drift":         live.maintenance_drift         if live else None,
+            "ssh_ok":                    live.ssh_ok                    if live else None,
+            "db_ok":                     live.db_ok                     if live else None,
+            "last_check_ts":             live.last_check_ts.isoformat() if live and live.last_check_ts else None,
+        })
+    return result
 
 @router.post("/{cluster_id}/maintenance/rolling-restart", status_code=202)
 async def rolling_restart(

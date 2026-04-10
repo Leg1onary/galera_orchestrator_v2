@@ -30,13 +30,10 @@ class ConnectionManager:
 
     async def connect(self, cluster_id: int, websocket: WebSocket) -> None:
         """
-        Accept and register a new WebSocket connection for a cluster.
-
-        Args:
-            cluster_id: the cluster this client is subscribing to
-            websocket:  the WebSocket instance (already accepted by the caller)
+        Register an already-accepted WebSocket connection for a cluster.
+        IMPORTANT: caller (ws.py) must call websocket.accept() BEFORE this.
         """
-        await websocket.accept()
+        # НЕ вызываем accept() здесь — он уже вызван в ws.py
         if cluster_id not in self._connections:
             self._connections[cluster_id] = set()
         self._connections[cluster_id].add(websocket)
@@ -46,14 +43,10 @@ class ConnectionManager:
             len(self._connections[cluster_id]),
         )
 
-    def disconnect(self, cluster_id: int, websocket: WebSocket) -> None:
+    async def disconnect(self, cluster_id: int, websocket: WebSocket) -> None:
         """
         Remove a WebSocket connection from the registry.
-        Safe to call even if the connection was already removed.
-
-        Args:
-            cluster_id: the cluster this client was subscribed to
-            websocket:  the WebSocket instance to remove
+        Made async to match ws.py caller: await ws_manager.disconnect(...)
         """
         if cluster_id in self._connections:
             self._connections[cluster_id].discard(websocket)
