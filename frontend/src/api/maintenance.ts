@@ -1,5 +1,6 @@
 import { api } from '@/api/client'
 
+<<<<<<< HEAD
 // ── Operation states ──────────────────────────────────────────────────────────
 // set_operation_status() пишет: 'pending'|'running'|'success'|'failed'|
 //                               'cancel_requested'|'cancelled'
@@ -9,15 +10,28 @@ export type OperationStatus =
     | 'running'
     | 'success'           // реальный DB/WS статус при успехе
     | 'finished'          // нормализованный фронт-статус (success → finished)
+=======
+// ── Operation states ───────────────────────────────────────────────────────────────────
+// ТЗ п.2.8 — точные строки, которые отдаёт бэкенд
+export type OperationStatus =
+    | 'pending'
+    | 'running'
+    | 'success'
+>>>>>>> d20326f1b86eb1b0adef6008328f6e5067ba66c9
     | 'failed'
     | 'cancel_requested'
     | 'cancelled'
 
+<<<<<<< HEAD
 // ── Active operation ──────────────────────────────────────────────────────────
 // get_active_operation() SELECT: id, type, status, started_at, created_by,
 //                                target_node_id, details_json
 // НЕТ полей: current_node_id, completed_node_ids, progress_pct, message
 // Эти поля доступны ТОЛЬКО через WS-события operation_progress
+=======
+// ── Active operation ────────────────────────────────────────────────────────────────
+// ТЗ п.9.1: полный набор полей которые читает store.init()
+>>>>>>> d20326f1b86eb1b0adef6008328f6e5067ba66c9
 export type ActiveOperation = {
     id:             number        // Integer autoincrement из cluster_operations
     type:           'rolling_restart' | 'recovery_bootstrap' | 'recovery_rejoin' | 'node_action'
@@ -30,14 +44,18 @@ export type ActiveOperation = {
     // Поля прогресса ОТСУТСТВУЮТ в get_active_operation() — только через WS
 }
 
-// ── Status response ───────────────────────────────────────────────────────────
+// ── Status response ───────────────────────────────────────────────────────────────────
 export type MaintenanceStatusResponse = {
     active_operation: ActiveOperation | null
 }
 
+<<<<<<< HEAD
 // ── Node state ────────────────────────────────────────────────────────────────
 // Гибрид: поля из nodes (БД) + live поля от поллера (LiveNodeState.to_dict())
 // ВАЖНО: live поле называется 'readonly', не 'read_only' (из LiveNodeState.to_dict())
+=======
+// ── Node state ──────────────────────────────────────────────────────────────────────
+>>>>>>> d20326f1b86eb1b0adef6008328f6e5067ba66c9
 export type MaintenanceNodeState = {
     // БД поля (nodes table)
     id:          number
@@ -55,7 +73,7 @@ export type MaintenanceNodeState = {
     last_check_ts?:             string | null
 }
 
-// ── Rolling restart ───────────────────────────────────────────────────────────
+// ── Rolling restart ───────────────────────────────────────────────────────────────────
 export type RollingRestartConfig = {
     node_order?:       number[]
     wait_timeout_sec?: number
@@ -83,7 +101,7 @@ export type RollingRestartStatus = {
     finished_at:         string | null
 }
 
-// ── API ───────────────────────────────────────────────────────────────────────
+// ── API ──────────────────────────────────────────────────────────────────────────────────
 export const maintenanceApi = {
     // ТЗ п.9.2 — ENDPOINT НУЖНО ДОБАВИТЬ НА БЭКЕНД
     // GET /api/clusters/{cluster_id}/maintenance/nodes не существует в routers/maintenance.py
@@ -97,14 +115,14 @@ export const maintenanceApi = {
     enterMaintenance: (clusterId: number, nodeId: number) =>
         api
             .post(`/api/clusters/${clusterId}/nodes/${nodeId}/actions`, {
-                action: 'enter_maintenance',
+                action: 'enter-maintenance',
             })
             .then((r) => r.data),
 
     exitMaintenance: (clusterId: number, nodeId: number) =>
         api
             .post(`/api/clusters/${clusterId}/nodes/${nodeId}/actions`, {
-                action: 'exit_maintenance',
+                action: 'exit-maintenance',
             })
             .then((r) => r.data),
 
