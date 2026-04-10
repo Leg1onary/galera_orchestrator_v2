@@ -45,7 +45,7 @@
               <SparklineCard
                   label="Recv Queue"
                   :data="details.sparkline_recv_queue ?? []"
-                  :color="recvColor(details.wsrep_local_recv_queue)"
+                  :color="recvColor(details.wsrep_local_recv_queue_avg)"
                   unit=""
               />
             </div>
@@ -57,18 +57,18 @@
               <StatRow label="State"           :value="details.wsrep_local_state_comment" />
               <StatRow label="Connected"       :value="boolLabel(details.wsrep_connected)" />
               <StatRow label="Ready"           :value="boolLabel(details.wsrep_ready)" />
-              <StatRow label="Read-only"       :value="boolLabel(details.readonly)" />
+              <StatRow label="Read-only"       :value="boolLabel(details.read_only)" />
               <StatRow label="Flow control"    :value="details.wsrep_flow_control_paused != null
                                                  ? (details.wsrep_flow_control_paused * 100).toFixed(2) + '%'
                                                  : '—'" />
-              <StatRow label="Send queue"      :value="details.wsrep_local_send_queue" />
-              <StatRow label="Recv queue"      :value="details.wsrep_local_recv_queue" />
+              <StatRow label="Send queue"      :value="details.wsrep_local_send_queue_avg" />
+              <StatRow label="Recv queue"      :value="details.wsrep_local_recv_queue_avg" />
               <StatRow label="Last check"      :value="details.last_check_ts
                                                  ? formatRelative(details.last_check_ts)
                                                  : '—'" />
             </div>
 
-            <!-- Node config info (ТЗ 11.4: name, host, port, sshport, sshuser, dbuser, dc, cluster, enabled) -->
+            <!-- Node config info -->
             <div class="stats-grid mt-section">
               <StatRow label="Host"        :value="`${details.host}:${details.port}`" />
               <StatRow label="SSH port"    :value="details.ssh_port" />
@@ -87,7 +87,7 @@
           <div v-else class="tab-state">No data available.</div>
         </TabPanel>
 
-        <!-- ── Tab: Logs (ТЗ 11.4: последние 50 eventlogs по node_id) ── -->
+        <!-- ── Tab: Logs ─────────────────────────────────────── -->
         <TabPanel value="logs">
           <div v-if="logsLoading" class="tab-state">
             <i class="pi pi-spin pi-spinner" /> Loading…
@@ -98,7 +98,7 @@
           <ul v-else class="log-list">
             <li
                 v-for="e in nodeLogs"
-                :key="e.id"
+                :key="e.ts + e.source"
                 :class="['log-entry', e.level.toLowerCase()]"
             >
               <span class="log-ts">{{ formatRelative(e.ts) }}</span>
@@ -126,14 +126,12 @@
             <i class="pi pi-spin pi-spinner" /> Loading…
           </div>
           <div v-else-if="innodbStatus">
-            <!-- Deadlock section (ТЗ 15.7) -->
             <div v-if="innodbStatus.deadlock_section" class="innodb-deadlock">
               <div class="innodb-deadlock-title">
                 <i class="pi pi-exclamation-circle" /> Last deadlock
               </div>
               <pre class="innodb-pre">{{ innodbStatus.deadlock_section }}</pre>
             </div>
-            <!-- Full raw output -->
             <details>
               <summary class="innodb-summary">Full InnoDB status</summary>
               <pre class="innodb-pre">{{ innodbStatus.raw }}</pre>
@@ -166,7 +164,6 @@
     </template>
   </Drawer>
 
-  <!-- TestConnectionModal монтируется вне Drawer чтобы не конфликтовать с z-index -->
   <TestConnectionModal
       v-if="showTestModal && node"
       :node-id="node.id"
@@ -190,31 +187,27 @@ import NodeStatusBadge from './NodeStatusBadge.vue'
 import SparklineCard from './SparklineCard.vue'
 import StatRow from './StatRow.vue'
 import TestConnectionModal from './TestConnectionModal.vue'
-import { nodesApi, getNodeLogs } from '@/api/nodes'
-import type { NodeListItem, InnoDbStatus, NodeDetails, EventLogEntry } from '@/api/nodes'
+// fix: getNodeLogs — named export из объекта nodesApi, не standalone функция
+import { nodesApi } from '@/api/nodes'
+import type { NodeListItem, InnoDbStatus, NodeDetails, NodeLogEntry } from '@/api/nodes'
 import { formatRelative } from '@/utils/time'
 
-// ── Props / Emits ────────────────────────────────────────────────────────────
 const props = defineProps<{
   node: NodeListItem | null
   clusterId: number
 }>()
 const emit = defineEmits<{ close: [] }>()
 
-// ── Visibility — writable computed (BLOCKER fix) ─────────────────────────────
-// PrimeVue Drawer пишет false в v-model при закрытии через крестик
 const visible = computed({
   get: () => props.node !== null,
   set: (val) => { if (!val) emit('close') },
 })
 
-// ── Local state ──────────────────────────────────────────────────────────────
 const activeTab = ref('overview')
 const showTestModal = ref(false)
 const innodbStatus = ref<InnoDbStatus | null>(null)
 const innodbLoading = ref(false)
 
-// Сброс состояния при смене ноды
 watch(
     () => props.node?.id,
     () => {
@@ -224,7 +217,6 @@ watch(
     },
 )
 
-// ── Details query (ТЗ 11.7: polling каждые 10с) ──────────────────────────────
 const { data: details, isLoading: detailsLoading } = useQuery<NodeDetails>({
   queryKey: computed(() => ['cluster', props.clusterId, 'node-details', props.node?.id]),
   queryFn: () => nodesApi.details(props.clusterId, props.node!.id),
@@ -232,15 +224,14 @@ const { data: details, isLoading: detailsLoading } = useQuery<NodeDetails>({
   refetchInterval: 10_000,
 })
 
-// ── Node logs query (ТЗ 11.4: последние 50 eventlogs по node_id) ─────────────
-const { data: nodeLogs, isLoading: logsLoading } = useQuery<EventLogEntry[]>({
+// fix: nodesApi.getNodeLogs вместо standalone getNodeLogs
+const { data: nodeLogs, isLoading: logsLoading } = useQuery<NodeLogEntry[]>({
   queryKey: computed(() => ['cluster', props.clusterId, 'node-logs', props.node?.id]),
-  queryFn: () => getNodeLogs(props.clusterId, props.node!.id, 50),
+  queryFn: () => nodesApi.getNodeLogs(props.clusterId, props.node!.id, 50),
   enabled: computed(() => props.node !== null && activeTab.value === 'logs'),
   staleTime: 10_000,
 })
 
-// ── InnoDB — ручной fetch (ТЗ 15.7) ─────────────────────────────────────────
 async function fetchInnodb() {
   if (!props.node) return
   innodbLoading.value = true
@@ -251,7 +242,6 @@ async function fetchInnodb() {
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
 function boolLabel(v: boolean | string | null | undefined): string {
   if (v === null || v === undefined) return '—'
   if (typeof v === 'string') return v
@@ -272,7 +262,6 @@ function recvColor(v: number | null): string {
 </script>
 
 <style scoped>
-/* ── Header ─────────────────────────────────────────────────── */
 .drawer-header {
   display: flex;
   align-items: center;
@@ -292,8 +281,6 @@ function recvColor(v: number | null): string {
   font-family: monospace;
   white-space: nowrap;
 }
-
-/* ── Overview body ──────────────────────────────────────────── */
 .overview-body {
   display: flex;
   flex-direction: column;
@@ -305,8 +292,6 @@ function recvColor(v: number | null): string {
   gap: var(--space-4);
 }
 .mt-section { margin-top: var(--space-2); }
-
-/* ── Stats grid ─────────────────────────────────────────────── */
 .stats-grid {
   display: grid;
   gap: 0;
@@ -314,8 +299,6 @@ function recvColor(v: number | null): string {
   border-radius: var(--radius-md);
   overflow: hidden;
 }
-
-/* ── Logs ───────────────────────────────────────────────────── */
 .log-list {
   list-style: none;
   margin: 0;
@@ -341,12 +324,8 @@ function recvColor(v: number | null): string {
 .log-entry.info  .log-level { color: var(--color-blue); }
 .log-entry.warn  .log-level { color: var(--color-gold); }
 .log-entry.error .log-level { color: var(--color-notification); }
-
-/* ── InnoDB ─────────────────────────────────────────────────── */
 .innodb-toolbar { margin-bottom: var(--space-3); }
-.innodb-deadlock {
-  margin-bottom: var(--space-4);
-}
+.innodb-deadlock { margin-bottom: var(--space-4); }
 .innodb-deadlock-title {
   display: flex;
   align-items: center;
@@ -373,8 +352,6 @@ function recvColor(v: number | null): string {
   max-height: 400px;
   overflow-y: auto;
 }
-
-/* ── Error block ────────────────────────────────────────────── */
 .error-block {
   display: flex;
   gap: var(--space-2);
@@ -385,8 +362,6 @@ function recvColor(v: number | null): string {
   color: var(--color-error);
   font-size: var(--text-sm);
 }
-
-/* ── Footer ─────────────────────────────────────────────────── */
 .drawer-footer {
   display: flex;
   justify-content: space-between;
@@ -397,8 +372,6 @@ function recvColor(v: number | null): string {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
-
-/* ── Shared states ──────────────────────────────────────────── */
 .tab-state {
   display: flex;
   align-items: center;
@@ -408,23 +381,4 @@ function recvColor(v: number | null): string {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
-
-/* ── Variable list (если понадобится вернуть) ───────────────── */
-.var-list {
-  display: flex;
-  flex-direction: column;
-  font-size: var(--text-xs);
-  max-height: 500px;
-  overflow-y: auto;
-}
-.var-row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
-}
-.var-row:last-child { border-bottom: none; }
-.var-name  { color: var(--color-text-muted); font-family: monospace; }
-.var-value { color: var(--color-text); font-family: monospace; text-align: right; }
 </style>
