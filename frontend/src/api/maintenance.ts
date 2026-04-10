@@ -1,15 +1,5 @@
 import { api } from '@/api/client'
 
-// ── Operation states ──────────────────────────────────────────────────────────
-// set_operation_status() пишет: 'pending'|'running'|'success'|'failed'|
-//                               'cancel_requested'|'cancelled'
-// 'finished' — фронтовая нормализация 'success' для UI
-export type OperationStatus =
-    | 'pending'
-    | 'running'
-    | 'success'           // реальный DB/WS статус при успехе
-    | 'finished'          // нормализованный фронт-статус (success → finished)
-
 // ── Operation states ───────────────────────────────────────────────────────────────────
 // ТЗ п.2.8 — точные строки, которые отдаёт бэкенд
 export type OperationStatus =
@@ -20,15 +10,10 @@ export type OperationStatus =
     | 'cancel_requested'
     | 'cancelled'
 
-// ── Active operation ──────────────────────────────────────────────────────────
+// ── Active operation ────────────────────────────────────────────────────────────────
 // get_active_operation() SELECT: id, type, status, started_at, created_by,
 //                                target_node_id, details_json
-// НЕТ полей: current_node_id, completed_node_ids, progress_pct, message
-// Эти поля доступны ТОЛЬКО через WS-события operation_progress
-
-// ── Active operation ────────────────────────────────────────────────────────────────
-// ТЗ п.9.1: полный набор полей которые читает store.init()
-
+// Поля прогресса (текущая нода, процент, мессадж) — только через WS-события operation_progress
 export type ActiveOperation = {
     id:             number        // Integer autoincrement из cluster_operations
     type:           'rolling_restart' | 'recovery_bootstrap' | 'recovery_rejoin' | 'node_action'
@@ -46,13 +31,9 @@ export type MaintenanceStatusResponse = {
     active_operation: ActiveOperation | null
 }
 
-
-// ── Node state ────────────────────────────────────────────────────────────────
-// Гибрид: поля из nodes (БД) + live поля от поллера (LiveNodeState.to_dict())
-// ВАЖНО: live поле называется 'readonly', не 'read_only' (из LiveNodeState.to_dict())
-
 // ── Node state ──────────────────────────────────────────────────────────────────────
-
+// Гибрид: поля из nodes (БД) + live поля от поллера (LiveNodeState.to_dict())
+// ВАЖНО: live поле называется 'readonly', не 'read_only' (LiveNodeState.to_dict())
 export type MaintenanceNodeState = {
     // БД поля (nodes table)
     id:          number
