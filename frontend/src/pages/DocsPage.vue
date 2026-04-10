@@ -1,6 +1,6 @@
 <template>
   <div class="docs-page">
-    <!-- ── Page header ── -->
+    <!-- ── Page header ──────────────────────────────────────── -->
     <div class="docs-page__header">
       <h1 class="docs-page__title">Документация</h1>
       <p class="docs-page__subtitle">
@@ -8,7 +8,7 @@
       </p>
     </div>
 
-    <!-- ── Search ── -->
+    <!-- ── Search ────────────────────────────────────────────── -->
     <div class="docs-page__search-wrap">
       <div class="docs-page__search-box">
         <i class="pi pi-search docs-page__search-icon" />
@@ -29,7 +29,7 @@
       </div>
     </div>
 
-    <!-- ── Search results ── -->
+    <!-- ── Search results ────────────────────────────────────── -->
     <template v-if="search.trim()">
       <div v-if="searchResults.length === 0" class="docs-page__empty">
         <i class="pi pi-search docs-page__empty-icon" />
@@ -43,7 +43,7 @@
         <template v-for="tabGroup in searchGrouped" :key="tabGroup.tabId">
           <div class="docs-page__search-group">
             <span class="docs-page__search-group-label">{{ getTabLabel(tabGroup.tabId) }}</span>
-            <div class="docs-section__grid">
+            <div class="docs-cards-grid">
               <DocCard
                 v-for="card in tabGroup.cards"
                 :key="card.id"
@@ -59,7 +59,7 @@
       </div>
     </template>
 
-    <!-- ── Tabbed view ── -->
+    <!-- ── Tabbed view ────────────────────────────────────────── -->
     <template v-else>
       <div class="docs-tabs">
         <!-- Tab switcher -->
@@ -149,15 +149,15 @@ function plural(n: number, one: string, few: string, many: string): string {
 </script>
 
 <style scoped>
+/* ── Page: full-width, left-aligned ── */
 .docs-page {
-  max-width: 1100px;
-  margin-inline: auto;
-  padding: var(--space-8) var(--space-6);
+  width: 100%;
+  padding: var(--space-8) var(--space-8);
 }
 
 /* ── Header ── */
 .docs-page__header {
-  margin-bottom: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 .docs-page__title {
   font-size: var(--text-xl);
@@ -174,7 +174,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 /* ── Search ── */
 .docs-page__search-wrap {
   margin-bottom: var(--space-8);
-  max-width: 560px;
+  max-width: 520px;
 }
 
 .docs-page__search-box {
@@ -239,7 +239,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 .docs-page__search-clear .pi { font-size: 0.75rem; }
 
-/* ── Empty state ── */
+/* ── Empty ── */
 .docs-page__empty {
   display: flex;
   flex-direction: column;
@@ -273,9 +273,7 @@ function plural(n: number, one: string, few: string, many: string): string {
   margin-bottom: var(--space-3);
 }
 
-/* ── Custom tabs ── */
-.docs-tabs {}
-
+/* ── Custom tab switcher ── */
 .docs-tabs__nav {
   display: flex;
   flex-wrap: wrap;
@@ -295,7 +293,7 @@ function plural(n: number, one: string, few: string, many: string): string {
   font-weight: 500;
   color: var(--color-text-muted);
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 180ms ease;
   white-space: nowrap;
@@ -308,7 +306,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 .docs-tabs__tab--active {
   background: rgba(45,212,191,0.1);
   color: #2dd4bf;
-  border: 1px solid rgba(45,212,191,0.2);
+  border-color: rgba(45,212,191,0.2);
 }
 .docs-tabs__tab--active:hover {
   background: rgba(45,212,191,0.15);
@@ -320,10 +318,10 @@ function plural(n: number, one: string, few: string, many: string): string {
   gap: var(--space-10);
 }
 
-/* Section grid (used by DocSection.vue and search results) */
-.docs-section__grid {
+/* ── Shared card grid (used in search results too) ── */
+.docs-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: var(--space-5);
 }
 </style>
