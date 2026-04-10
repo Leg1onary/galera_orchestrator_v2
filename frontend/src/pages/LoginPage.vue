@@ -14,11 +14,16 @@ const error = ref<string | null>(null)
 const loading = ref(false)
 
 async function submit() {
+  if (!username.value.trim() || !password.value) return
   error.value = null
   loading.value = true
   try {
     await auth.login(username.value, password.value)
-    const redirect = (route.query.redirect as string) || '/'
+    const rawRedirect = route.query.redirect as string | undefined
+    const redirect =
+        rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+            ? rawRedirect
+            : '/'
     router.push(redirect)
   } catch (e: any) {
     error.value =
@@ -60,7 +65,7 @@ async function submit() {
               toggle-mask
               autocomplete="current-password"
               :disabled="loading"
-              input-class="w-full"
+              fluid
           />
         </div>
 
@@ -85,17 +90,36 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f1117;   /* ← хардкод вместо --p-surface-ground */
+  background: var(--p-surface-ground);
 }
 
 .login-card {
-  background: #1a1f2e;
-  border: 1px solid #2a3040;
-  border-radius: 12px;
+  background: var(--p-surface-card);
+  border: 1px solid var(--p-content-border-color);
+  border-radius: var(--p-border-radius-xl, 12px);
   padding: 2.5rem 2rem;
   width: 100%;
   max-width: 380px;
-  box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
+  box-shadow: var(--p-card-shadow, 0 8px 32px rgb(0 0 0 / 0.2));
+}
+
+.logo-icon {
+  font-size: 1.75rem;
+  color: var(--p-primary-color);
+}
+
+/* ✅ скоупим h1 чтобы не перебивать PrimeVue */
+.login-logo h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--p-text-color);
+}
+
+label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--p-text-muted-color);
 }
 
 .login-logo {
@@ -103,11 +127,6 @@ async function submit() {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 2rem;
-}
-
-.logo-icon {
-  font-size: 1.75rem;
-  color: #4ade80;
 }
 
 h1 {
@@ -129,11 +148,6 @@ h1 {
   gap: 0.375rem;
 }
 
-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #94a3b8;
-}
 
 /* PrimeVue InputText на всю ширину */
 :deep(.p-inputtext) {

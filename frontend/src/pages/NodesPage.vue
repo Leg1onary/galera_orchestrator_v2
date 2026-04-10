@@ -17,7 +17,7 @@
     </div>
 
     <!-- Lock banner: active operation in progress -->
-    <div v-if="opsStore.isLocked(clusterId)" class="lock-banner">
+    <<div v-if="opsStore.isLocked(clusterId.value)" class="lock-banner">
       <i class="pi pi-lock" />
       <span>An operation is in progress — node actions are disabled until it completes.</span>
     </div>
@@ -35,37 +35,42 @@
 
     <!-- Detail drawer -->
     <NodeDetailDrawer
+        v-if="selectedNode"
         :node="selectedNode"
-        :cluster-id="clusterId"
+        :cluster-id="clusterId.value"
         @close="selectedNode = null"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
-import { Button } from 'primevue'
+import { ref, computed, onUnmounted } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import Button from 'primevue/button'
 import NodeTable from '@/components/nodes/NodeTable.vue'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 import { nodesApi, type NodeListItem } from '@/api/nodes'
 import { useClusterStore } from '@/stores/cluster'
 import { useOperationsStore } from '@/stores/operations'
 import { onWsEvent } from '@/stores/ws'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useSettingsStore } from '@/stores/settings'
 
+const settingsStore = useSettingsStore()
 const clusterStore = useClusterStore()
 const opsStore = useOperationsStore()
 const queryClient = useQueryClient()
 
-const clusterId = computed(() => clusterStore.selectedClusterId!)
+
 const selectedNode = ref<NodeListItem | null>(null)
 
 const { data, isLoading, isFetching, refetch } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'nodes']),
-  queryFn: () => nodesApi.list(clusterId.value),
+  queryFn: () => {
+    if (!clusterId.value) return Promise.resolve([])
+    return nodesApi.list(clusterId.value)
+  },
   enabled: computed(() => !!clusterId.value),
-  refetchInterval: 15_000,
+  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
 })
 
 const nodes = computed(() => data.value ?? [])
@@ -74,12 +79,13 @@ function openDrawer(node: NodeListItem) {
   selectedNode.value = node
 }
 
-// Обновляем таблицу при WS событии node_state_changed (ТЗ раздел 5.2)
-onWsEvent((event) => {
+const unsubscribeWs = onWsEvent((event) => {
   if (event.event === 'node_state_changed' && event.cluster_id === clusterId.value) {
     queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
   }
 })
+
+onUnmounted(() => unsubscribeWs())
 </script>
 
 <style scoped>

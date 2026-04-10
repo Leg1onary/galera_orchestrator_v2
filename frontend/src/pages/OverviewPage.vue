@@ -1,19 +1,21 @@
 <!-- ТЗ раздел 10: ClusterSummaryBar + NodeCard × N + ArbitratorCard × N + EventLog -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { onUnmounted } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
 import { useEventsStore } from '@/stores/events'
 import { onWsEvent } from '@/stores/ws'
-import { useQueryClient } from '@tanstack/vue-query'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
+import { useSettingsStore } from '@/stores/settings'
 
 const clusterStore = useClusterStore()
 const eventsStore = useEventsStore()
+const settingsStore = useSettingsStore()
 const queryClient = useQueryClient()
 
 const clusterId = computed(() => clusterStore.selectedClusterId!)
@@ -28,9 +30,20 @@ const { data: status, isLoading, isError } = useQuery({
   enabled: computed(() => !!clusterId.value),
 })
 
-// WS node_state_changed → немедленная инвалидация без ожидания polling-интервала
-// (глобальный handler в AppLayout.vue уже инвалидирует — этот для локального реакта)
-onWsEvent((event) => {
+const { data: status, isLoading, isError } = useQuery({
+  queryKey: computed(() => ['cluster', clusterId.value, 'status']),
+  queryFn: () => {
+    if (!clusterId.value) return Promise.resolve(null)
+    return api.get(`/api/clusters/${clusterId.value}/status`).then((r) => r.data)
+  },
+  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
+  staleTime: 5_000,
+  enabled: computed(() => !!clusterId.value),
+})
+
+const unsubscribe = onWsEvent((event) => {
+  // убрать полностью — AppLayout уже делает это глобально
+  // если нужна локальная логика — оставить с отпиской:
   if (
       event.cluster_id === clusterId.value &&
       (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed')
@@ -40,6 +53,8 @@ onWsEvent((event) => {
     })
   }
 })
+
+onUnmounted(() => unsubscribe())
 </script>
 
 <template>
@@ -98,12 +113,17 @@ onWsEvent((event) => {
               size="small"
               text
               icon="pi pi-trash"
-              @click="eventsStore.clear(clusterId)"
+              @click="eventsStore.clear(clusterId.value)"
           />
         </div>
         <EventLog :entries="eventsStore.entries" :loading="eventsStore.loading" />
       </section>
     </template>
+  </div>
+</template>
+<template v-else>
+  <div class="loading-state">
+    <span>Нет данных</span>
   </div>
 </template>
 
@@ -114,23 +134,8 @@ onWsEvent((event) => {
   gap: 1.5rem;
 }
 
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 4rem 0;
-  color: #94a3b8;  /* было: var(--text-color-secondary) */
-}
-
-.section-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;  /* было: var(--text-color-secondary) */
-  margin: 0 0 0.75rem;
-}
+.loading-state { color: var(--p-text-muted-color); }
+.section-title  { color: var(--p-text-muted-color); }
 
 .section-header {
   display: flex;

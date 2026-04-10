@@ -29,7 +29,7 @@
     <!-- Canvas -->
     <div class="canvas-area">
       <div v-if="isLoading" class="state-message">Loading topology…</div>
-      <div v-else-if="!topology" class="state-message text-muted-color">No data.</div>
+      <div v-else-if="!topology" class="state-message">No data.</div>
       <TopologyCanvas
           v-else
           :topology="topology"
@@ -39,17 +39,18 @@
 
     <!-- Node detail mini-drawer (reuse NodeDetailDrawer) -->
     <NodeDetailDrawer
+        v-if="selectedNode"
         :node="selectedNode"
-        :cluster-id="clusterId"
+        :cluster-id="clusterId.value"
         @close="selectedNode = null"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
-import { Button } from 'primevue'
+import Button from 'primevue/button'
 import TopologyCanvas from '@/components/topology/TopologyCanvas.vue'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 import { topologyApi } from '@/api/topology'
@@ -58,23 +59,34 @@ import type { NodeListItem } from '@/api/nodes'
 import { useClusterStore } from '@/stores/cluster'
 import { onWsEvent } from '@/stores/ws'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useSettingsStore } from '@/stores/settings'
+import { NODE_STATUS_COLORS } from '@/components/topology/topology.constants'
 
 const clusterStore = useClusterStore()
 const queryClient = useQueryClient()
-const clusterId = computed(() => clusterStore.selectedClusterId!)
+const settingsStore = useSettingsStore()
+const LEGEND = [
+  { label: 'Synced',         color: NODE_STATUS_COLORS.synced },
+  { label: 'Donor/Desynced', color: NODE_STATUS_COLORS.donor },
+  { label: 'Joining',        color: NODE_STATUS_COLORS.joiner },
+  { label: 'Error',          color: NODE_STATUS_COLORS.desynced },
+  { label: 'Offline',        color: NODE_STATUS_COLORS.offline },
+]
 
 // ← тип NodeListItem, а не TopoNode — совместимо с NodeDetailDrawer
 const selectedNode = ref<NodeListItem | null>(null)
 
 const { data: topology, isLoading, isFetching, refetch } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'topology']),
-  queryFn: () => topologyApi.get(clusterId.value),
+  queryFn: () => {
+    if (!clusterId.value) return Promise.resolve(null)
+    return topologyApi.get(clusterId.value)
+  },
   enabled: computed(() => !!clusterId.value),
-  refetchInterval: 15_000,
+  refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
 })
 
-// WS инвалидация
-onWsEvent((event) => {
+const unsubWs = onWsEvent((event) => {
   if (
       (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed') &&
       event.cluster_id === clusterId.value
@@ -82,6 +94,8 @@ onWsEvent((event) => {
     queryClient.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'topology'] })
   }
 })
+
+onUnmounted(() => unsubWs())
 
 // Конвертируем TopoNode → NodeListItem, добавляя поля которых нет в TopoNode
 function handleNodeClick(topoNode: TopoNode) {
