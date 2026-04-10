@@ -553,6 +553,55 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   border-top: 1px solid var(--color-border-muted);
 }
 
+/* ── ToggleSwitch ─────────────────────────────────────────────
+   Aura theme в PrimeVue v4 позиционирует .p-toggleswitch-handle
+   через position:absolute + top:50% + translateY(-50%).
+   Это работает только если .p-toggleswitch-slider имеет
+   явный height И position:relative без внешних flex-искажений.
+   Наш глобальный reset (box-sizing, line-height:1.6 на body)
+   ломает вычисление — шарик съезжает вниз на ~2-3px.
+   Фикс: явно задаём геометрию слайдера и хэндла.
+   ──────────────────────────────────────────────────────────── */
+.p-toggleswitch {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  vertical-align: middle;
+  line-height: 1;        /* сбрасываем наследуемый line-height:1.6 с body */
+}
+
+.p-toggleswitch-slider {
+  /* Явные размеры — Aura default: 26x14, мы чуть компактнее */
+  width: 2.2rem;         /* 35px */
+  height: 1.25rem;       /* 20px */
+  border-radius: var(--radius-full);
+  position: relative;    /* хэндл позиционируется relative к слайдеру */
+  display: block;        /* не flex — иначе top:50% считается от flex-контейнера */
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background var(--transition-normal);
+}
+
+.p-toggleswitch-handle {
+  /*
+    Явная геометрия шарика.
+    Aura ставит top:50% + translateY(-50%) — работает только
+    если height слайдера зафиксирован и нет box-model сдвигов.
+    Мы дублируем это явно чтобы перебить любые унаследованные стили.
+  */
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.875rem;       /* 14px — слайдер 20px, паддинг 3px с каждой стороны */
+  height: 0.875rem;
+  border-radius: 50%;
+  transition:
+    left var(--transition-normal),
+    transform var(--transition-normal),
+    background var(--transition-normal);
+  /* left управляется PrimeVue через data-p="checked" — не трогаем */
+}
+
 /* ============================================================
    ANIMATIONS
    ============================================================ */
