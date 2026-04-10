@@ -5,7 +5,7 @@
     </div>
 
     <div class="settings-body">
-      <Tabs v-model:value="activeTab" orientation="vertical" class="settings-tabs">
+      <Tabs v-model:value="activeTab" orientation="vertical" lazy class="settings-tabs">
         <TabList class="settings-tablist">
           <Tab value="clusters">
             <i class="pi pi-server mr-2" />Clusters
@@ -48,7 +48,11 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primevue'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
 import ClustersTab from '@/components/settings/ClustersTab.vue'
 import NodesTab from '@/components/settings/NodesTab.vue'
 import ArbitratorsTab from '@/components/settings/ArbitratorsTab.vue'

@@ -210,6 +210,18 @@ export const useRecoveryStore = defineStore('recovery', () => {
         })
     }
 
+    function goNext() {
+        if (step.value < 4) step.value = (step.value + 1) as WizardStep
+    }
+
+    function goBack() {
+        if (step.value > 1) step.value = (step.value - 1) as WizardStep
+    }
+
+    function goTo(n: WizardStep) {
+        step.value = n
+    }
+
     function destroy() {
         wsUnsub?.()
         wsUnsub = null
@@ -224,5 +236,6 @@ export const useRecoveryStore = defineStore('recovery', () => {
         cancelling,
         offlineNodes, recommendedBootstrapNodeId, nodesNeedingRejoin,
         init, reset, loadStatus, startBootstrap, startRejoin, cancelOperation, destroy,
+        goNext, goBack, goTo,
     }
 })

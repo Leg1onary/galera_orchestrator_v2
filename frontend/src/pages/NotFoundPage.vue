@@ -13,7 +13,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 // Static page — no data dependencies
 </script>
 
@@ -66,11 +66,12 @@
   font-size: var(--text-sm);
   font-weight: 500;
   text-decoration: none;
-  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  transition: border-color var(--transition-interactive),
+  background-color var(--transition-interactive);
 }
 
 .not-found__home-link:hover {
   border-color: var(--color-primary);
-  background-color: var(--color-primary-dim);
+  background-color: var(--color-primary-highlight);
 }
 </style>

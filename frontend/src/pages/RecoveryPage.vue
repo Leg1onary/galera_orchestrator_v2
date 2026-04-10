@@ -13,6 +13,15 @@
       <p>No cluster selected.</p>
     </div>
 
+    <!-- ✅ Guard в шаблоне — recovery заблокирован при healthy кластере (ТЗ 14) -->
+    <div v-else-if="clusterIsHealthy" class="healthy-guard">
+      <i class="pi pi-check-circle" style="color: var(--color-success); font-size: 1.5rem" />
+      <div>
+        <strong>Cluster is healthy</strong>
+        <p>Recovery wizard is only available when the cluster cannot start automatically.</p>
+      </div>
+    </div>
+
     <!-- Wizard -->
     <div v-else class="wizard-container">
       <!-- Stepper header -->
@@ -37,15 +46,20 @@
 
       <!-- Step panels -->
       <div class="wizard-body">
-        <Step1Scan v-if="store.step === 1" @next="store.step = 2" />
+        <Step1Scan v-if="store.step === 1" @next="store.goNext()" />
         <Step2Bootstrap
             v-else-if="store.step === 2"
-            @back="store.step = 1"
+            @back="store.goBack()"
+            @next="store.goNext()"
         />
-        <Step3Rejoin v-else-if="store.step === 3" />
+        <Step3Rejoin
+            v-else-if="store.step === 3"
+            @back="store.goBack()"
+            @next="store.goNext()"
+        />
         <Step4Done
             v-else-if="store.step === 4"
-            @go-overview="router.push('/overview')"
+            @go-overview="router.push({ name: 'overview' })"
         />
       </div>
     </div>
@@ -53,7 +67,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useRecoveryStore } from '@/stores/recovery'
@@ -65,6 +80,18 @@ import Step4Done from '@/components/recovery/Step4Done.vue'
 const router = useRouter()
 const clusterStore = useClusterStore()
 const store = useRecoveryStore()
+const queryClient = useQueryClient()
+
+const clusterStatus = computed(() => {
+  if (!clusterStore.selectedClusterId) return null
+  return queryClient.getQueryData<{ cluster_status: string }>(
+      ['cluster', clusterStore.selectedClusterId, 'status']
+  )
+})
+
+const clusterIsHealthy = computed(
+    () => clusterStatus.value?.cluster_status === 'healthy'
+)
 
 const STEP_LABELS = ['Scan nodes', 'Select bootstrap node', 'Rejoin', 'Done']
 
@@ -72,6 +99,11 @@ const STEP_LABELS = ['Scan nodes', 'Select bootstrap node', 'Rejoin', 'Done']
 // Читаем из clusterStore.statusSummary (уже загружен Overview/polling)
 const clusterIsHealthy = computed(() =>
     clusterStore.statusSummary?.cluster_status === 'healthy'
+)
+
+watch(
+    () => clusterStore.selectedClusterId,
+    (id) => { if (id) store.init(id) }
 )
 
 onMounted(() => {

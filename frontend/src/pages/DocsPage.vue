@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="docs-page">
       <!-- ── Page header ───────────────────────────────────────────── -->
       <div class="docs-page__header">
@@ -11,16 +10,15 @@
 
       <!-- ── Search ─────────────────────────────────────────────────── -->
       <div class="docs-page__search-wrap">
-        <span class="p-input-icon-left docs-page__search-input-wrap">
-          <i class="pi pi-search" />
+        <IconField class="docs-page__search-input-wrap">
+          <InputIcon class="pi pi-search" />
           <InputText
               v-model="search"
               placeholder="Поиск по заголовку, описанию, коду…"
               class="docs-page__search"
               size="large"
-              @input="onSearch"
-          />
-        </span>
+              fluid />
+        </IconField>
         <Button
             v-if="search"
             icon="pi pi-times"
@@ -67,49 +65,46 @@
 
       <!-- ── Tabbed view ────────────────────────────────────────────── -->
       <template v-else>
-        <TabView
-            v-model:activeIndex="activeTabIndex"
-            class="docs-page__tabs"
-            :scrollable="true"
-        >
-          <TabPanel
-              v-for="tab in DOC_TABS"
-              :key="tab.id"
-              :header="tab.label"
-          >
-            <!-- Lazy: render only when tab is active -->
-            <template v-if="renderedTabs.has(tab.id)">
+        <Tabs v-model:value="activeTab" lazy class="docs-page__tabs" :scrollable="true">
+          <TabList>
+            <Tab v-for="tab in DOC_TABS" :key="tab.id" :value="tab.id">
+              {{ tab.label }}
+            </Tab>
+          </TabList>
+          <TabPanels>
+            <TabPanel v-for="tab in DOC_TABS" :key="tab.id" :value="tab.id">
               <DocSection
                   v-for="section in getSections(tab.id)"
                   :key="section.name"
                   :section-name="section.name"
                   :cards="section.cards"
               />
-            </template>
-          </TabPanel>
-        </TabView>
+            </TabPanel>
+          </TabPanels>
+        </Tabs>
       </template>
     </div>
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { InputText, Button, TabView, TabPanel } from 'primevue'
-import AppLayout from '@/layouts/AppLayout.vue'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
+import InputText from 'primevue/inputtext'
+import Button from 'primevue/button'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
 import DocCard from '@/components/docs/DocCard.vue'
 import DocSection from '@/components/docs/DocSection.vue'
 import { DOCS, DOC_TABS, type DocTab } from '@/data/docs'
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const activeTabIndex = ref(0)
+const activeTab = ref(DOC_TABS[0].id)
 
 // Lazy render: mark tab as rendered when first activated
-const renderedTabs = ref<Set<DocTab>>(new Set([DOC_TABS[0].id]))
-
-watch(activeTabIndex, (idx) => {
-  renderedTabs.value.add(DOC_TABS[idx].id)
-})
 
 // ── Sections per tab ──────────────────────────────────────────────────────────
 function getSections(tabId: DocTab): { name: string; cards: typeof DOCS }[] {
@@ -146,10 +141,6 @@ const searchGrouped = computed(() => {
   }
   return Array.from(groups.entries()).map(([tabId, cards]) => ({ tabId, cards }))
 })
-
-function onSearch() {
-  // search is reactive — computed handles it automatically
-}
 
 function clearSearch() {
   search.value = ''

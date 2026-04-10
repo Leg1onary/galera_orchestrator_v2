@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onUnmounted, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import NodeMaintenanceTable from '@/components/maintenance/NodeMaintenanceTable.vue'
@@ -32,13 +32,11 @@ import RollingRestartWizard from '@/components/maintenance/RollingRestartWizard.
 const clusterStore = useClusterStore()
 const store = useMaintenanceStore()
 
-onMounted(() => {
-  if (clusterStore.selectedClusterId) {
-    store.init(clusterStore.selectedClusterId)
-  }
-})
+watch(
+    () => clusterStore.selectedClusterId,
+    (id) => { if (id) store.init(id) },
+    { immediate: true }
+)
 
-onUnmounted(() => {
-  store.destroy()
-})
+onUnmounted(() => store.destroy())
 </script>

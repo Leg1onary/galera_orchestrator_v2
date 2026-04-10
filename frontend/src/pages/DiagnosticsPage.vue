@@ -59,8 +59,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Tabs, TabList, Tab, TabPanels, TabPanel } from 'primevue'
+import { ref, watch } from 'vue'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
 import { useClusterStore } from '@/stores/cluster'
 import ProcessListPanel   from '@/components/diagnostics/ProcessListPanel.vue'
 import SlowQueryPanel     from '@/components/diagnostics/SlowQueryPanel.vue'
@@ -70,8 +74,19 @@ import InnodbStatusPanel  from '@/components/diagnostics/InnodbStatusPanel.vue'
 import ErrorLogPanel      from '@/components/diagnostics/ErrorLogPanel.vue'
 
 const clusterStore = useClusterStore()
-// Дефолтная вкладка — processes, самая частоиспользуемая
+
 const activeTab = ref('processes')
+
+// При смене кластера — сбрасываем на первую вкладку
+// чтобы панели рефетчили данные нового кластера
+watch(
+    () => clusterStore.selectedClusterId,
+    (id, prevId) => {
+      if (id && prevId && id !== prevId) {
+        activeTab.value = 'processes'
+      }
+    }
+)
 </script>
 
 <style scoped>
