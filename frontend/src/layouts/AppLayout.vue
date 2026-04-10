@@ -56,7 +56,6 @@ const confirmDialogPT = {
       'min-width: 340px',
       'max-width: 440px',
       'width: 90vw',
-      // overflow:hidden убран — header теперь сам скругляет верхние углы
     ].join(';'),
   },
   header: {
@@ -66,7 +65,6 @@ const confirmDialogPT = {
       'display: flex',
       'align-items: center',
       'gap: var(--space-3)',
-      // Скругляем только верхние углы, без градиента
       'border-radius: var(--radius-xl) var(--radius-xl) 0 0',
       'background: var(--color-surface-2)',
     ].join(';'),
@@ -82,7 +80,6 @@ const confirmDialogPT = {
   content: {
     style: [
       'padding: var(--space-6) var(--space-6) var(--space-5)',
-      'color: var(--color-text-muted)',
       'font-size: var(--text-sm)',
       'line-height: 1.6',
       'display: flex',
@@ -110,21 +107,8 @@ const confirmDialogPT = {
       'gap: var(--space-3)',
       'border-top: 1px solid var(--color-border)',
       'background: linear-gradient(0deg, var(--color-surface-offset) 0%, var(--color-surface) 100%)',
-      // Скругляем только нижние углы
       'border-radius: 0 0 var(--radius-xl) var(--radius-xl)',
     ].join(';'),
-  },
-  rejectButton: {
-    root: {
-      // !important через style не работает — используем min-height + padding напрямую
-      // PrimeVue сбрасывает padding кнопок через свои классы, поэтому задаём через class
-      class: 'confirm-btn-reject',
-    },
-  },
-  acceptButton: {
-    root: {
-      class: 'confirm-btn-accept',
-    },
   },
 }
 </script>
@@ -143,16 +127,17 @@ const confirmDialogPT = {
   <RouterView v-else />
 
   <!-- Global overlays -->
-  <ConfirmDialog
-    :draggable="false"
-    :pt="confirmDialogPT"
-  />
+  <ConfirmDialog :draggable="false" :pt="confirmDialogPT" />
 </template>
 
 <style>
-/* Унифицированные стили кнопок диалога — глобальные (без scoped),
-   чтобы перекрыть PrimeVue specificity */
-.confirm-btn-reject.p-button {
+/*
+  ConfirmDialog button overrides.
+  PrimeVue вешает на кнопку отказа класс p-confirmdialog-reject,
+  на кнопку подтверждения — p-confirmdialog-accept.
+  Без scoped, с повышенной специфичностью через !important.
+*/
+.p-confirmdialog .p-confirmdialog-reject.p-button {
   background: transparent !important;
   border: 1px solid var(--color-border) !important;
   color: var(--color-text-muted) !important;
@@ -161,17 +146,21 @@ const confirmDialogPT = {
   font-size: var(--text-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
   box-shadow: none !important;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
 }
-.confirm-btn-reject.p-button:hover {
+.p-confirmdialog .p-confirmdialog-reject.p-button:hover {
   background: var(--color-surface-offset) !important;
   border-color: var(--color-text-faint) !important;
   color: var(--color-text) !important;
 }
 
-.confirm-btn-accept.p-button {
-  background: linear-gradient(135deg, var(--color-error) 0%, color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%) !important;
+.p-confirmdialog .p-confirmdialog-accept.p-button {
+  background: linear-gradient(
+    135deg,
+    var(--color-error) 0%,
+    color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%
+  ) !important;
   border: 1px solid var(--color-error) !important;
   color: #fff !important;
   border-radius: var(--radius-md) !important;
@@ -182,7 +171,7 @@ const confirmDialogPT = {
   box-shadow: 0 2px 10px color-mix(in oklch, var(--color-error) 45%, transparent) !important;
   transition: filter 160ms ease, box-shadow 160ms ease !important;
 }
-.confirm-btn-accept.p-button:hover {
+.p-confirmdialog .p-confirmdialog-accept.p-button:hover {
   filter: brightness(1.12) !important;
   box-shadow: 0 4px 16px color-mix(in oklch, var(--color-error) 55%, transparent) !important;
 }
