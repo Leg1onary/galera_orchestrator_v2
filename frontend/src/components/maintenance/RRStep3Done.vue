@@ -1,5 +1,7 @@
+<!--
+  Step 3 — Done / Failed / Cancelled.
+-->
 <template>
-  <!-- MINOR fix: добавлен wizard-step для единообразия -->
   <div class="wizard-step step-done">
 
     <template v-if="store.rrStatus?.state === 'finished'">
@@ -21,7 +23,6 @@
       <p class="done-desc">
         Failed on node <strong>{{ failedNodeName }}</strong>.
       </p>
-      <!-- MAJOR fix: utility классы → scoped CSS -->
       <p v-if="store.rrStatus?.error" class="done-error-detail">
         {{ store.rrStatus.error }}
       </p>
@@ -39,7 +40,6 @@
       </p>
     </template>
 
-    <!-- MAJOR fix: utility классы → scoped CSS, wizardStep → store.resetWizard() -->
     <div class="done-actions">
       <Button label="Close" outlined @click="store.closeWizard()" />
       <Button
@@ -54,13 +54,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-// BLOCKER fix: раздельный импорт
 import Button from 'primevue/button'
 import { useMaintenanceStore } from '@/stores/maintenance'
 
 const store = useMaintenanceStore()
 
-// MAJOR fix: n.id, n.name
 const failedNodeName = computed(() => {
   const id = store.rrStatus?.failed_node_id
   return id
@@ -70,14 +68,19 @@ const failedNodeName = computed(() => {
 </script>
 
 <style scoped>
-.wizard-step { display: flex; flex-direction: column; gap: var(--space-4); }
-
+/* ── Layout ──────────────────────────────────────────── */
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 .step-done {
   align-items: center;
   text-align: center;
-  padding: var(--space-8) var(--space-4);
+  padding: var(--space-6) var(--space-4);
 }
 
+/* ── Result icon ─────────────────────────────────────── */
 .done-icon {
   width: 64px;
   height: 64px;
@@ -85,30 +88,57 @@ const failedNodeName = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.75rem;
-  margin-bottom: var(--space-4);
+  font-size: 1.6rem;
   flex-shrink: 0;
+  margin-bottom: var(--space-2);
 }
-.done-icon--success { background: color-mix(in oklch, var(--color-success) 15%, transparent); color: var(--color-success); }
-.done-icon--error   { background: color-mix(in oklch, var(--color-error)   15%, transparent); color: var(--color-error); }
-.done-icon--neutral { background: var(--color-surface-offset); color: var(--color-text-muted); }
-
-.done-title { font-size: var(--text-xl); font-weight: 600; }
-.done-desc  { font-size: var(--text-sm); color: var(--color-text-muted); max-width: 42ch; }
-
-/* MAJOR fix: вместо text-sm text-error-color mt-1 */
-.done-error-detail {
-  font-size: var(--text-sm);
+.done-icon--success {
+  background: color-mix(in oklch, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+  box-shadow: 0 0 0 6px color-mix(in oklch, var(--color-success) 8%, transparent);
+}
+.done-icon--error {
+  background: color-mix(in oklch, var(--color-error) 14%, transparent);
   color: var(--color-error);
-  margin-top: var(--space-1);
-  max-width: 42ch;
+  box-shadow: 0 0 0 6px color-mix(in oklch, var(--color-error) 8%, transparent);
+}
+.done-icon--neutral {
+  background: var(--color-surface-offset);
+  color: var(--color-text-muted);
+  box-shadow: 0 0 0 6px var(--color-surface-offset-2);
 }
 
-/* MAJOR fix: вместо flex gap-3 justify-center mt-6 */
+/* ── Text ────────────────────────────────────────────── */
+.done-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.done-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  max-width: 40ch;
+  line-height: 1.55;
+}
+.done-error-detail {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-error);
+  background: color-mix(in oklch, var(--color-error) 6%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-error) 20%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  max-width: 44ch;
+}
+
+/* ── Actions ─────────────────────────────────────────── */
 .done-actions {
   display: flex;
   gap: var(--space-3);
   justify-content: center;
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  width: 100%;
 }
 </style>
