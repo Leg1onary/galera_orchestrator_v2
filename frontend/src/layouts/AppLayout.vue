@@ -110,6 +110,18 @@ const confirmDialogPT = {
       'border-radius: 0 0 var(--radius-xl) var(--radius-xl)',
     ].join(';'),
   },
+  // PrimeVue 4.x: пробрасываем style напрямую через PT root.style —
+  // это inline style, он всегда перебивает любые CSS-классы
+  rejectButton: {
+    root: {
+      style: 'padding: 10px 24px !important; font-size: var(--text-sm) !important; font-weight: 600 !important;',
+    },
+  },
+  acceptButton: {
+    root: {
+      style: 'padding: 10px 24px !important; font-size: var(--text-sm) !important; font-weight: 700 !important;',
+    },
+  },
 }
 </script>
 
@@ -132,48 +144,17 @@ const confirmDialogPT = {
 
 <style>
 /*
-  ConfirmDialog button overrides.
-  PrimeVue вешает на кнопку отказа класс p-confirmdialog-reject,
-  на кнопку подтверждения — p-confirmdialog-accept.
-  Без scoped, с повышенной специфичностью через !important.
+  PrimeVue 4.x — дополнительный пояс через data-pc-section атрибуты.
+  [data-pc-section="footer"] [data-pc-section="root"] — любая кнопка в футере диалога.
+  В качестве запасного варианта на случай если inline style не пробьётся.
 */
-.p-confirmdialog .p-confirmdialog-reject.p-button {
-  background: transparent !important;
-  border: 1px solid var(--color-border) !important;
-  color: var(--color-text-muted) !important;
-  border-radius: var(--radius-md) !important;
+[data-pc-section="footer"] [data-pc-section="root"].p-button {
   padding: 10px 24px !important;
   font-size: var(--text-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
-  box-shadow: none !important;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
-}
-.p-confirmdialog .p-confirmdialog-reject.p-button:hover {
-  background: var(--color-surface-offset) !important;
-  border-color: var(--color-text-faint) !important;
-  color: var(--color-text) !important;
-}
-
-.p-confirmdialog .p-confirmdialog-accept.p-button {
-  background: linear-gradient(
-    135deg,
-    var(--color-error) 0%,
-    color-mix(in oklch, var(--color-error) 75%, var(--color-warning)) 100%
-  ) !important;
-  border: 1px solid var(--color-error) !important;
-  color: #fff !important;
   border-radius: var(--radius-md) !important;
-  padding: 10px 24px !important;
-  font-size: var(--text-sm) !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.01em !important;
-  box-shadow: 0 2px 10px color-mix(in oklch, var(--color-error) 45%, transparent) !important;
-  transition: filter 160ms ease, box-shadow 160ms ease !important;
-}
-.p-confirmdialog .p-confirmdialog-accept.p-button:hover {
-  filter: brightness(1.12) !important;
-  box-shadow: 0 4px 16px color-mix(in oklch, var(--color-error) 55%, transparent) !important;
+  min-height: unset !important;
 }
 </style>
 
