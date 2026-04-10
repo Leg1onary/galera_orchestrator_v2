@@ -34,50 +34,41 @@ const { data: clusterStatusData } = useQuery({
   staleTime: 5_000,
 })
 
-// Загружаем контуры + системные настройки при монтировании layout
 onMounted(async () => {
   await Promise.all([
-    clusterStore.loadContours(), // внутри выставляет selectedClusterId
+    clusterStore.loadContours(),
     settingsStore.load(),
   ])
-  // После loadContours selectedClusterId уже известен — стартуем WS и events
   if (clusterStore.selectedClusterId) {
     wsStore.connect(clusterStore.selectedClusterId)
     eventsStore.load(clusterStore.selectedClusterId)
   }
 })
 
-// При смене кластера пользователем: WS переподключение + инвалидация Vue Query
-// ИСПРАВЛЕНО: queryClient НЕ передаётся в store — инвалидация только здесь
 watch(
-    () => clusterStore.selectedClusterId,
-    (clusterId, prevId) => {
-      if (!clusterId) return
-      if (prevId) {
-        queryClient.invalidateQueries({ queryKey: ['cluster', prevId] })
-      }
-      queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] })
-      wsStore.connect(clusterId)
-      eventsStore.load(clusterId)
+  () => clusterStore.selectedClusterId,
+  (clusterId, prevId) => {
+    if (!clusterId) return
+    if (prevId) {
+      queryClient.invalidateQueries({ queryKey: ['cluster', prevId] })
     }
+    queryClient.invalidateQueries({ queryKey: ['cluster', clusterId] })
+    wsStore.connect(clusterId)
+    eventsStore.load(clusterId)
+  }
 )
 
-// Глобальный WS handler — роутит события в нужные stores
-// onUnmounted отписывается через возвращённую функцию
 const unsubscribeWs = onWsEvent((event) => {
   if (!clusterStore.selectedClusterId) return
-
   switch (event.event) {
     case 'operation_started':
     case 'operation_progress':
     case 'operation_finished':
       operationsStore.handleWsEvent(event)
       break
-
     case 'log_entry':
       eventsStore.appendFromWs(event.payload as any)
       break
-
     case 'node_state_changed':
     case 'arbitrator_state_changed':
       queryClient.invalidateQueries({
@@ -87,9 +78,7 @@ const unsubscribeWs = onWsEvent((event) => {
   }
 })
 
-onUnmounted(() => {
-  unsubscribeWs()
-})
+onUnmounted(() => { unsubscribeWs() })
 
 async function handleLogout() {
   wsStore.disconnect()
@@ -117,7 +106,6 @@ async function handleLogout() {
       <AppSidebar />
 
       <main class="app-main">
-        <!-- Settings и Docs доступны без выбранного кластера (ТЗ 6.1) -->
         <template
             v-if="clusterStore.selectedClusterId || ['settings', 'docs'].includes(String(route.name))"
         >
@@ -125,7 +113,14 @@ async function handleLogout() {
         </template>
         <template v-else>
           <div class="no-cluster">
-            <p>Выберите кластер в шапке</p>
+            <div class="no-cluster-inner">
+              <svg viewBox="0 0 48 48" fill="none" class="no-cluster-icon" aria-hidden="true">
+                <polygon points="24,4 44,14 44,34 24,44 4,34 4,14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" opacity="0.3"/>
+                <polygon points="24,12 36,18.5 36,29.5 24,36 12,29.5 12,18.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" opacity="0.2"/>
+                <circle cx="24" cy="24" r="4" fill="currentColor" opacity="0.4"/>
+              </svg>
+              <p class="no-cluster-text">Выберите кластер в шапке</p>
+            </div>
           </div>
         </template>
       </main>
@@ -141,7 +136,7 @@ async function handleLogout() {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--p-surface-ground);
+  background: var(--color-bg);
 }
 
 .app-body {
@@ -153,7 +148,8 @@ async function handleLogout() {
 .app-main {
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: var(--space-6);
+  background: var(--color-bg);
 }
 
 .no-cluster {
@@ -161,6 +157,24 @@ async function handleLogout() {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--p-text-muted-color);
+}
+
+.no-cluster-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-text-faint);
+}
+
+.no-cluster-icon {
+  width: 56px;
+  height: 56px;
+  color: var(--color-primary);
+}
+
+.no-cluster-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 </style>

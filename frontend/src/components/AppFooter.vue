@@ -14,48 +14,88 @@ const labels: Record<WsStatus, string> = {
 
 <template>
   <footer class="app-footer">
-    <span :class="['ws-indicator', `ws-${wsStatus}`]" aria-live="polite">
-      <span class="ws-dot" />
-      {{ labels[wsStatus] }}
-    </span>
-    <span class="footer-copy">Galera Orchestrator v2</span>
+    <div class="footer-left">
+      <span :class="['ws-indicator', `ws-${wsStatus}`]" aria-live="polite">
+        <span class="ws-dot" />
+        {{ labels[wsStatus] }}
+      </span>
+    </div>
+    <div class="footer-right">
+      <span class="footer-brand">Galera Orchestrator v2</span>
+    </div>
   </footer>
 </template>
 
 <style scoped>
 .app-footer {
-  background: var(--p-surface-section);
-  border-top: 1px solid var(--p-content-border-color);
-  color: var(--p-text-muted-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-5);
+  height: var(--footer-height);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-muted);
+  flex-shrink: 0;
 }
 
+.footer-left, .footer-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* ── WS indicator ── */
 .ws-indicator {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-size: var(--text-xs);
   font-weight: 500;
+  letter-spacing: 0.04em;
 }
 
 .ws-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
+  transition: background var(--transition-normal);
 }
 
-.ws-connected    .ws-dot { background: var(--p-green-500); }
-.ws-connecting   .ws-dot { background: var(--p-yellow-400); animation: pulse 1s infinite; }
-.ws-reconnecting .ws-dot { background: var(--p-orange-400); animation: pulse 1s infinite; }
-.ws-disconnected .ws-dot { background: var(--p-red-500); }
+/* Connected */
+.ws-connected    { color: #22c55e; }
+.ws-connected    .ws-dot {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34,197,94,0.7);
+  animation: pulse-dot 3s ease-in-out infinite;
+}
 
-.ws-connected    { color: var(--p-green-600); }
-.ws-connecting   { color: var(--p-yellow-600); }
-.ws-reconnecting { color: var(--p-orange-500); }
-.ws-disconnected { color: var(--p-red-600); }
+/* Connecting */
+.ws-connecting   { color: var(--color-warning); }
+.ws-connecting   .ws-dot {
+  background: var(--color-warning);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
+/* Reconnecting */
+.ws-reconnecting { color: var(--color-degraded); }
+.ws-reconnecting .ws-dot {
+  background: var(--color-degraded);
+  animation: pulse-dot 0.8s ease-in-out infinite;
+}
+
+/* Disconnected */
+.ws-disconnected { color: var(--color-error); }
+.ws-disconnected .ws-dot {
+  background: var(--color-error);
+  box-shadow: 0 0 6px rgba(239,68,68,0.6);
+}
+
+/* ── Brand ── */
+.footer-brand {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-weight: 400;
 }
 
 @media (prefers-reduced-motion: reduce) {

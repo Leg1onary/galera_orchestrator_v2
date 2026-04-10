@@ -21,15 +21,15 @@ async function submit() {
     await auth.login(username.value, password.value)
     const rawRedirect = route.query.redirect as string | undefined
     const redirect =
-        rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
-            ? rawRedirect
-            : '/'
+      rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+        ? rawRedirect
+        : '/'
     router.push(redirect)
   } catch (e: any) {
     error.value =
-        e?.response?.status === 401
-            ? 'Неверный логин или пароль'
-            : 'Ошибка сервера. Попробуйте позже.'
+      e?.response?.status === 401
+        ? 'Неверный логин или пароль'
+        : 'Ошибка сервера. Попробуйте позже.'
   } finally {
     loading.value = false
   }
@@ -38,13 +38,39 @@ async function submit() {
 
 <template>
   <div class="login-page">
-    <div class="login-card">
+    <!-- Background grid pattern -->
+    <div class="login-bg" aria-hidden="true">
+      <div class="login-bg-glow login-bg-glow--1" />
+      <div class="login-bg-glow login-bg-glow--2" />
+      <svg class="login-bg-grid" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(45,212,191,0.05)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+      </svg>
+    </div>
+
+    <div class="login-card anim-fade-in">
+      <!-- Logo -->
       <div class="login-logo">
-        <span class="logo-icon">⬡</span>
-        <h1>Galera Orchestrator</h1>
+        <svg class="login-logo-mark" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="20,3 37,12 37,28 20,37 3,28 3,12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="20,9 31,15.5 31,24.5 20,31 9,24.5 9,15.5" fill="currentColor" fill-opacity="0.15" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+          <circle cx="20" cy="20" r="3.5" fill="currentColor"/>
+        </svg>
+        <div class="login-logo-text">
+          <span class="login-title">Galera Orchestrator</span>
+          <span class="login-subtitle">MariaDB Galera Cluster</span>
+        </div>
       </div>
 
-      <form class="login-form" @submit.prevent="submit">
+      <!-- Divider -->
+      <div class="login-divider" />
+
+      <!-- Form -->
+      <form class="login-form" @submit.prevent="submit" novalidate>
         <div class="field">
           <label for="username">Логин</label>
           <InputText
@@ -53,6 +79,7 @@ async function submit() {
               autocomplete="username"
               :disabled="loading"
               placeholder="admin"
+              fluid
           />
         </div>
 
@@ -69,15 +96,19 @@ async function submit() {
           />
         </div>
 
-        <Message v-if="error" severity="error" :closable="false">
-          {{ error }}
-        </Message>
+        <Transition name="error-slide">
+          <div v-if="error" class="login-error">
+            <i class="pi pi-exclamation-triangle" />
+            {{ error }}
+          </div>
+        </Transition>
 
         <Button
             type="submit"
-            label="Войти"
-            class="w-full"
             :loading="loading"
+            label="Войти"
+            fluid
+            class="login-btn"
         />
       </form>
     </div>
@@ -85,80 +116,185 @@ async function submit() {
 </template>
 
 <style scoped>
+/* ── Page ── */
 .login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--p-surface-ground);
+  background: var(--color-bg);
+  position: relative;
+  overflow: hidden;
 }
 
+/* ── Background ── */
+.login-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.login-bg-grid {
+  width: 100%; height: 100%;
+  position: absolute; inset: 0;
+}
+
+.login-bg-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.login-bg-glow--1 {
+  width: 600px; height: 400px;
+  top: -100px; left: -100px;
+  background: radial-gradient(circle, rgba(45,212,191,0.07) 0%, transparent 70%);
+}
+
+.login-bg-glow--2 {
+  width: 500px; height: 400px;
+  bottom: -80px; right: -60px;
+  background: radial-gradient(circle, rgba(56,189,248,0.05) 0%, transparent 70%);
+}
+
+/* ── Card ── */
 .login-card {
-  background: var(--p-surface-card);
-  border: 1px solid var(--p-content-border-color);
-  border-radius: var(--p-border-radius-xl, 12px);
-  padding: 2.5rem 2rem;
+  position: relative;
+  z-index: 10;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8) var(--space-8);
   width: 100%;
-  max-width: 380px;
-  box-shadow: var(--p-card-shadow, 0 8px 32px rgb(0 0 0 / 0.2));
+  max-width: 360px;
+  box-shadow:
+    0 0 0 1px rgba(45,212,191,0.06),
+    0 20px 60px rgba(0,0,0,0.5),
+    0 4px 16px rgba(0,0,0,0.3);
 }
 
-.logo-icon {
-  font-size: 1.75rem;
-  color: var(--p-primary-color);
+/* Subtle top glow on card */
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20px; right: 20px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(45,212,191,0.5), transparent);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 
-/* ✅ скоупим h1 чтобы не перебивать PrimeVue */
-.login-logo h1 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0;
-  color: var(--p-text-color);
-}
-
-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--p-text-muted-color);
-}
-
+/* ── Logo ── */
 .login-logo {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 
-h1 {
-  font-size: 1.125rem;
+.login-logo-mark {
+  width: 36px;
+  height: 36px;
+  color: var(--color-primary);
+  filter: drop-shadow(0 0 10px rgba(45,212,191,0.5));
+  flex-shrink: 0;
+}
+
+.login-logo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.login-title {
+  font-size: var(--text-md);
   font-weight: 600;
-  margin: 0;
-  color: #e2e8f0;
+  color: var(--color-text);
+  line-height: 1.2;
 }
 
+.login-subtitle {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ── Divider ── */
+.login-divider {
+  height: 1px;
+  background: var(--color-border-muted);
+  margin-bottom: var(--space-6);
+}
+
+/* ── Form ── */
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: var(--space-4);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: var(--space-2);
 }
 
-
-/* PrimeVue InputText на всю ширину */
-:deep(.p-inputtext) {
-  width: 100%;
+label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
 }
 
-/* PrimeVue Password wrapper на всю ширину */
-:deep(.p-password) {
-  width: 100%;
+/* PrimeVue fluid inputs */
+:deep(.p-inputtext)      { width: 100%; }
+:deep(.p-password)       { width: 100%; }
+:deep(.p-password input) { width: 100%; }
+
+/* ── Error ── */
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: var(--text-sm);
 }
-:deep(.p-password input) {
+
+.login-error i { font-size: 0.875rem; flex-shrink: 0; }
+
+/* ── Login button ── */
+:deep(.login-btn) {
   width: 100%;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(45,212,191,0.12) !important;
+  border: 1px solid rgba(45,212,191,0.35) !important;
+  color: var(--color-primary) !important;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--transition-normal) !important;
+  box-shadow: none !important;
+}
+
+:deep(.login-btn:hover) {
+  background: rgba(45,212,191,0.2) !important;
+  border-color: rgba(45,212,191,0.55) !important;
+  color: #5eead4 !important;
+  box-shadow: 0 0 16px rgba(45,212,191,0.15) !important;
+}
+
+/* ── Error slide transition ── */
+.error-slide-enter-active,
+.error-slide-leave-active {
+  transition: all 200ms var(--ease-out-expo);
+}
+.error-slide-enter-from,
+.error-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>
