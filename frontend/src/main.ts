@@ -77,10 +77,10 @@ const GaleraPreset = definePreset(Aura, {
           950: '#09090b',
         },
         primary: {
-          color:         '#2dd4bf',
+          color:         '{primary.400}',
           contrastColor: '#09090b',
-          hoverColor:    '#14b8a6',
-          activeColor:   '#0d9488',
+          hoverColor:    '{primary.500}',
+          activeColor:   '{primary.600}',
         },
         highlight: {
           background:      'rgba(45,212,191,0.10)',
@@ -195,6 +195,71 @@ const GaleraPreset = definePreset(Aura, {
             background:      '#0f1015',
             hoverBackground: '#1a1b24',
             borderColor:     'rgba(255,255,255,0.04)',
+          },
+        },
+      },
+    },
+    // ── Toast ────────────────────────────────────────────────────────
+    toast: {
+      colorScheme: {
+        dark: {
+          root: {
+            background:  '#1a1b22',
+            borderColor: 'rgba(255,255,255,0.08)',
+            color:       '#e4e4e7',
+            shadow:      '0 16px 48px rgba(0,0,0,0.6)',
+          },
+          // success
+          success: {
+            background:  'rgba(74,222,128,0.08)',
+            borderColor: 'rgba(74,222,128,0.2)',
+            color:       '#4ade80',
+            detailColor: '#a3a3a3',
+          },
+          // error
+          error: {
+            background:  'rgba(248,113,113,0.08)',
+            borderColor: 'rgba(248,113,113,0.2)',
+            color:       '#f87171',
+            detailColor: '#a3a3a3',
+          },
+          // warn
+          warn: {
+            background:  'rgba(251,191,36,0.08)',
+            borderColor: 'rgba(251,191,36,0.2)',
+            color:       '#fbbf24',
+            detailColor: '#a3a3a3',
+          },
+          // info
+          info: {
+            background:  'rgba(96,165,250,0.08)',
+            borderColor: 'rgba(96,165,250,0.2)',
+            color:       '#60a5fa',
+            detailColor: '#a3a3a3',
+          },
+          closeButton: {
+            hoverBackground: 'rgba(255,255,255,0.07)',
+          },
+        },
+      },
+    },
+    // ── Tag ──────────────────────────────────────────────────────────
+    tag: {
+      colorScheme: {
+        dark: {
+          root: {
+            primaryBackground:  'rgba(45,212,191,0.12)',
+            primaryColor:       '#2dd4bf',
+            successBackground:  'rgba(74,222,128,0.12)',
+            successColor:       '#4ade80',
+            dangerBackground:   'rgba(248,113,113,0.12)',
+            dangerColor:        '#f87171',
+            warningBackground:  'rgba(251,191,36,0.12)',
+            warningColor:       '#fbbf24',
+            infoBackground:     'rgba(96,165,250,0.12)',
+            infoColor:          '#60a5fa',
+            secondaryBackground:'rgba(255,255,255,0.07)',
+            secondaryColor:     '#a1a1aa',
           },
         },
       },
