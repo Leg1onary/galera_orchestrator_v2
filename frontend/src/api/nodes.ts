@@ -16,9 +16,9 @@ export interface NodeListItem {
     host: string
     port: number
     enabled: boolean
-    datacenter_id: number | null
+    dc_id: number | null           // [MINOR FIX] ТЗ п.2.4: поле dc_id, не datacenter_id
     datacenter_name: string | null
-    // live fields
+    // live fields — ТЗ п.7.2
     wsrep_local_state_comment: string | null
     wsrep_cluster_status: string | null
     wsrep_connected: boolean | null
@@ -28,8 +28,8 @@ export interface NodeListItem {
     maintenance_drift: boolean | null
     wsrep_flow_control_paused: number | null
     wsrep_local_recv_queue_avg: number | null
-    last_seen: string | null
-    last_error: string | null
+    last_check_ts: string | null   // [MINOR FIX] ТЗ п.7.2: last_check_ts, не last_seen
+    last_error?: string | null     // [MINOR] не в ТЗ / возможное расширение бэка
 }
 
 export interface NodeDetails extends NodeListItem {
@@ -58,9 +58,12 @@ export interface InnoDbStatus {
     parsed_at: string
 }
 
-export interface NodeVariable {
-    variable_name: string
-    value: string
+// [MAJOR FIX] ТЗ п.9.3: response включает accepted + опциональный operation_id
+// operation_id присутствует только для async actions (start/stop/restart/rejoin-force)
+export interface NodeActionResponse {
+    accepted: boolean
+    operation_id?: number | null
+    message: string
 }
 
 export const nodesApi = {
@@ -72,16 +75,19 @@ export const nodesApi = {
             .get<NodeDetails>(`/api/clusters/${clusterId}/nodes/${nodeId}/details`)
             .then((r) => r.data),
 
+    // [BLOCKER FIX] ТЗ п.9.3: action в body, не в URL
     action: (clusterId: number, nodeId: number, action: NodeAction) =>
         api
-            .post<{ operation_id?: number; message: string }>(
-                `/api/clusters/${clusterId}/nodes/${nodeId}/actions/${action}`
+            .post<NodeActionResponse>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/actions`,
+                { action }  // action передаётся в теле запроса
             )
             .then((r) => r.data),
 
+    // [BLOCKER FIX] ТЗ п.9.1: GET, не POST
     testConnection: (clusterId: number, nodeId: number) =>
         api
-            .post<TestConnectionResult>(
+            .get<TestConnectionResult>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/test-connection`
             )
             .then((r) => r.data),
@@ -91,8 +97,6 @@ export const nodesApi = {
             .get<InnoDbStatus>(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
-    variables: (clusterId: number, nodeId: number) =>
-        api
-            .get<NodeVariable[]>(`/api/clusters/${clusterId}/nodes/${nodeId}/variables`)
-            .then((r) => r.data),
+    // [MAJOR FIX] variables() удалён — endpoint не существует в ТЗ для nodes.
+    // Используй diagnosticsApi.variables(clusterId) из api/diagnostics.ts
 }
