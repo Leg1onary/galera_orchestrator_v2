@@ -10,40 +10,31 @@ export type NodeAction =
     | 'restart'
     | 'rejoin-force'
 
-// Используется в GET /api/clusters/{id}/nodes (список без live-данных)
+// GET /api/clusters/{id}/nodes — список нод с live-данными
+// Поля соответствуют backend/routers/nodes.py::list_nodes()
 export interface NodeListItem {
     id: number
     name: string
     host: string
     port: number
+    ssh_port: number
+    ssh_user: string
+    db_user: string
     enabled: boolean
-    dc_id: number | null
+    maintenance: boolean
+    datacenter_id: number | null       // бэкенд: "datacenter_id" (не dc_id)
     datacenter_name: string | null
-    wsrep_local_state_comment: string | null
-    wsrep_cluster_status: string | null
-    wsrep_connected: boolean | null
-    wsrep_ready: boolean | null
-    read_only: boolean | null
-    maintenance: boolean | null
-    maintenance_drift: boolean | null
-    wsrep_flow_control_paused: number | null
-    wsrep_local_recv_queue_avg: number | null
-    last_check_ts: string | null
-    last_error?: string | null
+    cluster_id: number
+    live: NodeLiveData | null
 }
 
 export interface NodeDetails extends NodeListItem {
-    wsrep_local_state: number | null
-    wsrep_cluster_size: number | null
-    wsrep_commit_window: number | null
-    wsrep_local_send_queue_avg: number | null
-    uptime_seconds: number | null
-    version: string | null
-    sparkline_flow_control: number[]
-    sparkline_recv_queue: number[]
+    // NodeDetails = NodeListItem (бэкенд get_node() возвращает ту же структуру)
+    // Расширенные поля приходят через live (NodeLiveData)
 }
 
-// Вложенный live-объект из GET /api/clusters/{id}/status → nodes[].live
+// LiveNodeState.to_dict() из backend/services/poller.py
+// ВАЖНО: поле называется 'readonly', не 'read_only'
 export interface NodeLiveData {
     wsrep_cluster_status: string | null
     wsrep_cluster_size: number | null
@@ -53,7 +44,7 @@ export interface NodeLiveData {
     wsrep_local_recv_queue: number | null
     wsrep_local_send_queue: number | null
     wsrep_flow_control_paused: number | null
-    readonly: boolean
+    readonly: boolean                   // ВАЖНО: 'readonly', не 'read_only'
     maintenance_drift: boolean
     ssh_ok: boolean
     db_ok: boolean
@@ -65,7 +56,7 @@ export interface NodeLiveData {
     recv_queue_history: number[]
 }
 
-// Используется в GET /api/clusters/{id}/status → nodes[] (с live-данными)
+// GET /api/clusters/{id}/status → nodes[] (используется в ClusterStatusResponse)
 export interface NodeStatusItem {
     id: number
     name: string
@@ -81,47 +72,58 @@ export interface NodeStatusItem {
     live: NodeLiveData
 }
 
+// GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
+// backend: test_node_connection() — одно поле error, не ssh_error/db_error
 export interface TestConnectionResult {
+    node_id: number
     ssh_ok: boolean
     ssh_latency_ms: number | null
-    ssh_error: string | null
     db_ok: boolean
     db_latency_ms: number | null
-    db_error: string | null
+    error: string | null               // единое поле ошибки (не ssh_error/db_error)
 }
 
+// GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
+// backend: get_innodb_status() → full_status / latest_deadlock / has_deadlock
 export interface InnoDbStatus {
-    raw: string
-    deadlock_section: string | null
-    parsed_at: string
+    node_id: number
+    full_status: string                // было 'raw' — не совпадало с бэкендом
+    latest_deadlock: string | null     // было 'deadlock_section'
+    has_deadlock: boolean              // было 'parsed_at' — поле другое
 }
 
 export interface NodeActionResponse {
     accepted: boolean
     operation_id?: number | null
-    message: string
+    message?: string
 }
 
+// GET /api/clusters/{cluster_id}/log?node_id=N&limit=N
 export interface NodeLogEntry {
     ts: string
-    level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
+    level: 'INFO' | 'WARN' | 'ERROR'
     source: string
     message: string
+    node_id: number | null
     operation_id: number | null
 }
 
-// ТЗ п.11.6: поля которые можно обновить через PATCH
+// ТЗ п.11.6: поля, обновляемые через PATCH /api/clusters/{id}/nodes/{id}
+// backend: NodePatchRequest(enabled, maintenance)
 export interface NodePatch {
     enabled?: boolean
+    maintenance?: boolean
 }
 
 export const nodesApi = {
     list: (clusterId: number) =>
         api.get<NodeListItem[]>(`/api/clusters/${clusterId}/nodes`).then((r) => r.data),
 
+    // GET /api/clusters/{cluster_id}/nodes/{node_id}
+    // backend: get_node() — БЕЗ суффикса /details
     details: (clusterId: number, nodeId: number) =>
         api
-            .get<NodeDetails>(`/api/clusters/${clusterId}/nodes/${nodeId}/details`)
+            .get<NodeDetails>(`/api/clusters/${clusterId}/nodes/${nodeId}`)
             .then((r) => r.data),
 
     action: (clusterId: number, nodeId: number, action: NodeAction) =>
@@ -153,11 +155,13 @@ export const nodesApi = {
             .get<InnoDbStatus>(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
+    // GET /api/clusters/{cluster_id}/log?node_id={nodeId}&limit={limit}
+    // Использует cluster-level event_log endpoint (не /nodes/{id}/logs — такого нет)
     getNodeLogs: (clusterId: number, nodeId: number, limit = 100) =>
         api
             .get<NodeLogEntry[]>(
-                `/api/clusters/${clusterId}/nodes/${nodeId}/logs`,
-                { params: { limit } }
+                `/api/clusters/${clusterId}/log`,
+                { params: { node_id: nodeId, limit } }
             )
             .then((r) => r.data),
 }
