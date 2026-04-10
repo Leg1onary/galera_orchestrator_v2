@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import ProgressSpinner from 'primevue/progressspinner'
-import { formatTime } from '@/utils/time'
+import { formatRelative } from '@/utils/time'
 import type { EventLogEntry } from '@/stores/events'
 
 const props = defineProps<{
@@ -43,7 +43,7 @@ const levelClass: Record<string, string> = {
           :key="e.id"
           :class="['log-entry', levelClass[e.level] ?? 'info']"
       >
-        <span class="log-ts">{{ formatTime(e.ts) }}</span>
+        <span class="log-ts">{{ formatRelative(e.ts) }}</span>
         <span class="log-level">{{ e.level }}</span>
         <span class="log-source">{{ e.source }}</span>
         <span class="log-msg">{{ e.message }}</span>
@@ -60,7 +60,6 @@ const levelClass: Record<string, string> = {
   overflow: hidden;
 }
 
-/* Loading / empty */
 .log-state {
   display: flex;
   align-items: center;
@@ -70,7 +69,6 @@ const levelClass: Record<string, string> = {
   font-size: var(--text-sm);
 }
 
-/* List */
 .log-list {
   list-style: none;
   margin: 0;
@@ -79,7 +77,6 @@ const levelClass: Record<string, string> = {
   overflow-y: auto;
 }
 
-/* Entry row */
 .log-entry {
   display: grid;
   grid-template-columns: 70px 46px minmax(80px, 100px) 1fr;
@@ -91,16 +88,13 @@ const levelClass: Record<string, string> = {
   font-variant-numeric: tabular-nums;
 }
 
-/* Level backgrounds */
 .log-entry.warn  { background: var(--color-warning-highlight); }
 .log-entry.error { background: var(--color-error-highlight); }
 
-/* Columns */
 .log-ts     { color: var(--color-text-muted); }
 .log-source { color: var(--color-text-muted); }
 .log-msg    { color: var(--color-text); }
 
-/* Level badge colour */
 .log-level { font-weight: 600; }
 .log-entry.info  .log-level { color: var(--color-blue); }
 .log-entry.warn  .log-level { color: var(--color-gold); }
