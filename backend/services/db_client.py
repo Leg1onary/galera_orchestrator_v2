@@ -29,8 +29,6 @@ import pymysql
 import pymysql.cursors
 from services.crypto import decrypt_password, is_encrypted
 
-from config import settings
-
 logger = logging.getLogger(__name__)
 
 # Per ТЗ раздел 15.11
@@ -215,8 +213,6 @@ class DBClient:
         try:
             with self._conn.cursor() as cursor:
                 cursor.execute(sql)
-            # autocommit=True — commit() не нужен, убран
-            self._conn.commit()
         except pymysql.Error as exc:
             raise DBError(
                 f"Execute failed on {self.host}:{self.port}: {exc}\nSQL: {sql}"

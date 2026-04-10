@@ -89,7 +89,7 @@ class ConnectionManager:
                 )
                 self.disconnect(cluster_id, ws)
 
-        await asyncio.gather(*[_send(ws) for ws in snapshot], return_exceptions=True)
+        await asyncio.gather(*[_send(ws) for ws in snapshot])
 
     def client_count(self, cluster_id: int) -> int:
         """Return number of active connections for a cluster."""

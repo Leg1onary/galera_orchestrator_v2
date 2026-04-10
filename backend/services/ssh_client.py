@@ -21,6 +21,7 @@ Usage standalone:
 import logging
 import time
 from typing import Self
+import socket
 
 import shlex
 
@@ -152,6 +153,10 @@ class SSHClient:
         except OSError as exc:
             raise SSHError(
                 f"SSH exec I/O error [{self.host}:{self.port}] `{command}`: {exc}"
+            ) from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise SSHError(
+                f"SSH exec timed out [{self.host}:{self.port}] `{command}`"
             ) from exc
 
         logger.debug(
