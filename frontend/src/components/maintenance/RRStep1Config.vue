@@ -14,27 +14,27 @@
     </div>
 
     <!-- Drag list -->
-    <div ref="sortableEl" class="node-order-list mb-4">
+    <div ref="sortableEl" class="node-order-list">
       <div
-          v-for="nodeId in store.nodeOrder"
+          v-for="nodeId in localOrder"
           :key="nodeId"
           class="node-order-item"
           :data-id="nodeId"
       >
-        <i class="pi pi-bars drag-handle text-muted-color" />
+        <i class="pi pi-bars drag-handle" />
         <div class="node-order-info">
-          <span class="font-medium">{{ nodeName(nodeId) }}</span>
-          <span class="font-mono text-xs text-muted-color">{{ nodeHost(nodeId) }}</span>
+          <span class="node-name">{{ nodeName(nodeId) }}</span>
+          <span class="node-host">{{ nodeHost(nodeId) }}</span>
         </div>
         <NodeStateBadge :state="nodeState(nodeId)" />
       </div>
     </div>
 
     <!-- Timeout setting -->
-    <div class="timeout-row mb-4">
+    <div class="timeout-row">
       <label class="field-label">
         Wait for SYNCED timeout
-        <span class="text-muted-color font-normal">(seconds)</span>
+        <span class="field-label-hint">(seconds)</span>
       </label>
       <InputNumber
           v-model="store.waitTimeoutSec"
@@ -45,18 +45,18 @@
           size="small"
           style="width: 140px"
       />
-      <span class="text-xs text-muted-color">
+      <span class="timeout-hint">
         If a node doesn't reach SYNCED within this time, the operation fails.
       </span>
     </div>
 
-    <!-- Error from startRollingRestart -->
-    <div v-if="startError" class="error-alert mb-4">
+    <!-- Error -->
+    <div v-if="startError" class="error-alert">
       <i class="pi pi-times-circle" />
       {{ startError }}
     </div>
 
-    <div class="flex justify-end">
+    <div class="step-actions">
       <Button
           label="Start rolling restart"
           icon="pi pi-sync"
@@ -69,35 +69,46 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Button, InputNumber } from 'primevue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+// BLOCKER fix: раздельные импорты
+import Button from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
 import { useSortable } from '@vueuse/integrations/useSortable'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import NodeStateBadge from '@/components/shared/NodeStateBadge.vue'
 
 const store = useMaintenanceStore()
 const sortableEl = ref<HTMLElement | null>(null)
-const starting = ref(false)
+const starting   = ref(false)
 const startError = ref<string | null>(null)
 
-// VueUse useSortable — drag-to-reorder без внешней drag library
-const { stop } = useSortable(sortableEl, store.nodeOrder, {
+// MAJOR fix: локальная копия чтобы не мутировать Pinia-массив напрямую
+const localOrder = ref<number[]>([...store.nodeOrder])
+
+// Sync store → localOrder при внешнем изменении (например reset)
+watch(() => store.nodeOrder, (val) => {
+  localOrder.value = [...val]
+})
+
+// MAJOR fix: инициализация после mount, onUpdate → store.setNodeOrder
+const { stop } = useSortable(sortableEl, localOrder, {
   handle: '.drag-handle',
   animation: 150,
   onUpdate: () => {
-    // useSortable мутирует массив in-place — store реактивно обновится
+    store.setNodeOrder([...localOrder.value])
   },
 })
 onUnmounted(() => stop())
 
+// MAJOR fix: n.id, n.name, n.wsrep_local_state_comment
 function nodeName(id: number) {
-  return store.nodes.find((n) => n.node_id === id)?.node_name ?? `Node #${id}`
+  return store.nodes.find((n) => n.id === id)?.name ?? `Node #${id}`
 }
 function nodeHost(id: number) {
-  return store.nodes.find((n) => n.node_id === id)?.host ?? ''
+  return store.nodes.find((n) => n.id === id)?.host ?? ''
 }
 function nodeState(id: number) {
-  return store.nodes.find((n) => n.node_id === id)?.wsrep_state ?? 'UNKNOWN'
+  return store.nodes.find((n) => n.id === id)?.wsrep_local_state_comment ?? null
 }
 
 async function handleStart() {
@@ -115,9 +126,16 @@ async function handleStart() {
 </script>
 
 <style scoped>
+.wizard-step  { display: flex; flex-direction: column; gap: var(--space-4); }
+.step-header  { display: flex; flex-direction: column; gap: var(--space-2); }
+.step-title   { font-size: var(--text-lg); font-weight: 600; }
+.step-desc    { font-size: var(--text-sm); color: var(--color-text-muted); }
+
 .node-order-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .node-order-item {
-  display: flex; align-items: center; gap: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
@@ -125,23 +143,36 @@ async function handleStart() {
   cursor: default;
   user-select: none;
 }
-.drag-handle { cursor: grab; font-size: 1rem; }
+.drag-handle        { cursor: grab; font-size: 1rem; color: var(--color-text-muted); }
 .drag-handle:active { cursor: grabbing; }
 .node-order-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.node-name { font-weight: 500; }
+.node-host { font-family: monospace; font-size: var(--text-xs); color: var(--color-text-muted); }
+
 .timeout-row {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
 }
-.field-label { font-size: var(--text-sm); font-weight: 500; }
+.field-label      { font-size: var(--text-sm); font-weight: 500; }
+.field-label-hint { color: var(--color-text-muted); font-weight: 400; }
+.timeout-hint     { font-size: var(--text-xs); color: var(--color-text-muted); }
+
 .error-alert {
-  display: flex; align-items: center; gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: color-mix(in oklch, var(--color-error) 10%, transparent);
   color: var(--color-error);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
 }
+
+.step-actions { display: flex; justify-content: flex-end; }
 </style>
