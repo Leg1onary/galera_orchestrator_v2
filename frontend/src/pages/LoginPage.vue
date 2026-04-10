@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 
 const router    = useRouter()
 const authStore = useAuthStore()
 
-const form = reactive({ username: '', password: '' })
+const form    = reactive({ username: '', password: '' })
 const error   = ref<string | null>(null)
 const loading = ref(false)
 
@@ -16,9 +15,8 @@ async function submit() {
   loading.value = true
   error.value   = null
   try {
-    await authApi.login(form.username, form.password)
-    await authStore.fetchMe()
-    router.push({ name: 'cluster-select' })
+    await authStore.login(form.username, form.password)
+    router.push({ name: 'overview' })
   } catch {
     error.value = 'Invalid credentials'
   } finally {
@@ -112,7 +110,6 @@ async function submit() {
   gap: var(--space-5);
 }
 
-/* Logo */
 .login-logo {
   display: flex;
   align-items: center;
@@ -127,7 +124,6 @@ async function submit() {
   color: var(--color-text);
 }
 
-/* Headings */
 .login-title {
   font-size: var(--text-2xl);
   font-weight: 700;
@@ -141,7 +137,6 @@ async function submit() {
   color: var(--color-text-muted);
 }
 
-/* Form */
 .login-form {
   display: flex;
   flex-direction: column;
@@ -166,7 +161,7 @@ async function submit() {
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--color-error);
-  background: var(--color-offline-dim);
+  background: rgba(248, 113, 113, 0.08);
   border: 1px solid rgba(248, 113, 113, 0.2);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
@@ -180,7 +175,6 @@ async function submit() {
   justify-content: center;
 }
 
-/* PrimeVue Password wrapper fix */
 :deep(.p-password) { width: 100%; }
 :deep(.p-password .p-inputtext) { width: 100%; }
 </style>

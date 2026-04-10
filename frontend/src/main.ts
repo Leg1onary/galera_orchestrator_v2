@@ -28,6 +28,18 @@ import Toast from 'primevue/toast'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Badge from 'primevue/badge'
+// ── new components ────────────────────────────────────────────────────────────
+import Timeline from 'primevue/timeline'
+import MeterGroup from 'primevue/metergroup'
+import Skeleton from 'primevue/skeleton'
+import Knob from 'primevue/knob'
+import SplitButton from 'primevue/splitbutton'
+import Breadcrumb from 'primevue/breadcrumb'
+import Stepper from 'primevue/stepper'
+import StepList from 'primevue/steplist'
+import StepPanels from 'primevue/steppanels'
+import Step from 'primevue/step'
+import StepPanel from 'primevue/steppanel'
 
 import 'primeicons/primeicons.css'
 import './assets/main.css'
@@ -35,8 +47,6 @@ import App from './App.vue'
 import router from './router'
 
 // ─── Galera Orchestrator v2 — Terminal Precision theme ───────────────────────
-// Zinc dark surfaces, teal accent (interactive only)
-// Built on Aura base — only semantic tokens overridden
 const GaleraPreset = definePreset(Aura, {
   semantic: {
     primary: {
@@ -84,7 +94,6 @@ const GaleraPreset = definePreset(Aura, {
     },
   },
   components: {
-    // Button: ghost teal style for primary, semantic for others
     button: {
       colorScheme: {
         dark: {
@@ -104,7 +113,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // Card overrides
     card: {
       colorScheme: {
         dark: {
@@ -117,7 +125,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // Input text
     inputtext: {
       colorScheme: {
         dark: {
@@ -133,7 +140,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // Select dropdown
     select: {
       colorScheme: {
         dark: {
@@ -157,7 +163,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // Dialog
     dialog: {
       colorScheme: {
         dark: {
@@ -169,7 +174,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // Drawer
     drawer: {
       colorScheme: {
         dark: {
@@ -180,7 +184,6 @@ const GaleraPreset = definePreset(Aura, {
         },
       },
     },
-    // DataTable
     datatable: {
       colorScheme: {
         dark: {
@@ -236,6 +239,7 @@ app.use(ConfirmationService)
 
 app.directive('tooltip', Tooltip)
 
+// original components
 app.component('Button', Button)
 app.component('InputText', InputText)
 app.component('Password', Password)
@@ -257,5 +261,17 @@ app.component('Toast', Toast)
 app.component('ConfirmDialog', ConfirmDialog)
 app.component('ToggleSwitch', ToggleSwitch)
 app.component('Badge', Badge)
+// new components
+app.component('Timeline', Timeline)
+app.component('MeterGroup', MeterGroup)
+app.component('Skeleton', Skeleton)
+app.component('Knob', Knob)
+app.component('SplitButton', SplitButton)
+app.component('Breadcrumb', Breadcrumb)
+app.component('Stepper', Stepper)
+app.component('StepList', StepList)
+app.component('StepPanels', StepPanels)
+app.component('Step', Step)
+app.component('StepPanel', StepPanel)
 
 app.mount('#app')
