@@ -37,12 +37,12 @@ def get_active_operation(cluster_id: int) -> dict | None:
                 SELECT id, type, status, started_at, created_by, target_node_id, details_json
                 FROM cluster_operations
                 WHERE cluster_id = :cid
-                  AND status IN :statuses
+                  AND status IN ('pending', 'running', 'cancel_requested')
                 ORDER BY id DESC
                 LIMIT 1
                 """
             ),
-            {"cid": cluster_id, "statuses": _ACTIVE_STATUSES},
+            {"cid": cluster_id},
         ).mappings().fetchone()
     return dict(row) if row else None
 
