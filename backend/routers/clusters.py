@@ -1,9 +1,10 @@
 """
 Clusters router
 
-GET  /api/clusters                    — список кластеров с live-сводкой
-GET  /api/clusters?contour_id=N       — фильтр по контуру
+GET  /api/clusters                     — список кластеров с live-сводкой
+GET  /api/clusters?contour_id=N        — фильтр по контуру
 GET  /api/clusters/{cluster_id}/status — полный live-статус кластера
+GET  /api/clusters/{cluster_id}/log    — event_log кластера (с фильтрами)
 
 ТЗ разделы 6.1, 7, 9.1, 9.2
 """
@@ -11,7 +12,7 @@ GET  /api/clusters/{cluster_id}/status — полный live-статус кла
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 
 from database import engine
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
+# ── DB helpers ──────────────────────────────────────────────────────────────────
 
 def _fetch_clusters(contour_id: int | None = None) -> list[dict]:
     sql = """
@@ -62,7 +63,7 @@ def _fetch_nodes(cluster_id: int) -> list[dict]:
                      n.id, n.name, n.host, n.port,
                      n.ssh_port, n.ssh_user, n.db_user,
                      n.enabled, n.maintenance,
-                     n.datacenter_id AS dc_id, 
+                     n.datacenter_id AS dc_id,
                      d.name AS dc_name
                  FROM nodes n
                           LEFT JOIN datacenters d ON d.id = n.datacenter_id
@@ -93,7 +94,7 @@ def _fetch_arbitrators(cluster_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ── Live status helpers ───────────────────────────────────────────────────────
+# ── Live status helpers ─────────────────────────────────────────────────────────────
 
 def _calc_cluster_status(
         node_states: dict,
@@ -164,7 +165,7 @@ def _build_cluster_live_summary(
     }
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ───────────────────────────────────────────────────────────────────
 
 @router.get("", dependencies=[Depends(require_auth)])
 async def list_clusters(contour_id: int | None = None) -> list[dict]:
@@ -291,8 +292,84 @@ async def cluster_status(cluster_id: int) -> dict:
         "online_arbitrators": online_arbs,
         "total_arbitrators": len(arbitrators),
         "has_live_data":     has_live,
-        "last_update_ts":    last_update_ts,  # поллер проставит через live state
+        "last_update_ts":    last_update_ts,
         "nodes":             nodes_out,
         "arbitrators":       arbitrators_out,
         "active_operation":  active_operation,
     }
+
+
+@router.get("/{cluster_id}/log", dependencies=[Depends(require_auth)])
+async def cluster_log(
+        cluster_id: int,
+        node_id: int | None = Query(default=None),
+        arbitrator_id: int | None = Query(default=None),
+        source: str | None = Query(default=None),
+        level: str | None = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict]:
+    """
+    GET /api/clusters/{cluster_id}/log
+
+    Возвращает event_log по кластеру с опциональными фильтрами.
+    Используется фронтом для вкладки "События" в NodeDetailDrawer.
+
+    Query params:
+      node_id        — фильтр по ноде
+      arbitrator_id  — фильтр по арбитратору
+      source         — фильтр по источнику (ssh|ui|recovery|maintenance|...)
+      level          — фильтр по уровню (INFO|WARN|ERROR)
+      limit          — макс 500, default 100
+    """
+    cluster = _fetch_cluster_by_id(cluster_id)
+    if cluster is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cluster {cluster_id} not found",
+        )
+
+    conditions = ["cluster_id = :cluster_id"]
+    params: dict = {"cluster_id": cluster_id, "limit": limit}
+
+    if node_id is not None:
+        conditions.append("node_id = :node_id")
+        params["node_id"] = node_id
+
+    if arbitrator_id is not None:
+        conditions.append("arbitrator_id = :arbitrator_id")
+        params["arbitrator_id"] = arbitrator_id
+
+    if source is not None:
+        conditions.append("source = :source")
+        params["source"] = source
+
+    if level is not None:
+        conditions.append("level = :level")
+        params["level"] = level.upper()
+
+    where = " AND ".join(conditions)
+    sql = f"""
+        SELECT id, ts, level, source, message,
+               node_id, arbitrator_id, operation_id
+        FROM event_logs
+        WHERE {where}
+        ORDER BY ts DESC
+        LIMIT :limit
+    """
+
+    with engine.begin() as conn:
+        rows = conn.execute(text(sql), params).mappings().fetchall()
+
+    return [
+        {
+            "id":             r["id"],
+            "ts":             r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else r["ts"],
+            "level":          r["level"],
+            "source":         r["source"],
+            "message":        r["message"],
+            "node_id":        r["node_id"],
+            "arbitrator_id":  r["arbitrator_id"],
+            "operation_id":   r["operation_id"],
+        }
+        for r in rows
+    ]
