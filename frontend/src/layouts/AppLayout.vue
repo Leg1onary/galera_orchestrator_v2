@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader  from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppFooter  from '@/components/AppFooter.vue'
 
 const route = useRoute()
-const sidebarCollapsed = computed({
-  get: () => JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false'),
-  set: (v) => localStorage.setItem('sidebar-collapsed', String(v)),
-})
+
+// Правильно через ref — computed+localStorage не реактивен
+const sidebarCollapsed = ref<boolean>(
+  JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false')
+)
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
+  localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed.value))
 }
 
 const showLayout = computed(
@@ -33,7 +35,7 @@ const showLayout = computed(
   </div>
   <RouterView v-else />
 
-  <!-- Global overlays - must be at root level -->
+  <!-- Global overlays -->
   <ConfirmDialog />
   <Toast position="bottom-right" />
 </template>
@@ -51,7 +53,7 @@ const showLayout = computed(
   flex-direction: column;
   min-width: 0;
   margin-left: var(--sidebar-width);
-  transition: margin-left var(--transition-slow);
+  transition: margin-left 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-main--collapsed {
