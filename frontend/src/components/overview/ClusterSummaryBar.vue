@@ -123,9 +123,9 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  /* увеличены отступы */
-  padding: var(--space-4) var(--space-7);
-  gap: var(--space-7);
+  /* компактный padding, но с нормальной высотой */
+  padding: var(--space-4) var(--space-5);
+  gap: var(--space-5);
   overflow-x: auto;
   flex-wrap: nowrap;
 }
@@ -133,6 +133,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 .csb-item {
   display: flex;
   flex-direction: column;
+  /* ключевой момент: достаточный gap между label и value */
   gap: var(--space-2);
   min-width: max-content;
 }
@@ -144,13 +145,16 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--color-text-faint);
-  font-weight: 500;
+  font-weight: 600;
+  /* небольшой верхний отступ чтобы label не прилипал к краю */
+  padding-top: 2px;
 }
 
 .csb-val {
   font-size: var(--text-md);
   font-weight: 700;
   color: var(--color-text);
+  line-height: 1;
 }
 .csb-val--mono { font-family: var(--font-mono); }
 
@@ -176,9 +180,9 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
 .csb-divider {
   width: 1px;
-  /* больше высота разделителя */
-  height: 40px;
-  background: var(--color-border-muted);
+  height: 36px;
+  background: var(--color-border);
   flex-shrink: 0;
+  opacity: 0.6;
 }
 </style>

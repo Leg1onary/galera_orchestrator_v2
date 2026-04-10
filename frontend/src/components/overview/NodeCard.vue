@@ -101,11 +101,10 @@ function confirmDestructive(action: NodeAction, label: string) {
 
 <template>
   <article class="node-card" :class="'node-card--' + stateInfo.cls">
-    <!-- State stripe with glow -->
     <div class="nc-stripe" aria-hidden="true" />
 
     <div class="nc-body">
-      <!-- ── HEADER ───────────────────────────────────────────── -->
+      <!-- HEADER -->
       <div class="nc-header">
         <div class="nc-title-group">
           <span class="nc-name">{{ node.name }}</span>
@@ -118,7 +117,7 @@ function confirmDestructive(action: NodeAction, label: string) {
         />
       </div>
 
-      <!-- ── HOST + MODE ──────────────────────────────────── -->
+      <!-- HOST + MODE -->
       <div class="nc-host-row">
         <i class="pi pi-server nc-host-icon" />
         <span class="nc-host-addr">{{ node.host }}:{{ node.port }}</span>
@@ -127,7 +126,7 @@ function confirmDestructive(action: NodeAction, label: string) {
         </span>
       </div>
 
-      <!-- ── METRICS GRID ─────────────────────────────────── -->
+      <!-- METRICS — отделены бордером сверху -->
       <div class="nc-metrics">
         <div class="nc-metric">
           <span class="nc-mk">Cluster Size</span>
@@ -151,13 +150,13 @@ function confirmDestructive(action: NodeAction, label: string) {
         </div>
       </div>
 
-      <!-- ── SSH + SPACER ──────────────────────────────────── -->
+      <!-- SSH -->
       <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
         <i :class="node.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
         <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
       </div>
 
-      <!-- ── ACTION BAR ───────────────────────────────────── -->
+      <!-- ACTION BAR -->
       <div class="nc-actions">
         <Button
           class="nc-action-ping"
@@ -250,16 +249,16 @@ function confirmDestructive(action: NodeAction, label: string) {
 .node-card--unknown  { --node-stripe: var(--color-text-faint); }
 
 /* ═══════════════════════════════════════
-   BODY
+   BODY — умеренные отступы, воздух через border-секции
 ═══════════════════════════════════════ */
 .nc-body {
   flex: 1;
   min-width: 0;
-  /* увеличены внутренние отступы */
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  /* маленький gap — дышать будем через border-top у секций */
+  gap: var(--space-3);
 }
 
 /* ═══════════════════════════════════════
@@ -270,6 +269,8 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
+  /* чуть больше снизу чтобы имя ноды визуально дышало */
+  padding-bottom: var(--space-1);
 }
 .nc-title-group {
   display: flex;
@@ -344,22 +345,24 @@ function confirmDestructive(action: NodeAction, label: string) {
 }
 
 /* ═══════════════════════════════════════
-   METRICS
+   METRICS — отделены бордером, внутренний padding создаёт воздух
 ═══════════════════════════════════════ */
 .nc-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  /* увеличены отступы внутри блока метрик */
-  gap: var(--space-4) var(--space-5);
-  padding: var(--space-4) var(--space-4);
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-3);
   background: var(--color-surface-offset);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  /* ключевое: визуальный отрыв от host-row через margin-top */
+  margin-top: var(--space-1);
 }
 .nc-metric {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  /* gap между label и value — основной источник «воздуха» внутри метрики */
+  gap: var(--space-2);
 }
 .nc-mk {
   font-size: 0.68rem;
@@ -407,13 +410,14 @@ function confirmDestructive(action: NodeAction, label: string) {
 }
 
 /* ═══════════════════════════════════════
-   ACTION BAR
+   ACTION BAR — отделён бордером сверху
 ═══════════════════════════════════════ */
 .nc-actions {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding-top: var(--space-2);
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
   border-top: 1px solid var(--color-border);
 }
 
