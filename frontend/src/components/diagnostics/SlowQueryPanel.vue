@@ -1,5 +1,5 @@
 <template>
-  <div class="diag-panel">
+  <div class="diag-panel anim-fade-in">
     <PanelToolbar
         title="slow_query_log"
         :loading="isLoading"
@@ -39,7 +39,20 @@
           row-hover
           class="diag-table"
       >
-        <Column field="start_time" header="Started" style="width: 170px" :sortable="true">
+        <template #header>
+          <div class="table-header">
+            <span class="table-title">
+              <i class="pi pi-clock" />
+              Slow queries
+            </span>
+            <span v-if="data?.length" class="row-count">
+              <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
+              {{ data.length }}
+            </span>
+          </div>
+        </template>
+
+        <Column field="start_time" header="Started" style="width: 160px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-mono cell-muted-sm">{{ data.start_time }}</span>
           </template>
@@ -53,7 +66,7 @@
 
         <Column field="query_time" header="Query time" style="width: 110px" :sortable="true">
           <template #body="{ data }">
-            <span class="cell-mono cell-time-warn">{{ data.query_time }}</span>
+            <span class="cell-time-warn">{{ data.query_time }}</span>
           </template>
         </Column>
 
@@ -77,14 +90,17 @@
 
         <Column field="db" header="DB" style="width: 100px">
           <template #body="{ data }">
-            <span v-if="data.db" class="cell-db">{{ data.db }}</span>
+            <span v-if="data.db" class="cell-db">
+              <i class="pi pi-database" style="font-size: 9px; opacity: 0.7" />
+              {{ data.db }}
+            </span>
             <span v-else class="cell-dash">—</span>
           </template>
         </Column>
 
         <Column field="sql_text" header="Query">
           <template #body="{ data }">
-            <span class="cell-mono cell-query" :title="data.sql_text">
+            <span class="cell-query" :title="data.sql_text">
               {{ data.sql_text?.slice(0, 120) }}{{ data.sql_text?.length > 120 ? '…' : '' }}
             </span>
           </template>
@@ -93,7 +109,7 @@
         <template #empty>
           <div class="empty-row">
             <i class="pi pi-check-circle" />
-            No slow queries found.
+            <span>No slow queries found</span>
           </div>
         </template>
       </DataTable>
@@ -133,6 +149,7 @@ const fetchedAt = computed(() =>
 </script>
 
 <style scoped>
+/* ── Layout ──────────────────────────────────────── */
 .diag-panel {
   display: flex;
   flex-direction: column;
@@ -145,47 +162,167 @@ const fetchedAt = computed(() =>
   flex-shrink: 0;
 }
 
-.table-wrap {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.cell-mono       { font-family: var(--font-mono); }
-.cell-muted-sm   { font-size: var(--text-xs); color: var(--color-text-muted); }
-.cell-dim        { font-size: var(--text-xs); color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
-.cell-time-warn  { font-size: var(--text-sm); font-weight: 700; color: var(--color-warning); font-variant-numeric: tabular-nums; }
-.cell-db         { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-primary); }
-.cell-dash       { color: var(--color-text-faint); font-size: var(--text-xs); }
-.cell-query {
-  display: block;
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
+/* ── Error alert ───────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: rgba(248,113,113,0.08);
-  border: 1px solid rgba(248,113,113,0.20);
+  background: color-mix(in oklch, var(--color-error) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-error) 25%, transparent);
   color: var(--color-error);
   font-size: var(--text-sm);
 }
+.error-alert .pi { font-size: var(--text-base); flex-shrink: 0; }
 
-.empty-row {
+/* ── Table wrapper ──────────────────────────────── */
+.table-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+/* ── Table header toolbar ─────────────────────────── */
+.table-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.table-title {
+  display: inline-flex;
+  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-10);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex: 1 1 auto;
+}
+.table-title .pi {
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+  opacity: 0.8;
+}
+
+.row-count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 2px var(--space-3);
+}
+
+/* ── DataTable overrides ───────────────────────────── */
+:deep(.diag-table .p-datatable-table) {
+  width: 100%;
+  table-layout: fixed;
+}
+
+:deep(.diag-table .p-datatable-thead > tr > th) {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+:deep(.diag-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-3) var(--space-5);
+  vertical-align: middle;
+  border: none;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+:deep(.diag-table .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none;
+}
+
+/* ── Paginator ───────────────────────────────────── */
+:deep(.p-paginator) {
+  background: var(--color-surface-2);
+  border-top: 1px solid var(--color-border-muted);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-xs);
+}
+:deep(.p-paginator-page.p-highlight) {
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border-color: var(--color-primary-glow);
+}
+
+/* ── Cells ───────────────────────────────────────── */
+.cell-mono     { font-family: var(--font-mono); }
+.cell-muted-sm { font-size: var(--text-xs); color: var(--color-text-muted); }
+
+.cell-dim {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-time-warn {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-warning);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 40%, transparent);
+}
+
+.cell-db {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+}
+
+.cell-dash {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.cell-query {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+}
+:deep(tr:hover) .cell-query { color: var(--color-text); }
+
+/* ── Empty state ────────────────────────────────── */
+.empty-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-8);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
+.empty-row .pi { font-size: 1.5rem; opacity: 0.4; color: var(--color-success); }
 </style>
