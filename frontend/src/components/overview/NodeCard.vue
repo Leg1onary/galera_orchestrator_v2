@@ -22,12 +22,13 @@ interface NodeLive {
   readonly: boolean
 }
 
-const props   = defineProps<{ node: NodeLive; clusterId: number }>()
-const qc      = useQueryClient()
+const props    = defineProps<{ node: NodeLive; clusterId: number }>()
+const qc       = useQueryClient()
 const opsStore = useOperationsStore()
-const confirm = useConfirm()
+const confirm  = useConfirm()
 
 const actionLoading = ref<NodeAction | null>(null)
+const actionsOpen   = ref(false)
 
 const isLocked = computed(() => {
   const op = opsStore.activeOperation
@@ -35,7 +36,7 @@ const isLocked = computed(() => {
 })
 
 const nodeState = computed(() => {
-  const n = props.node
+  const n   = props.node
   const raw = (n.wsrep_local_state_comment ?? '').toUpperCase()
   if (!n.ssh_ok || raw === 'OFFLINE') return 'OFFLINE'
   if (n.wsrep_ready === 'OFF')        return 'NOT_READY'
@@ -44,34 +45,32 @@ const nodeState = computed(() => {
 })
 
 const STATE_MAP: Record<string, { label: string; cls: string; severity: string }> = {
-  SYNCED:    { label: 'Synced',    cls: 'synced',   severity: 'success' },
-  SYNCED_RO: { label: 'Synced RO', cls: 'readonly', severity: 'warn' },
-  DONOR:     { label: 'Donor',     cls: 'donor',    severity: 'info' },
-  JOINER:    { label: 'Joiner',    cls: 'donor',    severity: 'info' },
-  DESYNCED:  { label: 'Desynced',  cls: 'donor',    severity: 'info' },
-  NOT_READY: { label: 'Not Ready', cls: 'degraded', severity: 'warn' },
-  OFFLINE:   { label: 'Offline',   cls: 'offline',  severity: 'danger' },
+  SYNCED:    { label: 'Synced',    cls: 'synced',   severity: 'success'   },
+  SYNCED_RO: { label: 'Synced RO', cls: 'readonly', severity: 'warn'      },
+  DONOR:     { label: 'Donor',     cls: 'donor',    severity: 'info'      },
+  JOINER:    { label: 'Joiner',    cls: 'donor',    severity: 'info'      },
+  DESYNCED:  { label: 'Desynced',  cls: 'donor',    severity: 'info'      },
+  NOT_READY: { label: 'Not Ready', cls: 'degraded', severity: 'warn'      },
+  OFFLINE:   { label: 'Offline',   cls: 'offline',  severity: 'danger'    },
   UNKNOWN:   { label: 'Unknown',   cls: 'unknown',  severity: 'secondary' },
 }
 
 const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
 
-// recv queue — 0..100 mapped to knob (cap at 100)
-// ?? 0 защищает от undefined (поле отсутствует в ответе API)
-const recvQueuePct = computed(() => {
-  const v = props.node.wsrep_local_recv_queue ?? 0
-  return Math.min(v, 100)
-})
-const recvQueueWarn = computed(() => (props.node.wsrep_local_recv_queue ?? 0) > 0)
-const flowWarn      = computed(() => (props.node.wsrep_flow_control_paused ?? 0) > 0)
-
-// Безопасное форматирование flow control:
-// v == null ловит и null и undefined — в отличие от !== null
 const flowControlDisplay = computed(() => {
   const v = props.node.wsrep_flow_control_paused
   if (v == null) return '—'
   return v.toFixed(3)
 })
+
+const recvQueueDisplay = computed(() => {
+  const v = props.node.wsrep_local_recv_queue
+  if (v == null) return '—'
+  return String(v)
+})
+
+const recvQueueWarn = computed(() => (props.node.wsrep_local_recv_queue ?? 0) > 0)
+const flowWarn      = computed(() => (props.node.wsrep_flow_control_paused ?? 0) > 0)
 
 async function execAction(action: NodeAction) {
   actionLoading.value = action
@@ -83,54 +82,30 @@ async function execAction(action: NodeAction) {
   }
 }
 
-function ping() {
-  execAction('ping' as NodeAction)
-}
+function ping() { execAction('ping' as NodeAction) }
 
 function confirmDestructive(action: NodeAction, label: string) {
   if (isLocked.value) return
+  actionsOpen.value = false
   confirm.require({
-    message: `Run "${label}" on node ${props.node.name}?`,
-    header:  'Confirm action',
-    icon:    'pi pi-exclamation-triangle',
+    message:     `Run "${label}" on node ${props.node.name}?`,
+    header:      'Confirm action',
+    icon:        'pi pi-exclamation-triangle',
     rejectLabel: 'Cancel',
     acceptLabel: label,
     acceptClass: 'p-button-danger',
-    accept: () => execAction(action),
+    accept:      () => execAction(action),
   })
 }
-
-// SplitButton model for destructive actions
-const splitItems = computed(() => [
-  {
-    label: 'Restart',
-    icon:  'pi pi-refresh',
-    command: () => confirmDestructive('restart', 'Restart'),
-    disabled: !!isLocked.value,
-  },
-  {
-    label: 'Stop',
-    icon:  'pi pi-stop',
-    class: 'danger-item',
-    command: () => confirmDestructive('stop', 'Stop'),
-    disabled: !!isLocked.value,
-  },
-  {
-    label: 'Force Rejoin',
-    icon:  'pi pi-replay',
-    class: 'danger-item',
-    command: () => confirmDestructive('rejoin-force', 'Force Rejoin'),
-    disabled: !!isLocked.value,
-  },
-])
 </script>
 
 <template>
-  <article class="node-card anim-fade-in" :class="'node-card--' + stateInfo.cls">
+  <article class="node-card" :class="'node-card--' + stateInfo.cls">
+    <!-- State stripe with glow -->
     <div class="nc-stripe" aria-hidden="true" />
 
     <div class="nc-body">
-      <!-- Header -->
+      <!-- ── HEADER ─────────────────────────────────── -->
       <div class="nc-header">
         <div class="nc-title-group">
           <span class="nc-name">{{ node.name }}</span>
@@ -143,79 +118,95 @@ const splitItems = computed(() => [
         />
       </div>
 
-      <!-- Host row -->
-      <div class="nc-host">
+      <!-- ── HOST + MODE ────────────────────────────── -->
+      <div class="nc-host-row">
+        <i class="pi pi-server nc-host-icon" />
         <span class="nc-host-addr">{{ node.host }}:{{ node.port }}</span>
-        <Tag
-          :value="node.readonly ? 'RO' : 'RW'"
-          :severity="node.readonly ? 'warn' : 'success'"
-          class="nc-mode-tag"
-        />
+        <span class="nc-mode-badge" :class="node.readonly ? 'mode-ro' : 'mode-rw'">
+          {{ node.readonly ? 'RO' : 'RW' }}
+        </span>
       </div>
 
-      <!-- Metrics grid + recv queue knob -->
-      <div class="nc-metrics-wrap">
-        <div class="nc-metrics">
-          <div class="nc-metric">
-            <span class="nc-mk">cluster size</span>
-            <span class="nc-mv">{{ node.wsrep_cluster_size ?? '—' }}</span>
-          </div>
-          <div class="nc-metric">
-            <span class="nc-mk">component</span>
-            <span class="nc-mv">{{ node.wsrep_cluster_status ?? '—' }}</span>
-          </div>
-          <div class="nc-metric">
-            <span class="nc-mk">flow ctrl</span>
-            <span class="nc-mv" :class="flowWarn ? 'nc-mv--warn' : ''">
-              {{ flowControlDisplay }}
-            </span>
-          </div>
+      <!-- ── METRICS GRID ───────────────────────────── -->
+      <div class="nc-metrics">
+        <div class="nc-metric">
+          <span class="nc-mk">Cluster Size</span>
+          <span class="nc-mv">{{ node.wsrep_cluster_size ?? '—' }}</span>
         </div>
-
-        <!-- Knob recv queue -->
-        <div class="nc-knob-wrap" v-tooltip.top="'wsrep_local_recv_queue'">
-          <Knob
-            :model-value="recvQueuePct"
-            :size="52"
-            :stroke-width="6"
-            :min="0"
-            :max="100"
-            readonly
-            :value-color="recvQueueWarn ? 'var(--color-degraded)' : 'var(--color-synced)'"
-            range-color="var(--color-surface-3)"
-            text-color="var(--color-text-muted)"
-            :pt="{ value: { style: 'font-size: 0.6rem; font-family: var(--font-mono)' } }"
-          />
-          <span class="nc-knob-label">recv q</span>
+        <div class="nc-metric">
+          <span class="nc-mk">Component</span>
+          <span class="nc-mv nc-mv--mono">{{ node.wsrep_cluster_status ?? '—' }}</span>
+        </div>
+        <div class="nc-metric">
+          <span class="nc-mk">Flow Ctrl</span>
+          <span class="nc-mv nc-mv--mono" :class="flowWarn ? 'nc-mv--warn' : ''">
+            {{ flowControlDisplay }}
+          </span>
+        </div>
+        <div class="nc-metric">
+          <span class="nc-mk">Recv Queue</span>
+          <span class="nc-mv nc-mv--mono" :class="recvQueueWarn ? 'nc-mv--warn' : ''">
+            {{ recvQueueDisplay }}
+          </span>
         </div>
       </div>
 
-      <!-- SSH indicator -->
+      <!-- ── SSH + SPACER ───────────────────────────── -->
       <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
         <i :class="node.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
         <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
       </div>
 
-      <!-- Actions: ping + SplitButton -->
+      <!-- ── ACTION BAR ─────────────────────────────── -->
       <div class="nc-actions">
+        <!-- Ping -->
         <Button
+          class="nc-action-ping"
           icon="pi pi-wifi"
+          label="Ping"
+          size="small"
+          :loading="actionLoading === 'ping'"
+          :disabled="!!isLocked"
+          v-tooltip.top="'Check node reachability'"
+          @click.stop="ping"
+        />
+
+        <!-- Destructive actions -->
+        <Button
+          v-tooltip.top="'Restart MySQL'"
+          icon="pi pi-refresh"
           text
           rounded
           size="small"
-          :loading="actionLoading === 'ping'"
-          v-tooltip.top="'Ping'"
-          aria-label="Ping node"
-          @click.stop="ping"
-        />
-        <SplitButton
-          label="Actions"
-          icon="pi pi-bolt"
-          :model="splitItems"
-          size="small"
-          severity="secondary"
-          class="nc-split"
+          class="nc-action-icon"
+          :loading="actionLoading === 'restart'"
           :disabled="!!isLocked"
+          aria-label="Restart"
+          @click.stop="confirmDestructive('restart', 'Restart')"
+        />
+        <Button
+          v-tooltip.top="'Stop MySQL'"
+          icon="pi pi-stop-circle"
+          text
+          rounded
+          size="small"
+          class="nc-action-icon nc-action-danger"
+          :loading="actionLoading === 'stop'"
+          :disabled="!!isLocked"
+          aria-label="Stop"
+          @click.stop="confirmDestructive('stop', 'Stop')"
+        />
+        <Button
+          v-tooltip.top="'Force Rejoin (wsrep_sst)'"
+          icon="pi pi-replay"
+          text
+          rounded
+          size="small"
+          class="nc-action-icon nc-action-danger"
+          :loading="actionLoading === 'rejoin-force'"
+          :disabled="!!isLocked"
+          aria-label="Force Rejoin"
+          @click.stop="confirmDestructive('rejoin-force', 'Force Rejoin')"
         />
       </div>
     </div>
@@ -223,83 +214,247 @@ const splitItems = computed(() => [
 </template>
 
 <style scoped>
+/* ═══════════════════════════════════════
+   CARD BASE
+═══════════════════════════════════════ */
 .node-card {
   position: relative;
+  display: flex;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  display: flex;
-  transition: box-shadow var(--transition-normal), border-color var(--transition-normal);
+  transition:
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    transform 200ms ease;
 }
-.node-card:hover { box-shadow: var(--shadow-md); }
+.node-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
 
-/* Left state stripe */
+/* ═══════════════════════════════════════
+   STATE STRIPE + GLOW
+═══════════════════════════════════════ */
 .nc-stripe {
-  width: 3px;
+  width: 4px;
   flex-shrink: 0;
   background: var(--node-stripe, var(--color-border));
+  box-shadow: 0 0 12px 2px var(--node-glow, transparent);
+  transition: box-shadow 300ms ease;
 }
-.node-card--synced   { --node-stripe: var(--color-synced); }
-.node-card--readonly { --node-stripe: var(--color-readonly); }
-.node-card--donor    { --node-stripe: var(--color-donor); }
-.node-card--degraded { --node-stripe: var(--color-degraded); }
-.node-card--offline  { --node-stripe: var(--color-offline); }
+
+.node-card--synced   { --node-stripe: var(--color-synced);   --node-glow: color-mix(in oklch, var(--color-synced) 50%, transparent); }
+.node-card--readonly { --node-stripe: var(--color-readonly); --node-glow: color-mix(in oklch, var(--color-readonly) 45%, transparent); }
+.node-card--donor    { --node-stripe: var(--color-donor);    --node-glow: color-mix(in oklch, var(--color-donor) 45%, transparent); }
+.node-card--degraded { --node-stripe: var(--color-degraded); --node-glow: color-mix(in oklch, var(--color-degraded) 45%, transparent); }
+.node-card--offline  { --node-stripe: var(--color-offline);  --node-glow: color-mix(in oklch, var(--color-offline) 50%, transparent); }
 .node-card--unknown  { --node-stripe: var(--color-text-faint); }
 
+/* ═══════════════════════════════════════
+   BODY
+═══════════════════════════════════════ */
 .nc-body {
   flex: 1;
-  padding: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  min-width: 0;
 }
 
-/* Header */
+/* ═══════════════════════════════════════
+   HEADER
+═══════════════════════════════════════ */
 .nc-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
-.nc-title-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.nc-name  { font-size: var(--text-md); font-weight: 700; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nc-dc    { font-size: var(--text-xs); color: var(--color-text-faint); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
-.nc-state-tag { font-size: 0.65rem !important; }
+.nc-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nc-name {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.nc-dc {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+.nc-state-tag {
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
 
-/* Host */
-.nc-host { display: flex; align-items: center; gap: var(--space-2); }
-.nc-host-addr { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nc-mode-tag { font-size: 0.6rem !important; padding: 1px 5px !important; }
-
-/* Metrics + knob */
-.nc-metrics-wrap { display: flex; align-items: center; gap: var(--space-3); }
-.nc-metrics { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-3); }
-.nc-metric  { display: flex; flex-direction: column; gap: 1px; }
-.nc-mk { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-faint); font-weight: 500; }
-.nc-mv { font-size: var(--text-sm); font-weight: 600; font-family: var(--font-mono); color: var(--color-text); font-variant-numeric: tabular-nums; }
-.nc-mv--warn { color: var(--color-degraded); }
-
-/* Knob */
-.nc-knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
-.nc-knob-label { font-size: var(--text-xs); color: var(--color-text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* SSH */
-.nc-ssh { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); font-weight: 500; }
-.nc-ssh i { font-size: 0.6rem; }
-.nc-ssh--ok   { color: var(--color-text-faint); }
-.nc-ssh--fail { color: var(--color-offline); }
-
-/* Actions */
-.nc-actions {
+/* ═══════════════════════════════════════
+   HOST ROW
+═══════════════════════════════════════ */
+.nc-host-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding-top: var(--space-1);
-  border-top: 1px solid var(--color-border-muted);
 }
-.nc-split { flex: 1; }
-:deep(.nc-split .p-splitbutton-defaultbutton) { flex: 1; justify-content: center; }
-:deep(.danger-item .p-menuitem-link) { color: var(--color-offline) !important; }
+.nc-host-icon {
+  font-size: 0.7rem;
+  color: var(--color-text-faint);
+  flex-shrink: 0;
+}
+.nc-host-addr {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nc-mode-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.mode-rw {
+  background: color-mix(in oklch, var(--color-synced) 18%, transparent);
+  color: var(--color-synced);
+  border: 1px solid color-mix(in oklch, var(--color-synced) 35%, transparent);
+}
+.mode-ro {
+  background: color-mix(in oklch, var(--color-readonly) 18%, transparent);
+  color: var(--color-readonly);
+  border: 1px solid color-mix(in oklch, var(--color-readonly) 35%, transparent);
+}
+
+/* ═══════════════════════════════════════
+   METRICS
+═══════════════════════════════════════ */
+.nc-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface-offset);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+.nc-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nc-mk {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+.nc-mv {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.nc-mv--mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.nc-mv--warn {
+  color: var(--color-degraded);
+}
+
+/* ═══════════════════════════════════════
+   SSH BADGE
+═══════════════════════════════════════ */
+.nc-ssh {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  align-self: flex-start;
+}
+.nc-ssh i { font-size: 0.65rem; }
+.nc-ssh--ok {
+  background: color-mix(in oklch, var(--color-text-faint) 12%, transparent);
+  color: var(--color-text-faint);
+}
+.nc-ssh--fail {
+  background: color-mix(in oklch, var(--color-offline) 15%, transparent);
+  color: var(--color-offline);
+  border: 1px solid color-mix(in oklch, var(--color-offline) 30%, transparent);
+}
+
+/* ═══════════════════════════════════════
+   ACTION BAR
+═══════════════════════════════════════ */
+.nc-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Ping — primary outlined button, takes most space */
+.nc-action-ping {
+  flex: 1;
+  justify-content: center;
+  font-weight: 600 !important;
+  font-size: var(--text-sm) !important;
+  border-radius: var(--radius-md) !important;
+}
+:deep(.nc-action-ping.p-button) {
+  background: color-mix(in oklch, var(--color-primary) 12%, transparent) !important;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 40%, transparent) !important;
+  color: var(--color-primary) !important;
+}
+:deep(.nc-action-ping.p-button:hover:not(:disabled)) {
+  background: color-mix(in oklch, var(--color-primary) 22%, transparent) !important;
+  border-color: var(--color-primary) !important;
+}
+
+/* Icon-only action buttons */
+.nc-action-icon {
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  flex-shrink: 0;
+}
+:deep(.nc-action-icon.p-button) {
+  color: var(--color-text-muted) !important;
+}
+:deep(.nc-action-icon.p-button:hover:not(:disabled)) {
+  color: var(--color-text) !important;
+  background: var(--color-surface-offset) !important;
+}
+:deep(.nc-action-danger.p-button:hover:not(:disabled)) {
+  color: var(--color-offline) !important;
+  background: color-mix(in oklch, var(--color-offline) 12%, transparent) !important;
+}
+:deep(.nc-action-icon .p-button-icon) {
+  font-size: 0.9rem !important;
+}
 </style>
