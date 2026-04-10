@@ -1,39 +1,44 @@
 import { api } from '@/api/client'
 
 // ── Datacenters ────────────────────────────────────────────────────────────
+// ТЗ п.2.2: datacenters — только id, name
 export interface Datacenter {
     id: number
     name: string
-    contour_id: number
-    description: string | null
+    // [MAJOR FIX] contour_id и description удалены — не в схеме ТЗ п.2.2
 }
-export interface DatacenterCreate { name: string; contour_id: number; description?: string }
+export interface DatacenterCreate {
+    name: string
+    // [MAJOR FIX] contour_id удалён
+}
 
 // ── Clusters ───────────────────────────────────────────────────────────────
+// ТЗ п.2.3: clusters — id, name, contour_id
 export interface ClusterSetting {
     id: number
     name: string
     contour_id: number
-    description: string | null
-    db_host: string
-    db_port: number
-    db_user: string
-    // db_password — write-only, никогда не возвращается из API
+    // [MAJOR] db_host, db_port, db_user, description — не в ТЗ п.2.3
+    // Раскомментировать если бэк реализует расширение:
+    // description?: string | null
+    // db_host?: string
+    // db_port?: number
+    // db_user?: string
 }
 export interface ClusterCreate {
     name: string
     contour_id: number
-    description?: string
-    db_host: string
-    db_port: number
-    db_user: string
-    db_password: string
+    // [MAJOR] см. выше — не в ТЗ:
+    // description?: string
+    // db_host?: string
+    // db_port?: number
+    // db_user?: string
+    // db_password?: string
 }
-export interface ClusterUpdate extends Partial<Omit<ClusterCreate, 'db_password'>> {
-    db_password?: string  // опционально при обновлении
-}
+export type ClusterUpdate = Partial<ClusterCreate>
 
 // ── Nodes ──────────────────────────────────────────────────────────────────
+// ТЗ п.2.4: id, name, host, port, ssh_port, ssh_user, cluster_id, dc_id, maintenance, enabled
 export interface NodeSetting {
     id: number
     name: string
@@ -42,46 +47,48 @@ export interface NodeSetting {
     ssh_port: number
     ssh_user: string
     enabled: boolean
-    datacenter_id: number | null
+    dc_id: number | null         // [MINOR FIX] dc_id, не datacenter_id
     cluster_id: number
-    description: string | null
 }
+// ТЗ п.16.1: cluster_id в теле запроса при создании
 export interface NodeCreate {
+    cluster_id: number           // [MAJOR FIX] обязателен в body
     name: string
     host: string
-    port?: number          // default 3306
-    ssh_port?: number      // default 22
-    ssh_user?: string      // default root
+    port?: number                // default 3306
+    ssh_port?: number            // default 22
+    ssh_user?: string            // default root
     enabled?: boolean
-    datacenter_id?: number | null
-    description?: string
+    dc_id?: number | null        // [MINOR FIX] dc_id
 }
 
 // ── Arbitrators ────────────────────────────────────────────────────────────
+// ТЗ п.2.5: id, name, host, ssh_port, ssh_user, cluster_id, dc_id, enabled
+// Нет поля port (garbd не имеет mysql-порта)
 export interface ArbitratorSetting {
     id: number
     name: string
     host: string
-    port: number
+    // [MAJOR FIX] port удалён — нет в ТЗ п.2.5
     ssh_port: number
     ssh_user: string
     enabled: boolean
-    datacenter_id: number | null
+    dc_id: number | null         // [MINOR FIX] dc_id
     cluster_id: number
-    description: string | null
 }
 export interface ArbitratorCreate {
+    cluster_id: number           // [MAJOR FIX] в body
     name: string
     host: string
-    port?: number
     ssh_port?: number
     ssh_user?: string
     enabled?: boolean
-    datacenter_id?: number | null
-    description?: string
+    dc_id?: number | null        // [MINOR FIX] dc_id
+    // [MAJOR FIX] port удалён
 }
 
 // ── System settings ────────────────────────────────────────────────────────
+// ТЗ п.2.7
 export interface SystemSettingsFull {
     id: number
     polling_interval_sec: number
@@ -97,48 +104,58 @@ export interface SystemSettingsPatch {
 
 // ── API ────────────────────────────────────────────────────────────────────
 export const settingsApi = {
-    // Datacenters
+    // Datacenters — ТЗ п.16.1: /api/settings/datacenters
     listDatacenters: () =>
-        api.get<Datacenter[]>('/api/datacenters').then((r) => r.data),
+        api.get<Datacenter[]>('/api/settings/datacenters').then((r) => r.data),
     createDatacenter: (data: DatacenterCreate) =>
-        api.post<Datacenter>('/api/datacenters', data).then((r) => r.data),
+        api.post<Datacenter>('/api/settings/datacenters', data).then((r) => r.data),
     updateDatacenter: (id: number, data: Partial<DatacenterCreate>) =>
-        api.patch<Datacenter>(`/api/datacenters/${id}`, data).then((r) => r.data),
+        api.patch<Datacenter>(`/api/settings/datacenters/${id}`, data).then((r) => r.data),
     deleteDatacenter: (id: number) =>
-        api.delete(`/api/datacenters/${id}`),
+        api.delete(`/api/settings/datacenters/${id}`),
 
-    // Clusters
+    // Clusters — ТЗ п.16.1: /api/settings/clusters
+    // MINOR: уточнить у бэка совпадает ли с /api/clusters
     listClusters: (contourId?: number) =>
-        api.get<ClusterSetting[]>('/api/clusters', { params: contourId ? { contour_id: contourId } : {} })
+        api
+            .get<ClusterSetting[]>('/api/settings/clusters', {
+                params: contourId ? { contour_id: contourId } : {},
+            })
             .then((r) => r.data),
     createCluster: (data: ClusterCreate) =>
-        api.post<ClusterSetting>('/api/clusters', data).then((r) => r.data),
+        api.post<ClusterSetting>('/api/settings/clusters', data).then((r) => r.data),
     updateCluster: (id: number, data: ClusterUpdate) =>
-        api.patch<ClusterSetting>(`/api/clusters/${id}`, data).then((r) => r.data),
+        api.patch<ClusterSetting>(`/api/settings/clusters/${id}`, data).then((r) => r.data),
     deleteCluster: (id: number) =>
-        api.delete(`/api/clusters/${id}`),
+        api.delete(`/api/settings/clusters/${id}`),
 
-    // Nodes
+    // Nodes — ТЗ п.16.1: /api/settings/nodes?cluster_id=N
     listNodes: (clusterId: number) =>
-        api.get<NodeSetting[]>(`/api/clusters/${clusterId}/nodes`).then((r) => r.data),
-    createNode: (clusterId: number, data: NodeCreate) =>
-        api.post<NodeSetting>(`/api/clusters/${clusterId}/nodes`, data).then((r) => r.data),
-    updateNode: (clusterId: number, nodeId: number, data: Partial<NodeCreate>) =>
-        api.patch<NodeSetting>(`/api/clusters/${clusterId}/nodes/${nodeId}`, data).then((r) => r.data),
-    deleteNode: (clusterId: number, nodeId: number) =>
-        api.delete(`/api/clusters/${clusterId}/nodes/${nodeId}`),
+        api
+            .get<NodeSetting[]>('/api/settings/nodes', { params: { cluster_id: clusterId } })
+            .then((r) => r.data),
+    createNode: (data: NodeCreate) =>
+        api.post<NodeSetting>('/api/settings/nodes', data).then((r) => r.data),
+    updateNode: (nodeId: number, data: Partial<NodeCreate>) =>
+        api.patch<NodeSetting>(`/api/settings/nodes/${nodeId}`, data).then((r) => r.data),
+    deleteNode: (nodeId: number) =>
+        api.delete(`/api/settings/nodes/${nodeId}`),
 
-    // Arbitrators
+    // Arbitrators — ТЗ п.16.1: /api/settings/arbitrators?cluster_id=N
     listArbitrators: (clusterId: number) =>
-        api.get<ArbitratorSetting[]>(`/api/clusters/${clusterId}/arbitrators`).then((r) => r.data),
-    createArbitrator: (clusterId: number, data: ArbitratorCreate) =>
-        api.post<ArbitratorSetting>(`/api/clusters/${clusterId}/arbitrators`, data).then((r) => r.data),
-    updateArbitrator: (clusterId: number, arbId: number, data: Partial<ArbitratorCreate>) =>
-        api.patch<ArbitratorSetting>(`/api/clusters/${clusterId}/arbitrators/${arbId}`, data).then((r) => r.data),
-    deleteArbitrator: (clusterId: number, arbId: number) =>
-        api.delete(`/api/clusters/${clusterId}/arbitrators/${arbId}`),
+        api
+            .get<ArbitratorSetting[]>('/api/settings/arbitrators', {
+                params: { cluster_id: clusterId },
+            })
+            .then((r) => r.data),
+    createArbitrator: (data: ArbitratorCreate) =>
+        api.post<ArbitratorSetting>('/api/settings/arbitrators', data).then((r) => r.data),
+    updateArbitrator: (arbId: number, data: Partial<ArbitratorCreate>) =>
+        api.patch<ArbitratorSetting>(`/api/settings/arbitrators/${arbId}`, data).then((r) => r.data),
+    deleteArbitrator: (arbId: number) =>
+        api.delete(`/api/settings/arbitrators/${arbId}`),
 
-    // System
+    // System — ТЗ п.16.1: /api/settings/system ✅
     getSystem: () =>
         api.get<SystemSettingsFull>('/api/settings/system').then((r) => r.data),
     patchSystem: (data: SystemSettingsPatch) =>
