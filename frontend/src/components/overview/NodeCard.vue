@@ -59,13 +59,13 @@ const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN
 
 const flowControlDisplay = computed(() => {
   const v = props.node.wsrep_flow_control_paused
-  if (v == null) return '—'
+  if (v == null) return '\u2014'
   return v.toFixed(3)
 })
 
 const recvQueueDisplay = computed(() => {
   const v = props.node.wsrep_local_recv_queue
-  if (v == null) return '—'
+  if (v == null) return '\u2014'
   return String(v)
 })
 
@@ -105,7 +105,7 @@ function confirmDestructive(action: NodeAction, label: string) {
     <div class="nc-stripe" aria-hidden="true" />
 
     <div class="nc-body">
-      <!-- ── HEADER ─────────────────────────────────── -->
+      <!-- ── HEADER ───────────────────────────────────────────── -->
       <div class="nc-header">
         <div class="nc-title-group">
           <span class="nc-name">{{ node.name }}</span>
@@ -118,7 +118,7 @@ function confirmDestructive(action: NodeAction, label: string) {
         />
       </div>
 
-      <!-- ── HOST + MODE ────────────────────────────── -->
+      <!-- ── HOST + MODE ──────────────────────────────────── -->
       <div class="nc-host-row">
         <i class="pi pi-server nc-host-icon" />
         <span class="nc-host-addr">{{ node.host }}:{{ node.port }}</span>
@@ -127,15 +127,15 @@ function confirmDestructive(action: NodeAction, label: string) {
         </span>
       </div>
 
-      <!-- ── METRICS GRID ───────────────────────────── -->
+      <!-- ── METRICS GRID ─────────────────────────────────── -->
       <div class="nc-metrics">
         <div class="nc-metric">
           <span class="nc-mk">Cluster Size</span>
-          <span class="nc-mv">{{ node.wsrep_cluster_size ?? '—' }}</span>
+          <span class="nc-mv">{{ node.wsrep_cluster_size ?? '\u2014' }}</span>
         </div>
         <div class="nc-metric">
           <span class="nc-mk">Component</span>
-          <span class="nc-mv nc-mv--mono">{{ node.wsrep_cluster_status ?? '—' }}</span>
+          <span class="nc-mv nc-mv--mono">{{ node.wsrep_cluster_status ?? '\u2014' }}</span>
         </div>
         <div class="nc-metric">
           <span class="nc-mk">Flow Ctrl</span>
@@ -151,15 +151,14 @@ function confirmDestructive(action: NodeAction, label: string) {
         </div>
       </div>
 
-      <!-- ── SSH + SPACER ───────────────────────────── -->
+      <!-- ── SSH + SPACER ──────────────────────────────────── -->
       <div class="nc-ssh" :class="node.ssh_ok ? 'nc-ssh--ok' : 'nc-ssh--fail'">
         <i :class="node.ssh_ok ? 'pi pi-lock' : 'pi pi-lock-open'" />
         <span>SSH {{ node.ssh_ok ? 'OK' : 'FAIL' }}</span>
       </div>
 
-      <!-- ── ACTION BAR ─────────────────────────────── -->
+      <!-- ── ACTION BAR ───────────────────────────────────── -->
       <div class="nc-actions">
-        <!-- Ping -->
         <Button
           class="nc-action-ping"
           icon="pi pi-wifi"
@@ -170,8 +169,6 @@ function confirmDestructive(action: NodeAction, label: string) {
           v-tooltip.top="'Check node reachability'"
           @click.stop="ping"
         />
-
-        <!-- Destructive actions -->
         <Button
           v-tooltip.top="'Restart MySQL'"
           icon="pi pi-refresh"
@@ -258,10 +255,11 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-body {
   flex: 1;
   min-width: 0;
-  padding: var(--space-4) var(--space-5);
+  /* увеличены внутренние отступы */
+  padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 /* ═══════════════════════════════════════
@@ -351,8 +349,9 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-3) var(--space-4);
-  padding: var(--space-3);
+  /* увеличены отступы внутри блока метрик */
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-4) var(--space-4);
   background: var(--color-surface-offset);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -360,7 +359,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-metric {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
 }
 .nc-mk {
   font-size: 0.68rem;
@@ -418,7 +417,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   border-top: 1px solid var(--color-border);
 }
 
-/* Ping — primary outlined button, takes most space */
 .nc-action-ping {
   flex: 1;
   justify-content: center;
@@ -436,7 +434,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   border-color: var(--color-primary) !important;
 }
 
-/* Icon-only action buttons */
 .nc-action-icon {
   width: 32px !important;
   height: 32px !important;

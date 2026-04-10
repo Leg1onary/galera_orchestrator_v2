@@ -21,21 +21,20 @@ const healthState = computed(() => {
 })
 
 const HEALTH_MAP = {
-  healthy:  { label: 'Healthy',  severity: 'success', icon: 'pi pi-check-circle' },
-  degraded: { label: 'Degraded', severity: 'warn',    icon: 'pi pi-exclamation-triangle' },
-  critical: { label: 'Critical', severity: 'danger',  icon: 'pi pi-times-circle' },
+  healthy:  { label: 'Healthy',  severity: 'success',   icon: 'pi pi-check-circle' },
+  degraded: { label: 'Degraded', severity: 'warn',      icon: 'pi pi-exclamation-triangle' },
+  critical: { label: 'Critical', severity: 'danger',    icon: 'pi pi-times-circle' },
   unknown:  { label: 'Unknown',  severity: 'secondary', icon: 'pi pi-question-circle' },
 } as const
 
 const healthCfg = computed(() => HEALTH_MAP[healthState.value])
 
-// MeterGroup value: synced (green) + not-synced (orange)
 const meterValues = computed(() => {
   if (props.totalNodes === 0) return []
-  const syncedPct  = Math.round((props.syncedNodes / props.totalNodes) * 100)
-  const others     = 100 - syncedPct
+  const syncedPct = Math.round((props.syncedNodes / props.totalNodes) * 100)
+  const others    = 100 - syncedPct
   const result = [
-    { label: 'Synced', color: 'var(--color-synced)',   value: syncedPct },
+    { label: 'Synced', color: 'var(--color-synced)', value: syncedPct },
   ]
   if (others > 0) {
     result.push({ label: 'Other', color: 'var(--color-degraded)', value: others })
@@ -88,7 +87,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
     <div class="csb-item">
       <span class="csb-label">Component</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="70px" /></div>
-      <span v-else class="csb-val csb-val--mono">{{ clusterStatus ?? '—' }}</span>
+      <span v-else class="csb-val csb-val--mono">{{ clusterStatus ?? '\u2014' }}</span>
     </div>
 
     <div class="csb-divider" />
@@ -97,7 +96,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
     <div class="csb-item">
       <span class="csb-label">wsrep size</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="40px" /></div>
-      <span v-else class="csb-val csb-val--mono">{{ clusterSize ?? '—' }}</span>
+      <span v-else class="csb-val csb-val--mono">{{ clusterSize ?? '\u2014' }}</span>
     </div>
 
     <div class="csb-divider" />
@@ -108,7 +107,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
       <div v-if="props.isLoading"><Skeleton height="1rem" width="60px" /></div>
       <Tag
         v-else
-        :value="flowControlPaused !== null ? flowControlPaused.toFixed(3) : '—'"
+        :value="flowControlPaused !== null ? flowControlPaused.toFixed(3) : '\u2014'"
         :severity="flowWarn ? 'warn' : 'secondary'"
         :icon="flowWarn ? 'pi pi-exclamation-triangle' : undefined"
         class="csb-tag csb-tag--mono"
@@ -124,8 +123,9 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-3) var(--space-5);
-  gap: var(--space-4);
+  /* увеличены отступы */
+  padding: var(--space-4) var(--space-7);
+  gap: var(--space-7);
   overflow-x: auto;
   flex-wrap: nowrap;
 }
@@ -133,10 +133,10 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 .csb-item {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: max-content;
 }
-.csb-item--main  { min-width: 110px; }
+.csb-item--main  { min-width: 120px; }
 .csb-item--wide  { min-width: 160px; }
 
 .csb-label {
@@ -176,7 +176,8 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
 .csb-divider {
   width: 1px;
-  height: 32px;
+  /* больше высота разделителя */
+  height: 40px;
   background: var(--color-border-muted);
   flex-shrink: 0;
 }
