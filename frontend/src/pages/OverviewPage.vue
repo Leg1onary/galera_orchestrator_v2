@@ -9,15 +9,17 @@ import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
 
 const clusterStore = useClusterStore()
-const clusterId    = computed(() => clusterStore.selectedClusterId!)
-const { data, isLoading } = useClusterStatus(clusterId)
+const clusterId    = computed(() => clusterStore.selectedClusterId)
+const { data, isLoading, isError } = useClusterStatus(clusterId)
 
 const nodes       = computed(() => data.value?.nodes ?? [])
 const arbitrators = computed(() => data.value?.arbitrators ?? [])
 const events      = computed(() => data.value?.recent_events ?? [])
 
 const syncedCount = computed(() =>
-  nodes.value.filter(n => (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED').length
+  nodes.value.filter((n) =>
+    (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED'
+  ).length
 )
 </script>
 
@@ -30,7 +32,13 @@ const syncedCount = computed(() =>
     </div>
 
     <template v-else>
-      <!-- Summary bar with inline skeleton -->
+
+      <!-- Error -->
+      <Message v-if="isError" severity="error" :closable="false">
+        Failed to load cluster data. Check backend connection.
+      </Message>
+
+      <!-- Summary bar (shows inline skeletons while loading) -->
       <ClusterSummaryBar
         :total-nodes="nodes.length"
         :synced-nodes="syncedCount"
@@ -52,7 +60,7 @@ const syncedCount = computed(() =>
             v-for="node in nodes"
             :key="node.id"
             :node="node"
-            :cluster-id="clusterId"
+            :cluster-id="clusterId!"
           />
         </div>
       </section>
@@ -73,6 +81,7 @@ const syncedCount = computed(() =>
       <section class="overview-section">
         <EventLog :events="events" :is-loading="isLoading" />
       </section>
+
     </template>
   </div>
 </template>
