@@ -15,6 +15,7 @@ export default defineConfig({
         // Vite Stage 1 в Dockerfile кладёт output сюда
         outDir: '../backend/static',
         emptyOutDir: true,
+        assetsDir: 'assets', // явно, чтобы не зависеть от дефолта
     },
 
     server: {
@@ -28,6 +29,7 @@ export default defineConfig({
                 target: 'ws://localhost:8000',
                 ws: true,
                 changeOrigin: true,
+                rewriteWsOrigin: true, // [MAJOR FIX] Vite 6: корректный проброс Origin для WS handshake
             },
         },
     },

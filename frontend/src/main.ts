@@ -4,6 +4,7 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
 import ToastService from 'primevue/toastservice'
+import ConfirmationService from 'primevue/confirmationservice'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
@@ -37,17 +38,23 @@ app.use(PrimeVue, {
     theme: {
         preset: Aura,
         options: {
-            darkModeSelector: 'system',
-        }
-    }
+            // [BLOCKER FIX] 'system' — не валидное значение в PrimeVue 4.
+            // false = тема управляется через CSS prefers-color-scheme без JS-класса.
+            // Если нужен ручной переключатель — заменить на '[data-theme="dark"]'
+            // и добавить атрибут на <html> через useColorMode или вручную.
+            darkModeSelector: false,
+        },
+    },
 })
 app.use(ToastService)
+app.use(ConfirmationService)
 
-// Глобальная регистрация PrimeVue компонентов (минимум для текущих страниц)
+// [MAJOR FIX] Select (не 'Dropdown' — это PrimeVue 3 API).
+// Остальные компоненты регистрируются локально в каждом .vue файле.
 app.component('Button', Button)
 app.component('InputText', InputText)
 app.component('Password', Password)
-app.component('Dropdown', Select)
+app.component('Select', Select)   // было: 'Dropdown'
 app.component('Tag', Tag)
 app.component('Message', Message)
 app.component('ProgressSpinner', ProgressSpinner)
