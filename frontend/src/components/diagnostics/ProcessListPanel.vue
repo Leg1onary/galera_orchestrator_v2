@@ -61,13 +61,13 @@
           </div>
         </template>
 
-        <Column field="id" header="ID" style="width: 64px" :sortable="true">
+        <Column field="id" header="ID" style="width: 70px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-id">{{ data.id }}</span>
           </template>
         </Column>
 
-        <Column field="user" header="User" style="width: 130px" :sortable="true">
+        <Column field="user" header="User" style="width: 140px" :sortable="true">
           <template #body="{ data }">
             <div class="cell-user-wrap">
               <span class="user-dot" />
@@ -76,13 +76,13 @@
           </template>
         </Column>
 
-        <Column field="host" header="Host" style="width: 150px">
+        <Column field="host" header="Host" style="width: 160px">
           <template #body="{ data }">
             <span class="cell-mono cell-host">{{ data.host }}</span>
           </template>
         </Column>
 
-        <Column field="db" header="DB" style="width: 110px">
+        <Column field="db" header="DB" style="width: 120px">
           <template #body="{ data }">
             <span v-if="data.db" class="cell-db">
               <i class="pi pi-database" style="font-size: 9px; opacity: 0.7" />
@@ -92,13 +92,13 @@
           </template>
         </Column>
 
-        <Column field="command" header="Command" style="width: 105px">
+        <Column field="command" header="Command" style="width: 110px">
           <template #body="{ data }">
             <span class="cell-command">{{ data.command }}</span>
           </template>
         </Column>
 
-        <Column field="time" header="Time (s)" style="width: 90px" :sortable="true">
+        <Column field="time" header="Time (s)" style="width: 100px" :sortable="true">
           <template #body="{ data }">
             <span
               class="cell-time"
@@ -107,7 +107,7 @@
           </template>
         </Column>
 
-        <Column field="state" header="State" style="width: 140px">
+        <Column field="state" header="State" style="width: 150px">
           <template #body="{ data }">
             <span v-if="data.state" class="state-badge" :class="stateBadgeClass(data.state)">
               <span class="state-dot" />
@@ -126,7 +126,7 @@
           </template>
         </Column>
 
-        <Column header="" style="width: 44px">
+        <Column header="" style="width: 48px">
           <template #body="{ data }">
             <Button
                 v-if="data.command !== 'Daemon'"
@@ -210,10 +210,10 @@ const filtered = computed(() => {
 
 function stateBadgeClass(state: string): string {
   const s = state.toLowerCase()
-  if (s.includes('lock'))                       return 'badge--warn'
-  if (s.includes('kill') || s.includes('quit')) return 'badge--error'
-  if (s === 'sleep')                            return 'badge--faint'
-  if (s.includes('send') || s.includes('copy')) return 'badge--primary'
+  if (s.includes('lock'))                        return 'badge--warn'
+  if (s.includes('kill') || s.includes('quit'))  return 'badge--error'
+  if (s === 'sleep')                             return 'badge--faint'
+  if (s.includes('send') || s.includes('copy'))  return 'badge--primary'
   if (s.includes('query') || s.includes('exec')) return 'badge--query'
   return 'badge--default'
 }
@@ -244,21 +244,21 @@ async function handleKill(row: ProcessRow) {
 </script>
 
 <style scoped>
-/* ── Layout ─────────────────────────────────────────── */
+/* ── Layout ────────────────────────────────────────── */
 .diag-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-/* ── Node selector ──────────────────────────────────── */
+/* ── Node selector ───────────────────────────────── */
 .node-select {
   width: 160px;
   min-width: 140px;
   flex-shrink: 0;
 }
 
-/* ── Error alert ────────────────────────────────────── */
+/* ── Error alert ─────────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -270,13 +270,9 @@ async function handleKill(row: ProcessRow) {
   color: var(--color-error);
   font-size: var(--text-sm);
 }
+.error-alert .pi { font-size: var(--text-base); flex-shrink: 0; }
 
-.error-alert .pi {
-  font-size: var(--text-base);
-  flex-shrink: 0;
-}
-
-/* ── Table wrapper ──────────────────────────────────── */
+/* ── Table wrapper ───────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -284,20 +280,25 @@ async function handleKill(row: ProcessRow) {
   background: var(--color-surface);
 }
 
-/* ── Table header toolbar ───────────────────────────── */
+/* ── Table header toolbar ─────────────────────────── */
 .table-header {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  /* (5) увеличенный padding для header */
+  padding: var(--space-4) var(--space-5);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border-muted);
 }
 
+/* (1) search растянуть — flex-grow: 1 */
 .search-wrap {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1 1 auto;        /* растягивается на свободное пространство */
+  min-width: 160px;
+  max-width: 480px;
 }
 
 .search-icon {
@@ -309,17 +310,22 @@ async function handleKill(row: ProcessRow) {
   z-index: 1;
 }
 
+/* (1) input тоже на 100% ширины обёртки */
 .search-input {
-  width: 220px;
-  padding-left: calc(var(--space-3) + 14px) !important;
+  width: 100% !important;
+}
+:deep(.search-input.p-inputtext) {
+  padding-left: calc(var(--space-3) + 16px);
 }
 
-/* ── Toggle row ─────────────────────────────────────── */
+/* ── Toggle row ───────────────────────────────────── */
 .toggle-row {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+  /* (2) принудительная высота, чтобы PrimeVue toggle не съезжал */
+  height: 32px;
 }
 
 .toggle-label {
@@ -327,11 +333,21 @@ async function handleKill(row: ProcessRow) {
   color: var(--color-text-muted);
   letter-spacing: 0.03em;
   white-space: nowrap;
+  user-select: none;
 }
 
-/* ── Row count badge ────────────────────────────────── */
+/* (2) ToggleSwitch — явная вертикальная центровка */
+:deep(.toggle-row .p-toggleswitch) {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  margin-top: 0;
+}
+
+/* ── Row count badge ──────────────────────────────── */
 .row-count {
-  margin-left: auto;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -342,10 +358,48 @@ async function handleKill(row: ProcessRow) {
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 1px var(--space-3);
+  padding: 2px var(--space-3);
 }
 
-/* ── Cells ──────────────────────────────────────────── */
+/* ──────────────────────────────────────────────────
+   (3) Увеличенный горизонтальный padding для всех ячеек
+   (4) Таблица на 100% ширины, column-layout
+   (5) Заголовки: крупнее шрифт, больше padding
+───────────────────────────────────────────────── */
+
+/* (4) таблица растянута на 100% */
+:deep(.diag-table .p-datatable-table) {
+  width: 100%;
+  table-layout: fixed;
+}
+
+/* (5) заголовки: шрифт крупнее + padding больше */
+:deep(.diag-table .p-datatable-thead > tr > th) {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  /* (3) + (5) увеличенный паддинг */
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/* (3) + (4) ячейки данных: отступ от левого края */
+:deep(.diag-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-3) var(--space-5);
+  vertical-align: middle;
+  border: none;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+:deep(.diag-table .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none;
+}
+
+/* ── Cells ────────────────────────────────────────── */
 .cell-id {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
@@ -400,25 +454,22 @@ async function handleKill(row: ProcessRow) {
   font-size: var(--text-xs);
 }
 
-/* ── Time cell ──────────────────────────────────────── */
+/* ── Time cell ─────────────────────────────────────── */
 .cell-time {
   font-size: var(--text-sm);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-
-.cell-time--ok   { color: var(--color-text-muted); }
-
+.cell-time--ok { color: var(--color-text-muted); }
 .cell-time--warn {
   color: var(--color-warning);
   text-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 40%, transparent);
 }
 
-/* ── Query cell ─────────────────────────────────────── */
+/* ── Query cell ────────────────────────────────────── */
 .cell-query {
   display: block;
-  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -427,12 +478,9 @@ async function handleKill(row: ProcessRow) {
   color: var(--color-text-muted);
   transition: color var(--transition-fast);
 }
+:deep(tr:hover) .cell-query { color: var(--color-text); }
 
-:deep(tr:hover) .cell-query {
-  color: var(--color-text);
-}
-
-/* ── State badge ────────────────────────────────────── */
+/* ── State badge ───────────────────────────────────── */
 .state-badge {
   display: inline-flex;
   align-items: center;
@@ -454,45 +502,26 @@ async function handleKill(row: ProcessRow) {
   flex-shrink: 0;
 }
 
-/* default — no recognized state */
-.badge--default {
-  background: var(--color-surface-3);
-  color: var(--color-text-muted);
-  border-color: var(--color-border);
-}
+.badge--default { background: var(--color-surface-3); color: var(--color-text-muted); border-color: var(--color-border); }
 .badge--default .state-dot { background: var(--color-text-faint); }
 
-/* sleep — faint */
-.badge--faint {
-  background: var(--color-surface-3);
-  color: var(--color-text-faint);
-  border-color: var(--color-border-muted);
-}
+.badge--faint { background: var(--color-surface-3); color: var(--color-text-faint); border-color: var(--color-border-muted); }
 .badge--faint .state-dot { background: var(--color-text-faint); }
 
-/* lock — warning */
 .badge--warn {
   background: color-mix(in oklch, var(--color-warning) 12%, transparent);
   color: var(--color-warning);
   border-color: color-mix(in oklch, var(--color-warning) 28%, transparent);
 }
-.badge--warn .state-dot {
-  background: var(--color-warning);
-  animation: pulse-dot 1.2s ease-in-out infinite;
-}
+.badge--warn .state-dot { background: var(--color-warning); animation: pulse-dot 1.2s ease-in-out infinite; }
 
-/* kill/quit — error */
 .badge--error {
   background: color-mix(in oklch, var(--color-error) 12%, transparent);
   color: var(--color-error);
   border-color: color-mix(in oklch, var(--color-error) 28%, transparent);
 }
-.badge--error .state-dot {
-  background: var(--color-error);
-  animation: pulse-dot 1.2s ease-in-out infinite;
-}
+.badge--error .state-dot { background: var(--color-error); animation: pulse-dot 1.2s ease-in-out infinite; }
 
-/* send/copy — primary teal */
 .badge--primary {
   background: var(--color-primary-dim);
   color: var(--color-primary);
@@ -500,7 +529,6 @@ async function handleKill(row: ProcessRow) {
 }
 .badge--primary .state-dot { background: var(--color-primary); }
 
-/* query/exec — info blue */
 .badge--query {
   background: color-mix(in oklch, var(--color-info) 12%, transparent);
   color: var(--color-info);
@@ -508,7 +536,7 @@ async function handleKill(row: ProcessRow) {
 }
 .badge--query .state-dot { background: var(--color-info); }
 
-/* ── Empty state ────────────────────────────────────── */
+/* ── Empty state ──────────────────────────────────── */
 .empty-row {
   display: flex;
   flex-direction: column;
@@ -519,30 +547,15 @@ async function handleKill(row: ProcessRow) {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
+.empty-row .pi { font-size: 1.5rem; opacity: 0.4; }
 
-.empty-row .pi {
-  font-size: 1.5rem;
-  opacity: 0.4;
-}
-
-/* ── PrimeVue overrides ─────────────────────────────── */
-:deep(.p-toggleswitch) {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-}
-
-:deep(.diag-table .p-datatable-tbody > tr > td) {
-  vertical-align: middle;
-}
-
+/* ── PrimeVue: paginator ───────────────────────────── */
 :deep(.p-paginator) {
   background: var(--color-surface-2);
   border-top: 1px solid var(--color-border-muted);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-5);
   font-size: var(--text-xs);
 }
-
 :deep(.p-paginator-page.p-highlight) {
   background: var(--color-primary-dim);
   color: var(--color-primary);
