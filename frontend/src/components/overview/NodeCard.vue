@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Button from 'primevue/button'
-import { nodeAction, testConnection } from '@/api/nodes'
+import { nodesApi } from '@/api/nodes'
+import type { NodeAction } from '@/api/nodes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useOperationsStore } from '@/stores/operations'
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────────────
 interface NodeLive {
   id: number
   name: string
@@ -31,36 +32,36 @@ const isLocked = computed(() => {
   return op && ['pending', 'running', 'cancel_requested'].includes(op.status)
 })
 
-// ── State color (ТЗ 7.3) ──────────────────────────────────────────────────
+// ── State color (ТЗ 7.3) ─────────────────────────────────────────────────────────────
 const STATE_COLORS: Record<string, string> = {
-  SYNCED:    '#22c55e',
-  DONOR:     '#38bdf8',
-  JOINER:    '#38bdf8',
-  DESYNCED:  '#38bdf8',
-  OFFLINE:   '#ef4444',
+  SYNCED:   '#22c55e',
+  DONOR:    '#38bdf8',
+  JOINER:   '#38bdf8',
+  DESYNCED: '#38bdf8',
+  OFFLINE:  '#ef4444',
 }
 
 const stateColor = computed(() => {
   const n = props.node
   const state = (n.wsrep_local_state_comment ?? '').toUpperCase()
 
-  if (!n.ssh_ok || state === 'OFFLINE')       return '#ef4444'
-  if (n.wsrep_ready === 'OFF')                return '#f97316'
-  if (state === 'SYNCED' && n.readonly)       return '#eab308'
+  if (!n.ssh_ok || state === 'OFFLINE') return '#ef4444'
+  if (n.wsrep_ready === 'OFF')          return '#f97316'
+  if (state === 'SYNCED' && n.readonly) return '#eab308'
   return STATE_COLORS[state] ?? '#94a3b8'
 })
 
-// ── Actions ────────────────────────────────────────────────────────────────
-const DESTRUCTIVE = new Set(['stop', 'restart', 'rejoin-force'])
+// ── Actions ────────────────────────────────────────────────────────────────────────────
+const DESTRUCTIVE = new Set<NodeAction>(['stop', 'restart', 'rejoin-force'])
 
-async function runAction(action: string) {
+async function runAction(action: NodeAction) {
   if (isLocked.value && DESTRUCTIVE.has(action)) return
-  await nodeAction(props.clusterId, props.node.id, action)
+  await nodesApi.action(props.clusterId, props.node.id, action)
   queryClient.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'status'] })
 }
 
 async function ping() {
-  await testConnection(props.clusterId, props.node.id)
+  await nodesApi.testConnection(props.clusterId, props.node.id)
 }
 </script>
 
@@ -98,11 +99,11 @@ async function ping() {
     <div class="node-actions">
       <Button size="small" text label="Start"   @click="runAction('start')" />
       <Button size="small" text label="Stop"    @click="runAction('stop')"
-              severity="danger"  :disabled="!!isLocked" />
+              severity="danger" :disabled="!!isLocked" />
       <Button size="small" text label="Restart" @click="runAction('restart')"
-              severity="warn"    :disabled="!!isLocked" />
+              severity="warn"   :disabled="!!isLocked" />
       <Button size="small" text label="Rejoin"  @click="runAction('rejoin-force')"
-              severity="warn"    :disabled="!!isLocked" />
+              severity="warn"   :disabled="!!isLocked" />
       <Button size="small" text label="RO"      @click="runAction('set-readonly')" />
       <Button size="small" text label="RW"      @click="runAction('set-readwrite')" />
       <Button size="small" text label="Ping"    @click="ping()" />
