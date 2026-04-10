@@ -5,6 +5,7 @@
 -->
 <template>
   <div class="wizard-step">
+
     <!-- Header -->
     <div class="step-header">
       <h2 class="step-title">Configure restart order</h2>
@@ -15,19 +16,25 @@
     </div>
 
     <!-- Drag list -->
-    <div ref="sortableEl" class="node-order-list">
-      <div
-          v-for="nodeId in localOrder"
-          :key="nodeId"
-          class="node-order-item"
-          :data-id="nodeId"
-      >
-        <i class="pi pi-bars drag-handle" />
-        <div class="node-order-info">
-          <span class="node-name">{{ nodeName(nodeId) }}</span>
-          <span class="node-host">{{ nodeHost(nodeId) }}</span>
+    <div class="node-order-section">
+      <div v-if="localOrder.length === 0" class="node-order-empty">
+        <i class="pi pi-info-circle" />
+        <span>No nodes available to reorder.</span>
+      </div>
+      <div v-else ref="sortableEl" class="node-order-list">
+        <div
+            v-for="nodeId in localOrder"
+            :key="nodeId"
+            class="node-order-item"
+            :data-id="nodeId"
+        >
+          <i class="pi pi-bars drag-handle" />
+          <div class="node-order-info">
+            <span class="node-name">{{ nodeName(nodeId) }}</span>
+            <span class="node-host">{{ nodeHost(nodeId) }}</span>
+          </div>
+          <NodeStateBadge :state="nodeState(nodeId)" />
         </div>
-        <NodeStateBadge :state="nodeState(nodeId)" />
       </div>
     </div>
 
@@ -50,7 +57,7 @@
           style="width: 140px"
       />
       <span class="timeout-hint">
-        If a node doesn't reach SYNCED within this time, the operation fails.
+        If a node doesn’t reach SYNCED within this time, the operation fails.
       </span>
     </div>
 
@@ -70,11 +77,12 @@
           @click="handleStart"
       />
     </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import Button      from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
 import { useSortable } from '@vueuse/integrations/useSortable'
@@ -97,7 +105,6 @@ const { stop } = useSortable(sortableEl, localOrder, {
   animation: 150,
   onUpdate: () => store.setNodeOrder([...localOrder.value]),
 })
-import { onUnmounted } from 'vue'
 onUnmounted(() => stop())
 
 function nodeName(id: number) {
@@ -128,7 +135,7 @@ async function handleStart() {
 .wizard-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 /* ── Header ──────────────────────────────────────────── */
@@ -145,10 +152,29 @@ async function handleStart() {
 .step-desc {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
-/* ── Drag list ───────────────────────────────────────── */
+/* ── Node order section ───────────────────────────────── */
+.node-order-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 60px;
+}
+
+.node-order-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  background: var(--color-surface-2);
+}
+
 .node-order-list {
   display: flex;
   flex-direction: column;
@@ -255,7 +281,7 @@ async function handleStart() {
 .step-actions {
   display: flex;
   justify-content: flex-end;
-  padding-top: var(--space-2);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--color-border);
 }
 </style>

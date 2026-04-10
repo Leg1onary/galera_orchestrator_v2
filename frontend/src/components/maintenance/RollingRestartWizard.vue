@@ -10,7 +10,8 @@
       :closable="!store.operationRunning"
       :close-on-escape="!store.operationRunning"
       :dismissable-mask="false"
-      :style="{ width: '680px' }"
+      :style="{ width: '700px' }"
+      :pt="{ content: { style: 'padding: 1.5rem 1.75rem 1.75rem' } }"
       @hide="store.closeWizard()"
   >
     <!-- Stepper -->
@@ -54,8 +55,8 @@ const STEP_LABELS = ['Configure', 'Progress', 'Done']
 <style scoped>
 .wizard-steps {
   display: flex;
-  padding-bottom: var(--space-5);
-  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-6);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -68,7 +69,7 @@ const STEP_LABELS = ['Configure', 'Progress', 'Done']
   position: relative;
 }
 
-/* Connector line между шагами */
+/* Connector line */
 .wizard-step-indicator:not(:last-child)::after {
   content: '';
   position: absolute;
@@ -102,12 +103,13 @@ const STEP_LABELS = ['Configure', 'Progress', 'Done']
   transition:
       border-color  var(--transition-interactive),
       background    var(--transition-interactive),
-      color         var(--transition-interactive);
+      color         var(--transition-interactive),
+      box-shadow    var(--transition-interactive);
 }
 .step--active .step-circle {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 15%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-primary) 15%, transparent);
 }
 .step--completed .step-circle {
   border-color: var(--color-primary);
