@@ -1,40 +1,91 @@
 <template>
   <RouterView />
+  <!-- [MAJOR FIX] Toast должен быть смонтирован в корне приложения -->
+  <!-- Иначе useToast().add() из любого компонента не отрисует уведомление -->
+  <Toast position="bottom-right" />
 </template>
 
-<script setup>
+<script setup lang="ts">
+// [MINOR FIX] lang="ts" — единообразие со стеком Vue 3.5 + TypeScript
 // App.vue is intentionally minimal — it is the root mount point.
 // Layout (header, sidebar) is handled by AppLayout.vue for authenticated routes.
 // LoginPage.vue handles its own layout.
+import Toast from 'primevue/toast'
 </script>
 
 <style>
 /* ============================================================
+   [MAJOR FIX] PrimeVue 4 + Aura theme: принудительно dark-режим
+   Поскольку в main.ts: darkModeSelector: false — PrimeVue не
+   переключается автоматически. Переопределяем CSS-переменные
+   Aura чтобы компоненты (Button, InputText, Dialog и др.)
+   соответствовали тёмной теме приложения.
+   ============================================================ */
+:root {
+  --p-primary-color:            #38b2ac;
+  --p-primary-hover-color:      #2c9c96;
+  --p-primary-active-color:     #2c9c96;
+  --p-primary-color-text:       #ffffff;
+
+  --p-surface-0:    #0f1117;
+  --p-surface-50:   #161b27;
+  --p-surface-100:  #1e2436;
+  --p-surface-200:  #252d3d;
+  --p-surface-300:  #2d3748;
+  --p-surface-400:  #4a5568;
+  --p-surface-500:  #718096;
+  --p-surface-600:  #8892a4;
+  --p-surface-700:  #a0aec0;
+  --p-surface-800:  #cbd5e0;
+  --p-surface-900:  #e2e8f0;
+  --p-surface-950:  #f7fafc;
+
+  --p-content-background:       var(--color-surface);
+  --p-content-border-color:     var(--color-border);
+  --p-content-color:            var(--color-text);
+
+  --p-text-color:               var(--color-text);
+  --p-text-muted-color:         var(--color-text-muted);
+
+  --p-overlay-modal-background: var(--color-surface-2);
+  --p-overlay-popover-background: var(--color-surface-2);
+
+  --p-form-field-background:    var(--color-surface-2);
+  --p-form-field-border-color:  var(--color-border);
+  --p-form-field-color:         var(--color-text);
+  --p-form-field-placeholder-color: var(--color-text-faint);
+  --p-form-field-focus-border-color: var(--color-primary);
+}
+
+/* ============================================================
+   [MAJOR FIX] CSS @layer приоритизация:
+   Кастомные стили должны перекрывать PrimeVue base layer,
+   но не ломать PrimeVue theme layer.
+   ============================================================ */
+@layer base, primevue;
+
+/* ============================================================
    Global base styles
-   These styles are unscoped and apply to the entire application.
-   Component-specific styles live in each component's <style scoped>.
    ============================================================ */
 
 :root {
-  /* Color tokens — dark theme optimised for technical admin panels */
+  /* Color tokens */
   --color-bg:              #0f1117;
   --color-surface:         #161b27;
   --color-surface-2:       #1e2436;
-  --color-surface-3:       #252d3d;
+  --color-surface-3:       #252d3d;  /* не в ТЗ / design extension */
   --color-border:          #2d3748;
   --color-border-muted:    #1e2a3a;
 
-  /* Text */
   --color-text:            #e2e8f0;
   --color-text-muted:      #8892a4;
   --color-text-faint:      #4a5568;
 
-  /* Accent — teal, matching Galera/MariaDB branding space */
   --color-primary:         #38b2ac;
   --color-primary-hover:   #2c9c96;
   --color-primary-dim:     rgba(56, 178, 172, 0.15);
 
-  /* Status colors — matches ТЗ section 7.3 exactly */
+  /* Status colors — ТЗ раздел 7.3 */
   --color-synced:          #22c55e;
   --color-donor:           #38bdf8;
   --color-readonly:        #eab308;
@@ -45,7 +96,6 @@
   --color-error:           #ef4444;
   --color-info:            #60a5fa;
 
-  /* Spacing */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -56,33 +106,28 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
 
-  /* Typography */
   --font-body:    'Inter', system-ui, -apple-system, sans-serif;
   --font-mono:    'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 
-  --text-xs:   0.75rem;    /* 12px */
-  --text-sm:   0.875rem;   /* 14px */
-  --text-base: 1rem;       /* 16px */
-  --text-lg:   1.125rem;   /* 18px */
-  --text-xl:   1.25rem;    /* 20px */
-  --text-2xl:  1.5rem;     /* 24px */
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
 
-  /* Borders */
   --radius-sm:  0.25rem;
   --radius-md:  0.375rem;
   --radius-lg:  0.5rem;
   --radius-xl:  0.75rem;
 
-  /* Transitions */
   --transition-fast:   120ms ease;
   --transition-normal: 200ms ease;
 
-  /* Layout */
   --sidebar-width:     220px;
   --header-height:     56px;
 }
 
-/* Base reset */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -109,58 +154,23 @@ body {
   min-height: 100dvh;
 }
 
-img, picture, video, canvas, svg {
-  display: block;
-  max-width: 100%;
-}
+img, picture, video, canvas, svg { display: block; max-width: 100%; }
+input, button, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+a { color: inherit; text-decoration: none; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
 
-input, button, textarea, select {
-  font: inherit;
-  color: inherit;
-}
-
-button {
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  line-height: 1.25;
-}
-
-/* Focus ring */
 :focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
-/* Scrollbar styling for webkit browsers */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
 
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-faint);
-}
-
-/* Utility classes used across components */
 .text-muted   { color: var(--color-text-muted); }
 .text-faint   { color: var(--color-text-faint); }
 .text-mono    { font-family: var(--font-mono); }
@@ -168,14 +178,7 @@ h1, h2, h3, h4, h5, h6 {
 .text-xs      { font-size: var(--text-xs); }
 
 .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
 }
 </style>
