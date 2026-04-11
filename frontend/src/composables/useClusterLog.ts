@@ -6,10 +6,17 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 import { onWsEvent } from '@/stores/ws'
 import { useSettingsStore } from '@/stores/settings'
-import type { ClusterEvent } from '@/composables/useClusterStatus'
 
-export interface ClusterLogResponse {
-  events: ClusterEvent[]
+// Реальная схема ответа бэкенда
+export interface ClusterEvent {
+  id: number
+  ts: string
+  level: string
+  source?: string | null
+  message: string
+  node_id?: number | null
+  arbitrator_id?: number | null
+  operation_id?: number | null
 }
 
 export function useClusterLog(clusterId: Ref<number | null>) {
@@ -21,18 +28,11 @@ export function useClusterLog(clusterId: Ref<number | null>) {
     queryFn: async () => {
       if (!clusterId.value) return []
       const limit = settingsStore.eventLogLimit
-      const { data } = await api.get<ClusterLogResponse | ClusterEvent[]>(
+      const { data } = await api.get<ClusterEvent[] | { events: ClusterEvent[] }>(
         `/api/clusters/${clusterId.value}/log`,
         { params: { limit } },
       )
-      // DEBUG: убрать после диагностики
-      console.log('[useClusterLog] raw response:', JSON.stringify(data).slice(0, 500))
-      const items = Array.isArray(data) ? data : data.events
-      if (items?.length) {
-        console.log('[useClusterLog] first item keys:', Object.keys(items[0]))
-        console.log('[useClusterLog] first item:', JSON.stringify(items[0]))
-      }
-      return items
+      return Array.isArray(data) ? data : data.events
     },
     refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
     staleTime: 5_000,

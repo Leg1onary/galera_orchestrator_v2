@@ -1,13 +1,23 @@
 <script setup lang="ts">
+// Реальная схема из GET /api/clusters/{id}/log:
+// { id, ts, level (uppercase: INFO/WARNING/ERROR), source, message, node_id, arbitrator_id, operation_id }
 interface ClusterEvent {
   id: number
-  created_at: string
-  level: 'info' | 'warning' | 'error' | 'critical'
+  ts: string             // реальное поле (не created_at)
+  level: string          // приходит uppercase: 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+  source?: string | null
   message: string
-  node_name?: string | null
+  node_id?: number | null
+  arbitrator_id?: number | null
+  operation_id?: number | null
 }
 
 const props = defineProps<{ events: ClusterEvent[]; isLoading?: boolean }>()
+
+// level lowercase для маппинга иконок/severity
+function normLevel(level: string): string {
+  return (level ?? 'info').toLowerCase()
+}
 
 const LEVEL_CFG: Record<string, { icon: string; severity: string }> = {
   info:     { icon: 'pi pi-info-circle',          severity: 'info' },
@@ -17,24 +27,24 @@ const LEVEL_CFG: Record<string, { icon: string; severity: string }> = {
 }
 
 function cfg(level: string) {
-  return LEVEL_CFG[level] ?? LEVEL_CFG.info
+  return LEVEL_CFG[normLevel(level)] ?? LEVEL_CFG.info
 }
 
-function parseDate(iso: string): Date {
-  if (!iso) return new Date(NaN)
-  const normalized = iso.trim().replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
-  const d = new Date(normalized)
+// ts приходит как "2026-04-11 18:31:30.923662" (без T, без Z)
+// заменяем пробел на T и добавляем Z — UTC
+function parseTs(ts: string): Date {
+  if (!ts) return new Date(NaN)
+  // «2026-04-11 18:31:30.923662» → «2026-04-11T18:31:30.923662Z»
+  const normalized = ts.trim().replace(' ', 'T').replace(/([+-]\d{2}:\d{2}|Z)$/, '$1')
+  // Если нет timezone суффикса — добавляем Z (UTC)
+  const withZ = /[Z+\-]\d*$/.test(normalized) ? normalized : normalized + 'Z'
+  const d = new Date(withZ)
   if (!isNaN(d.getTime())) return d
-  return new Date(iso)
+  return new Date(NaN)
 }
 
-function formatTs(iso: string): { date: string; time: string } {
-  // DEBUG: убрать после диагностики
-  console.log('[EventLog] raw created_at:', JSON.stringify(iso), '| type:', typeof iso)
-  const normalized = iso?.trim().replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
-  console.log('[EventLog] normalized:', normalized, '| new Date():', new Date(normalized).toString())
-
-  const d = parseDate(iso)
+function formatTs(ts: string): { date: string; time: string } {
+  const d = parseTs(ts)
   if (isNaN(d.getTime())) return { date: '', time: '—' }
 
   const time = d.toLocaleTimeString('en-GB', {
@@ -83,7 +93,7 @@ function formatTs(iso: string): { date: string; time: string } {
       class="el-timeline"
     >
       <template #marker="{ item }">
-        <span :class="['el-marker', 'el-marker--' + item.level]">
+        <span :class="['el-marker', 'el-marker--' + normLevel(item.level)]">
           <i :class="cfg(item.level).icon" />
         </span>
       </template>
@@ -92,20 +102,20 @@ function formatTs(iso: string): { date: string; time: string } {
         <div class="el-item">
           <div class="el-item-head">
             <span class="el-time">
-              <template v-if="formatTs(item.created_at).date">
-                <span class="el-date">{{ formatTs(item.created_at).date }}</span>
+              <template v-if="formatTs(item.ts).date">
+                <span class="el-date">{{ formatTs(item.ts).date }}</span>
                 <span class="el-sep"> · </span>
               </template>
-              {{ formatTs(item.created_at).time }}
+              {{ formatTs(item.ts).time }}
             </span>
             <Tag
-              v-if="item.node_name"
-              :value="item.node_name"
+              v-if="item.node_id"
+              :value="'node #' + item.node_id"
               severity="secondary"
               class="el-node-tag"
             />
             <Tag
-              :value="item.level"
+              :value="normLevel(item.level)"
               :severity="cfg(item.level).severity"
               class="el-level-tag"
             />
