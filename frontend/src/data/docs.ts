@@ -68,6 +68,38 @@ export const DOCS: DocCard[] = [
         note: 'Для полного Recovery wizard используй страницу Recovery.',
     },
     {
+        id: 'svc-status',
+        tab: 'service',
+        section: 'MariaDB',
+        title: 'Status Check',
+        badge: 'Info',
+        description:
+            'Проверить статус systemd-юнита MariaDB. Показывает активен ли процесс, PID, последние строки лога и дату последнего старта.',
+        code: 'systemctl status mariadb.service\n# краткая проверка:\nsystemctl is-active mariadb.service',
+    },
+    {
+        id: 'svc-enable',
+        tab: 'service',
+        section: 'MariaDB',
+        title: 'Enable / Disable автозапуск',
+        badge: 'Warning',
+        description:
+            'Включить или отключить автоматический запуск MariaDB при старте ОС. Без enable нода не поднимется после перезагрузки сервера.',
+        code: 'systemctl enable mariadb.service   # включить автозапуск\nsystemctl disable mariadb.service  # отключить автозапуск',
+        note: 'На нодах production всегда держи enable включённым.',
+    },
+    {
+        id: 'svc-new-cluster',
+        tab: 'service',
+        section: 'MariaDB',
+        title: 'galera_new_cluster',
+        badge: 'Danger',
+        description:
+            'Специальная команда для первоначального запуска кластера или Bootstrap после полного падения. Запускает MariaDB с параметром --wsrep-new-cluster, делая ноду Primary Component.',
+        code: 'galera_new_cluster\n# или напрямую:\nmysqld_safe --wsrep-new-cluster &',
+        note: 'Используй только на одной ноде — той, у которой наибольший seqno. Wizard Recovery делает это автоматически.',
+    },
+    {
         id: 'svc-ro',
         tab: 'service',
         section: 'Read Mode',
@@ -97,6 +129,16 @@ export const DOCS: DocCard[] = [
         description:
             'Проверить доступность ноды по SSH и DB-соединению. Возвращает статус SSH, статус DB и измеренную задержку для каждого.',
         note: 'SSH timeout — 5 сек, DB timeout — 3 сек.',
+    },
+    {
+        id: 'svc-wsrep-status',
+        tab: 'service',
+        section: 'Diagnostics',
+        title: 'Быстрая проверка состояния Galera',
+        badge: 'Info',
+        description:
+            'Минимальный набор SQL-запросов для ручной диагностики состояния ноды и кластера прямо в консоли.',
+        code: "SHOW STATUS LIKE 'wsrep_cluster_status';\nSHOW STATUS LIKE 'wsrep_local_state_comment';\nSHOW STATUS LIKE 'wsrep_cluster_size';\nSHOW STATUS LIKE 'wsrep_connected';\nSHOW STATUS LIKE 'wsrep_ready';",
     },
 
     // ── Tab: recovery ────────────────────────────────────────────────────────
@@ -143,6 +185,27 @@ export const DOCS: DocCard[] = [
         note: 'Никогда не редактируй safe_to_bootstrap вручную без понимания последствий.',
     },
     {
+        id: 'rec-quorum',
+        tab: 'recovery',
+        section: 'Bootstrap',
+        title: 'Кворум и формула',
+        badge: 'Warning',
+        description:
+            'Galera требует кворума для работы в режиме Primary Component: больше половины нод должны быть доступны. При 3 нодах минимум 2, при 5 нодах — минимум 3. Арбитратор (garbd) считается нодой для кворума, но не хранит данные.',
+        note: 'Формула: кворум = ⌊N/2⌋ + 1. При чётном числе нод без арбитратора — риск split-brain при сетевой партиции 50/50.',
+    },
+    {
+        id: 'rec-evict',
+        tab: 'recovery',
+        section: 'Bootstrap',
+        title: 'Evict (исключить ноду)',
+        badge: 'Danger',
+        description:
+            'Принудительное исключение ноды из кластера через wsrep provider. Используется когда нода "зависла" в кластере и мешает кворуму, но не отвечает.',
+        code: "-- Выполнить на живой ноде:\nSET GLOBAL wsrep_provider_options='evs.evict=<node-uuid>';",
+        note: 'UUID ноды смотри в wsrep_gcomm_uuid или в логах MariaDB.',
+    },
+    {
         id: 'rec-sst',
         tab: 'recovery',
         section: 'State Transfer',
@@ -160,6 +223,17 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'Incremental State Transfer — передача только пропущенных транзакций через gcache. Быстрая и не нагружает донора. Возможна только если отставание ноды укладывается в размер gcache на доноре.',
+    },
+    {
+        id: 'rec-gcache',
+        tab: 'recovery',
+        section: 'State Transfer',
+        title: 'gcache.size — тюнинг',
+        badge: 'Info',
+        description:
+            'gcache (Galera Write-Set Cache) хранит последние транзакции для IST. Чем больше gcache, тем дольше нода может быть офлайн и вернуться через IST, а не SST.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_provider_options="gcache.size=512M"',
+        note: 'Для высоконагруженных кластеров рекомендуется 1–2 GB. gcache хранится в /var/lib/mysql/galera.cache.',
     },
     {
         id: 'rec-rejoin',
@@ -190,6 +264,16 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'Статус компонента: PRIMARY (кворум есть, запись разрешена) или non-Primary (кворум потерян, запись заблокирована). Значение non-Primary — критический признак.',
+    },
+    {
+        id: 'var-clusteruuid',
+        tab: 'variables',
+        section: 'Cluster State',
+        title: 'wsrep_cluster_state_uuid',
+        badge: 'Info',
+        description:
+            'UUID кластера — уникальный идентификатор Galera-кластера. Должен быть одинаковым на всех нодах. Расхождение UUID означает, что нода подключилась не к тому кластеру или граstate повреждён.',
+        code: "SHOW STATUS LIKE 'wsrep_cluster_state_uuid';",
     },
     {
         id: 'var-localstate',
@@ -255,6 +339,47 @@ export const DOCS: DocCard[] = [
         description:
             'Sequence number последней применённой транзакции. Используется для сравнения актуальности нод при Bootstrap.',
     },
+    {
+        id: 'var-certdeps',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'wsrep_cert_deps_distance',
+        badge: 'Info',
+        description:
+            'Среднее расстояние между транзакциями, которые можно применять параллельно. Чем больше значение — тем лучше Galera параллелизирует применение транзакций. Значение < 1 означает полностью последовательное применение.',
+        note: 'Для увеличения параллелизма увеличь wsrep_slave_threads (до числа ядер CPU).',
+    },
+    {
+        id: 'var-slavethreads',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'wsrep_slave_threads',
+        badge: 'Info',
+        description:
+            'Число потоков, применяющих входящие транзакции (write-sets) от других нод. Рекомендуется устанавливать равным числу ядер CPU или вдвое больше. По умолчанию 1.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_slave_threads = 4',
+        note: 'Смотри wsrep_cert_deps_distance — если значение > 1, потоки реально параллелятся.',
+    },
+    {
+        id: 'var-causalreads',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'wsrep_causal_reads / wsrep_sync_wait',
+        badge: 'Warning',
+        description:
+            'wsrep_sync_wait (новее) или wsrep_causal_reads (устар.) — заставляют ноду дождаться применения всех входящих транзакций перед выполнением SELECT. Устраняет грязные чтения, но добавляет латентность.',
+        code: 'SET SESSION wsrep_sync_wait = 1;  -- для SELECT\nSET SESSION wsrep_sync_wait = 3;  -- для SELECT + UPDATE',
+        note: 'Используй только там, где нужна строгая консистентность. На глобальном уровне сильно снижает производительность.',
+    },
+    {
+        id: 'var-applyoooe',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'wsrep_apply_oooe',
+        badge: 'Info',
+        description:
+            'Доля транзакций, применённых вне порядка (Out-Of-Order Execution). Чем выше значение — тем эффективнее работает параллельное применение. Значение 0 означает строго последовательное применение.',
+    },
 
     // ── Tab: diagnostics ─────────────────────────────────────────────────────
     {
@@ -315,6 +440,36 @@ export const DOCS: DocCard[] = [
             'Полный вывод SHOW GLOBAL VARIABLES с фильтром по wsrep-переменным (или любой подстроке). Key-value таблица с поиском.',
         code: "SHOW GLOBAL VARIABLES WHERE Variable_name LIKE 'wsrep%';",
     },
+    {
+        id: 'diag-checkall',
+        tab: 'diagnostics',
+        section: 'Панели',
+        title: 'Check All',
+        badge: 'Action',
+        description:
+            'Запуск всех диагностических проверок одновременно: connection check, config diff, system resources. Результаты агрегируются в единый отчёт. Удобно для быстрой диагностики перед maintenance.',
+    },
+    {
+        id: 'diag-deadlock',
+        tab: 'diagnostics',
+        section: 'InnoDB',
+        title: 'Deadlock Detection',
+        badge: 'Warning',
+        description:
+            'Galera использует оптимистичную блокировку (Optimistic Locking) — конфликты транзакций обнаруживаются при commit, а не при чтении. Это означает, что два клиента могут обновить одну строку, но второй получит Deadlock при коммите.',
+        code: '-- Найти последний deadlock:\nSHOW ENGINE INNODB STATUS\\G\n-- Секция: LATEST DETECTED DEADLOCK',
+        note: 'Galera добавляет свой тип конфликта: wsrep_conflict. Смотри wsrep_local_cert_failures для статистики.',
+    },
+    {
+        id: 'diag-certfailures',
+        tab: 'diagnostics',
+        section: 'InnoDB',
+        title: 'wsrep_local_cert_failures',
+        badge: 'Warning',
+        description:
+            'Счётчик транзакций, отклонённых на стадии сертификации Galera (конфликт write-sets). Растущий счётчик — признак высокого уровня конкуренции за одни и те же строки между нодами.',
+        code: "SHOW STATUS LIKE 'wsrep_local_cert_failures';",
+    },
 
     // ── Tab: architecture ────────────────────────────────────────────────────
     {
@@ -325,6 +480,28 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'Galera Orchestrator v2 работает в одном Docker-контейнере. FastAPI отдаёт собранную Vue 3 SPA-статику и REST API. SQLite хранится на volume /data/orchestrator.db.',
+    },
+    {
+        id: 'arch-docker-compose',
+        tab: 'architecture',
+        section: 'Деплой',
+        title: 'docker-compose пример',
+        badge: 'Info',
+        description:
+            'Минимальный docker-compose.yml для запуска Galera Orchestrator v2. Монтирует SSH-ключ read-only и volume для SQLite.',
+        code: 'services:\n  orchestrator:\n    image: galera-orchestrator-v2\n    ports:\n      - "8000:8000"\n    environment:\n      - FERNET_SECRET_KEY=your_fernet_key_here\n      - JWT_SECRET_KEY=your_jwt_secret_here\n    volumes:\n      - ./data:/data\n      - ~/.ssh/id_rsa:/root/.ssh/id_rsa:ro\n    restart: unless-stopped',
+        note: 'Никогда не используй одинаковые FERNET_SECRET_KEY и JWT_SECRET_KEY на разных окружениях.',
+    },
+    {
+        id: 'arch-sqlite',
+        tab: 'architecture',
+        section: 'Деплой',
+        title: 'SQLite Volume',
+        badge: 'Warning',
+        description:
+            'База данных SQLite хранится в /data/orchestrator.db внутри контейнера. Обязательно монтируй volume — без него все настройки теряются при пересоздании контейнера.',
+        code: 'volumes:\n  - ./data:/data',
+        note: 'Для резервного копирования достаточно скопировать файл orchestrator.db. SQLite поддерживает горячий бэкап через sqlite3 .backup.',
     },
     {
         id: 'arch-fernet',
@@ -366,6 +543,15 @@ export const DOCS: DocCard[] = [
             'Все endpoints привязаны к cluster_id: /api/clusters/{cluster_id}/... Это гарантирует изоляцию данных между кластерами. При смене кластера в Header все Vue Query кэши инвалидируются.',
     },
     {
+        id: 'arch-contours',
+        tab: 'architecture',
+        section: 'Структура данных',
+        title: 'Contours & Datacenters',
+        badge: 'Info',
+        description:
+            'Кластеры организованы по контурам (prod / stage / dev) и датацентрам. Контур — логическая группа, датацентр — физическое расположение ноды. Эти атрибуты используются для отображения топологии и выбора приоритетного донора при SST.',
+    },
+    {
         id: 'arch-lock',
         tab: 'architecture',
         section: 'Операции',
@@ -373,6 +559,16 @@ export const DOCS: DocCard[] = [
         badge: 'Warning',
         description:
             'При выполнении recovery или rolling restart кластер блокируется — параллельный запуск второй операции вернёт 409 Conflict. Статус блокировки виден в activeoperation поле status endpoint.',
+    },
+    {
+        id: 'arch-rolling-restart',
+        tab: 'architecture',
+        section: 'Операции',
+        title: 'Rolling Restart — логика',
+        badge: 'Warning',
+        description:
+            'Rolling restart перезапускает ноды по одной, чтобы сохранить кластер работоспособным. Порядок: сначала ноды DONOR/DESYNCED, затем SYNCED-ноды, в последнюю очередь — Primary-нода (с наибольшим seqno). Между каждым перезапуском ждёт возврата ноды в SYNCED.',
+        note: 'Если нода не возвращается в SYNCED за отведённое время, rolling restart отменяется с ошибкой.',
     },
 
     // ── Tab: websocket ────────────────────────────────────────────────────────
@@ -396,6 +592,25 @@ export const DOCS: DocCard[] = [
         code: '// Пример события:\n{\n  "event": "node_state_changed",\n  "cluster_id": 1,\n  "ts": "2026-04-09T00:00:00Z",\n  "payload": {\n    "node_id": 2,\n    "old_state": "SYNCED",\n    "new_state": "OFFLINE"\n  }\n}',
     },
     {
+        id: 'ws-operation-progress',
+        tab: 'websocket',
+        section: 'Real-time',
+        title: 'operation_progress payload',
+        badge: 'Info',
+        description:
+            'Событие operation_progress транслирует шаги выполняемой операции (recovery, rolling restart). Содержит step, total, message и текущий статус.',
+        code: '{\n  "event": "operation_progress",\n  "cluster_id": 1,\n  "ts": "2026-04-09T00:01:00Z",\n  "payload": {\n    "operation_id": 42,\n    "step": 2,\n    "total": 5,\n    "message": "Restarting node db-02...",\n    "status": "running"\n  }\n}',
+    },
+    {
+        id: 'ws-auth',
+        tab: 'websocket',
+        section: 'Real-time',
+        title: 'WS Auth Flow',
+        badge: 'Info',
+        description:
+            'WebSocket-соединение устанавливается после успешного логина. Backend проверяет JWT из httpOnly cookie при handshake. Если токен истёк — соединение отклоняется с кодом 4401, frontend редиректит на /login.',
+    },
+    {
         id: 'ws-reconnect',
         tab: 'websocket',
         section: 'Real-time',
@@ -416,11 +631,20 @@ export const DOCS: DocCard[] = [
     {
         id: 'ws-wsrep',
         tab: 'websocket',
-        section: 'wsrep-переменные',
+        section: 'Архитектура данных',
         title: 'Polling + WS модель',
         badge: 'Info',
         description:
             'Polling (интервал из system_settings) — source of truth для полного состояния нод. WebSocket — дельта-события для инкрементального обновления UI без перезапроса. Данные в ring buffer: 30 точек для спарклайнов.',
+    },
+    {
+        id: 'ws-cluster-switch',
+        tab: 'websocket',
+        section: 'Архитектура данных',
+        title: 'Смена кластера',
+        badge: 'Info',
+        description:
+            'При переключении кластера в шапке: WS-соединение закрывается и открывается заново для нового cluster_id, все Vue Query кэши инвалидируются, ring buffer спарклайнов очищается. Данные нового кластера подгружаются с нуля.',
     },
 
     // ── Tab: faq ──────────────────────────────────────────────────────────────
@@ -432,6 +656,48 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'Перейди на страницу Recovery. Wizard автоматически прочитает grastate.dat с каждой ноды, определит актуальную (по seqno и safe_to_bootstrap) и предложит план Bootstrap. Подтверди и следи за прогрессом.',
+    },
+    {
+        id: 'faq-joiner-stuck',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Нода зависла в состоянии JOINER',
+        badge: 'Warning',
+        description:
+            'Если нода долго остаётся в JOINER — идёт SST. При большой базе это может занять часы. Проверь прогресс SST на доноре: он будет в состоянии DONOR/DESYNCED. Если SST прервался — нода перезапустится и начнёт заново.',
+        code: '-- На доноре:\nSHOW STATUS LIKE "wsrep_local_state_comment";\n-- Должно быть: Donor/Desynced\n\n-- Прогресс SST в логах:\ntail -f /var/log/mysql/error.log | grep -i sst',
+        note: 'Если SST использует rsync — донор заблокирует запись на всё время передачи. Рассмотри переход на mariabackup как SST-метод.',
+    },
+    {
+        id: 'faq-add-node',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Как добавить новую ноду?',
+        badge: 'Info',
+        description:
+            'Добавить ноду в Settings → Nodes → Add Node. Укажи IP, порт, пользователя MySQL и SSH. После сохранения нода появится в топологии. Для подключения к кластеру запусти MariaDB на новой ноде с правильным wsrep_cluster_address — она автоматически выполнит SST.',
+        note: 'Убедись что новая нода имеет доступ к SSH-ключу (authorized_keys) и открытые порты: 3306 (MySQL), 4567 (Galera), 4568 (IST), 4444 (SST).',
+    },
+    {
+        id: 'faq-maintenance',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Что делает Maintenance Mode?',
+        badge: 'Warning',
+        description:
+            'Maintenance Mode переводит ноду в read_only=1 и устанавливает флаг maintenance=true в БД оркестратора. Нода остаётся в кластере и продолжает репликацию, но не принимает запись от клиентов. Используй перед обслуживанием сервера.',
+        note: 'Maintenance Drift — аномалия: maintenance=true, но read_only=0. Оркестратор помечает такую ноду как degraded.',
+    },
+    {
+        id: 'faq-garbd',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Что такое garbd (арбитратор)?',
+        badge: 'Info',
+        description:
+            'garbd (Galera Arbitrator) — лёгкий демон, который участвует в голосовании за кворум, но не хранит данные и не выполняет репликацию. Используется в кластерах с чётным числом нод (2, 4) для предотвращения split-brain.',
+        code: '# Запуск garbd:\ngarbd --address gcomm://node1:4567,node2:4567 \\\n      --group my_cluster_name \\\n      --log /var/log/garbd.log',
+        note: 'garbd не является заменой полноценной ноды. При падении всех нод garbd не поможет с восстановлением.',
     },
     {
         id: 'faq-warning',
@@ -450,6 +716,17 @@ export const DOCS: DocCard[] = [
         badge: 'Danger',
         description:
             'Split-brain возникает когда два независимых набора нод считают себя Primary Component. Обычно происходит при неправильном Bootstrap или сетевой партиции. Кластер показывает статус critical. Требует ручного вмешательства — останови все ноды кроме одной, затем Bootstrap.',
+    },
+    {
+        id: 'faq-ports',
+        tab: 'faq',
+        section: 'Критические ситуации',
+        title: 'Нужные порты для Galera',
+        badge: 'Warning',
+        description:
+            'Убедись что между всеми нодами открыты необходимые порты. Блокировка любого из них вызовет проблемы с репликацией или SST.',
+        code: '3306  — MySQL клиент\n4567  — Galera репликация (TCP+UDP)\n4568  — IST (Incremental State Transfer)\n4444  — SST (rsync / mariabackup)',
+        note: 'Для garbd нужен только порт 4567.',
     },
     {
         id: 'faq-ist-sst',
