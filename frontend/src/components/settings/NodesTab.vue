@@ -104,7 +104,6 @@ const qc           = useQueryClient()
 const toast        = useToast()
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
-const contourId    = computed(() => clusterStore.selectedContourId)
 
 const { data: items, isLoading } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'nodes-settings']),
@@ -113,8 +112,8 @@ const { data: items, isLoading } = useQuery({
 })
 
 const { data: datacenters } = useQuery({
-  queryKey: computed(() => ['datacenters', contourId.value]),
-  queryFn:  () => settingsApi.listDatacenters(contourId.value ?? undefined),
+  queryKey: ['datacenters'],
+  queryFn:  () => settingsApi.listDatacenters(),
 })
 
 const dcOptions = computed(() => [
@@ -127,14 +126,15 @@ function dcName(id: number | null) {
 }
 
 const nodeFields = computed((): FormField[] => [
-  { key: 'name',          label: 'Name',        required: true, placeholder: 'node-01' },
-  { key: 'host',          label: 'Host / IP',   required: true, placeholder: '10.0.0.1' },
-  { key: 'port',          label: 'DB Port',     type: 'number', min: 1, max: 65535 },
-  { key: 'ssh_user',      label: 'SSH User',    placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',    type: 'number', min: 1, max: 65535 },
-  { key: 'datacenter_id', label: 'Datacenter',  type: 'select', options: dcOptions.value },
-  { key: 'enabled',       label: 'Enabled',     type: 'toggle', toggleLabel: 'Monitor this node' },
-  { key: 'description',   label: 'Description', type: 'textarea' },
+  { key: 'name',          label: 'Name',       required: true, placeholder: 'node-01' },
+  { key: 'host',          label: 'Host / IP',  required: true, placeholder: '10.0.0.1' },
+  { key: 'port',          label: 'DB Port',    type: 'number', min: 1, max: 65535 },
+  { key: 'ssh_user',      label: 'SSH User',   placeholder: 'root' },
+  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535 },
+  { key: 'db_user',       label: 'DB User',    placeholder: 'monitor_user' },
+  { key: 'db_password',   label: 'DB Password', type: 'password', placeholder: '••••••••' },
+  { key: 'datacenter_id', label: 'Datacenter', type: 'select', options: dcOptions.value },
+  { key: 'enabled',       label: 'Enabled',    type: 'toggle', toggleLabel: 'Monitor this node' },
 ])
 
 const modal = ref<{
@@ -154,10 +154,15 @@ function openEdit(node: NodeSetting) {
   modal.value = {
     open: true, mode: 'edit', id: node.id,
     initial: {
-      name: node.name, host: node.host, port: node.port,
-      ssh_user: node.ssh_user, ssh_port: node.ssh_port,
-      datacenter_id: node.datacenter_id, enabled: node.enabled,
-      description: node.description ?? '',
+      name:          node.name,
+      host:          node.host,
+      port:          node.port,
+      ssh_user:      node.ssh_user,
+      ssh_port:      node.ssh_port,
+      db_user:       node.db_user,
+      // db_password намеренно не предзаполняем — бэкенд сохраняет старый если не передан
+      datacenter_id: node.datacenter_id,
+      enabled:       node.enabled,
     },
   }
   apiError.value = null
@@ -170,9 +175,9 @@ async function handleSubmit(values: Record<string, unknown>) {
   saving.value = true; apiError.value = null
   try {
     if (modal.value.mode === 'create') {
-      await settingsApi.createNode(clusterId.value, values as any)
+      await settingsApi.createNode({ cluster_id: clusterId.value, ...(values as any) })
     } else {
-      await settingsApi.updateNode(clusterId.value, modal.value.id!, values as any)
+      await settingsApi.updateNode(modal.value.id!, values as any)
     }
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
@@ -189,7 +194,7 @@ async function handleDelete() {
   if (!deleteTarget.value || !clusterId.value) return
   deleting.value = true
   try {
-    await settingsApi.deleteNode(clusterId.value, deleteTarget.value.id)
+    await settingsApi.deleteNode(deleteTarget.value.id)
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
     toast.add({ severity: 'success', summary: 'Deleted', life: 2500 })
