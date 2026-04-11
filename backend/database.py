@@ -93,19 +93,18 @@ def _seed_system_settings(conn) -> None:
             text(
                 """
                 INSERT INTO system_settings
-                    (polling_interval_sec, event_log_limit, timezone,
+                    (polling_interval_sec, event_log_limit,
                      rolling_restart_timeout_sec, updated_at)
                 VALUES
-                    (:polling_interval_sec, :event_log_limit, :timezone,
+                    (:polling_interval_sec, :event_log_limit,
                      :rolling_restart_timeout_sec, :updated_at)
                 """
             ),
             {
-                "polling_interval_sec": 5,
-                "event_log_limit": 200,
-                "timezone": "UTC",
+                "polling_interval_sec":        5,
+                "event_log_limit":             200,
                 "rolling_restart_timeout_sec": 300,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at":                  datetime.now(timezone.utc),
             },
         )
         logger.debug("system_settings seeded with defaults")

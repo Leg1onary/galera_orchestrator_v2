@@ -1,4 +1,4 @@
-// ТЗ раздел 16: системные настройки (polling interval, event log limit, timezone).
+// ТЗ раздел 16: системные настройки (polling interval, event log limit).
 // CRUD сущностей (nodes, clusters и т.д.) выполняется через Vue Query напрямую
 // в компонентах Settings — отдельный store для них избыточен.
 import { defineStore } from 'pinia'
@@ -9,7 +9,6 @@ export interface SystemSettings {
     id:                          number
     polling_interval_sec:        number
     event_log_limit:             number
-    timezone:                    string
     rolling_restart_timeout_sec: number
     updated_at:                  string
 }
@@ -30,7 +29,6 @@ export const useSettingsStore = defineStore('settings', {
         pollingIntervalSec: (state): number =>
             state.settings?.polling_interval_sec ?? 30,
 
-        // fix: дефолт 100 — backend /log принимает <= 500
         eventLogLimit: (state): number =>
             state.settings?.event_log_limit ?? 100,
 

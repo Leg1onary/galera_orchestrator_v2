@@ -42,7 +42,6 @@ from services.event_log import write_event
 
 logger = logging.getLogger(__name__)
 
-# FIX BLOCKER: prefix="/settings" — main.py монтирует с prefix="/api"
 router = APIRouter(
     prefix="/settings",
     tags=["settings"],
@@ -84,12 +83,10 @@ async def create_datacenter(body: DatacenterCreate) -> dict:
             {"name": body.name},
         )
         new_id = result.lastrowid
-    # FIX MAJOR: добавлен level=
     write_event(level="INFO", source="ui", message=f"Datacenter '{body.name}' created (id={new_id})")
     return {"id": new_id, "name": body.name}
 
 
-# FIX MAJOR: PUT → PATCH (ТЗ 16.1)
 @router.patch("/datacenters/{dc_id}")
 async def update_datacenter(dc_id: int, body: DatacenterCreate) -> dict:
     _get_datacenter_or_404(dc_id)
@@ -167,7 +164,6 @@ class ClusterCreate(BaseModel):
         return v
 
 
-# FIX BLOCKER: добавлен отсутствующий GET /settings/clusters (ТЗ 16.1)
 @router.get("/clusters")
 async def list_clusters() -> list[dict]:
     with engine.connect() as conn:
@@ -202,7 +198,6 @@ async def create_cluster(body: ClusterCreate) -> dict:
     return {"id": new_id, "name": body.name, "contour_id": body.contour_id}
 
 
-# FIX MAJOR: PUT → PATCH (ТЗ 16.1)
 @router.patch("/clusters/{cluster_id}")
 async def update_cluster(cluster_id: int, body: ClusterCreate) -> dict:
     _get_cluster_or_404(cluster_id)
@@ -227,7 +222,6 @@ async def update_cluster(cluster_id: int, body: ClusterCreate) -> dict:
 @router.delete("/clusters/{cluster_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cluster(cluster_id: int) -> Response:
     _get_cluster_or_404(cluster_id)
-    # FIX MAJOR: проверка на наличие нод/арбитраторов перед удалением кластера
     with engine.connect() as conn:
         usage = conn.execute(
             text(
@@ -274,12 +268,10 @@ def _assert_contour_exists(contour_id: int) -> None:
 
 # ════════════════════════════════════════════════════════════════════════════════
 # NODES
-# FIX BLOCKER: пути /settings/nodes и /settings/nodes/{id} (ТЗ 16.1)
-# cluster_id передаётся в body при POST/PATCH, в query при GET
 # ════════════════════════════════════════════════════════════════════════════════
 
 class NodeCreate(BaseModel):
-    cluster_id: int  # FIX BLOCKER: cluster_id в теле (ТЗ 16.1)
+    cluster_id: int
     name: str
     host: str
     port: int = 3306
@@ -307,7 +299,6 @@ class NodeCreate(BaseModel):
 
 
 class NodeUpdate(BaseModel):
-    # cluster_id не меняется при update — берётся из существующей записи
     name: str
     host: str
     port: int = 3306
@@ -334,12 +325,10 @@ class NodeUpdate(BaseModel):
         return v
 
 
-# FIX BLOCKER: плоский путь /settings/nodes?cluster_id=N (ТЗ 16.1)
 @router.get("/nodes")
 async def list_nodes_settings(
         cluster_id: int | None = Query(None),
 ) -> list[dict]:
-    """GET /api/settings/nodes?cluster_id=N — конфиг нод без live state и без db_password."""
     query = (
         "SELECT n.id, n.name, n.host, n.port, n.ssh_port, n.ssh_user, "
         "n.db_user, n.enabled, n.maintenance, n.datacenter_id, "
@@ -404,7 +393,6 @@ async def create_node_settings(body: NodeCreate) -> dict:
     return {"id": new_id, "name": body.name, "host": body.host, "port": body.port, "cluster_id": body.cluster_id}
 
 
-# FIX MAJOR: PUT → PATCH (ТЗ 16.1)
 @router.patch("/nodes/{node_id}")
 async def update_node_settings(node_id: int, body: NodeUpdate) -> dict:
     node = _get_node_or_404_by_id(node_id)
@@ -412,11 +400,9 @@ async def update_node_settings(node_id: int, body: NodeUpdate) -> dict:
     if body.datacenter_id:
         _get_datacenter_or_404(body.datacenter_id)
 
-    # FIX MINOR: пустая строка "" не должна шифроваться — только truthy значение
     if body.db_password:
         encrypted_pw = encrypt_password(body.db_password)
     else:
-        # Пароль не передан — сохраняем существующий зашифрованный
         encrypted_pw = node["db_password"]
 
     with engine.begin() as conn:
@@ -508,11 +494,10 @@ def _assert_node_host_port_unique(
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ARBITRATORS
-# FIX BLOCKER: пути /settings/arbitrators и /settings/arbitrators/{id} (ТЗ 16.1)
 # ════════════════════════════════════════════════════════════════════════════════
 
 class ArbitratorCreate(BaseModel):
-    cluster_id: int  # FIX BLOCKER: cluster_id в теле (ТЗ 16.1)
+    cluster_id: int
     name: str
     host: str
     ssh_port: int = 22
@@ -550,7 +535,6 @@ class ArbitratorUpdate(BaseModel):
 async def list_arbitrators_settings(
         cluster_id: int | None = Query(None),
 ) -> list[dict]:
-    """GET /api/settings/arbitrators?cluster_id=N"""
     query = (
         "SELECT a.id, a.name, a.host, a.ssh_port, a.ssh_user, "
         "a.enabled, a.datacenter_id, d.name AS datacenter_name, a.cluster_id "
@@ -603,7 +587,6 @@ async def create_arbitrator_settings(body: ArbitratorCreate) -> dict:
     return {"id": new_id, "name": body.name, "host": body.host, "cluster_id": body.cluster_id}
 
 
-# FIX MAJOR: PUT → PATCH (ТЗ 16.1)
 @router.patch("/arbitrators/{arb_id}")
 async def update_arbitrator_settings(arb_id: int, body: ArbitratorUpdate) -> dict:
     arb = _get_arbitrator_or_404_by_id(arb_id)
@@ -674,7 +657,6 @@ def _get_arbitrator_or_404_by_id(arb_id: int) -> dict:
 class SystemSettingsUpdate(BaseModel):
     polling_interval_sec: int = 5
     event_log_limit: int = 200
-    timezone: str = "UTC"
     rolling_restart_timeout_sec: Optional[int] = None
 
     @field_validator("polling_interval_sec")
@@ -697,7 +679,7 @@ async def get_system_settings() -> dict:
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT polling_interval_sec, event_log_limit, timezone, "
+                "SELECT polling_interval_sec, event_log_limit, "
                 "rolling_restart_timeout_sec, updated_at "
                 "FROM system_settings WHERE id = 1"
             )
@@ -705,6 +687,7 @@ async def get_system_settings() -> dict:
         if row is None:
             raise HTTPException(500, detail="system_settings row not found — run init_db()")
         return dict(row)
+
 
 @router.patch("/system")
 async def update_system_settings(body: SystemSettingsUpdate) -> dict:
@@ -715,24 +698,21 @@ async def update_system_settings(body: SystemSettingsUpdate) -> dict:
                 UPDATE system_settings SET
                                            polling_interval_sec = :interval,
                                            event_log_limit = :log_limit,
-                                           timezone = :tz,
                                            rolling_restart_timeout_sec = :rr_timeout,
                                            updated_at = :now
                 WHERE id = 1
                 """
             ),
             {
-                "interval": body.polling_interval_sec,
-                "log_limit": body.event_log_limit,
-                "tz": body.timezone,
+                "interval":   body.polling_interval_sec,
+                "log_limit":  body.event_log_limit,
                 "rr_timeout": body.rolling_restart_timeout_sec,
-                "now": datetime.now(timezone.utc).isoformat(),
+                "now":        datetime.now(timezone.utc).isoformat(),
             },
         )
     write_event(level="INFO", source="ui", message="System settings updated")
     return {
-        "polling_interval_sec": body.polling_interval_sec,
-        "event_log_limit": body.event_log_limit,
-        "timezone": body.timezone,
+        "polling_interval_sec":        body.polling_interval_sec,
+        "event_log_limit":             body.event_log_limit,
         "rolling_restart_timeout_sec": body.rolling_restart_timeout_sec,
     }
