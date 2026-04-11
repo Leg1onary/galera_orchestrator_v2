@@ -13,8 +13,8 @@
         <thead>
           <tr>
             <th class="s-table__th">Name <i class="pi pi-sort-alt s-table__sort-icon" /></th>
-            <th class="s-table__th">DB Host</th>
-            <th class="s-table__th">DB User</th>
+            <th class="s-table__th">Contour</th>
+            <th class="s-table__th">Description</th>
             <th class="s-table__th s-table__th--actions" />
           </tr>
         </thead>
@@ -41,11 +41,9 @@
           <tr v-else v-for="row in items" :key="row.id" class="s-table__row">
             <td class="s-table__td s-table__td--name">{{ row.name }}</td>
             <td class="s-table__td">
-              <span class="mono-cell">{{ row.db_host }}:{{ row.db_port }}</span>
+              <span class="mono-cell">{{ row.contour_name ?? row.contour_id }}</span>
             </td>
-            <td class="s-table__td">
-              <span class="mono-cell">{{ row.db_user }}</span>
-            </td>
+            <td class="s-table__td">{{ row.description || '—' }}</td>
             <td class="s-table__td s-table__td--actions">
               <div class="row-actions">
                 <button class="row-btn row-btn--edit" @click="openEdit(row)" title="Edit">
@@ -106,15 +104,6 @@ const { data: items, isLoading } = useQuery({
 
 const clusterFields = computed<FormField[]>(() => [
   { key: 'name',        label: 'Name',        required: true },
-  { key: 'db_host',     label: 'DB Host',     required: true, placeholder: '10.0.0.1' },
-  { key: 'db_port',     label: 'DB Port',     type: 'number', min: 1, max: 65535 },
-  { key: 'db_user',     label: 'DB User',     placeholder: 'monitoring' },
-  {
-    key:      'db_password',
-    label:    modal.value.mode === 'create' ? 'DB Password' : 'DB Password (leave blank to keep)',
-    type:     'password',
-    required: modal.value.mode === 'create',
-  },
   { key: 'description', label: 'Description', type: 'textarea' },
 ])
 
@@ -139,9 +128,6 @@ function openEdit(c: ClusterSetting) {
     open: true, mode: 'edit', id: c.id,
     initial: {
       name:        c.name,
-      db_host:     c.db_host,
-      db_port:     c.db_port,
-      db_user:     c.db_user,
       description: c.description ?? '',
     },
   }
@@ -158,10 +144,7 @@ async function handleSubmit(values: Record<string, unknown>) {
     if (modal.value.mode === 'create') {
       await settingsApi.createCluster({ ...values, contour_id: contourId.value } as any)
     } else {
-      const { db_password, ...rest } = values
-      const patch: Record<string, unknown> = { ...rest }
-      if (db_password) patch.db_password = db_password
-      await settingsApi.updateCluster(modal.value.id!, patch as any)
+      await settingsApi.updateCluster(modal.value.id!, values as any)
     }
     await qc.invalidateQueries({ queryKey: ['clusters-settings'] })
     await qc.invalidateQueries({ queryKey: ['clusters'] })
@@ -319,7 +302,7 @@ async function handleDelete() {
   background: rgba(248,113,113,0.1);
 }
 
-/* ── Mono cell (host:port) ── */
+/* ── Mono cell ── */
 .mono-cell {
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: var(--text-xs);
