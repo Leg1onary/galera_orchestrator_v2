@@ -20,28 +20,20 @@ function cfg(level: string) {
   return LEVEL_CFG[level] ?? LEVEL_CFG.info
 }
 
-/**
- * Надёжный парсинг ISO-даты.
- * Бэкенд отдаёт "2026-04-11T18:11:40.514681+00:00".
- * Стратегия: убираем timezone-suffix целиком
- * (любой вид offset) и прицепляем Z — все браузеры парсят это без проблем.
- * Даты из БД всегда UTC, поэтому потеря точности нет.
- */
 function parseDate(iso: string): Date {
   if (!iso) return new Date(NaN)
-  // Убираем любой timezone suffix: Z, +HH:MM, -HH:MM
-  // и заменяем на Z
-  const normalized = iso
-    .trim()
-    .replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
+  const normalized = iso.trim().replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
   const d = new Date(normalized)
   if (!isNaN(d.getTime())) return d
-  // Фолбэк: пробуем оригинальную строку
   return new Date(iso)
 }
 
-// Всегда показываем время, если сегодня — без даты
 function formatTs(iso: string): { date: string; time: string } {
+  // DEBUG: убрать после диагностики
+  console.log('[EventLog] raw created_at:', JSON.stringify(iso), '| type:', typeof iso)
+  const normalized = iso?.trim().replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
+  console.log('[EventLog] normalized:', normalized, '| new Date():', new Date(normalized).toString())
+
   const d = parseDate(iso)
   if (isNaN(d.getTime())) return { date: '', time: '—' }
 
@@ -70,7 +62,6 @@ function formatTs(iso: string): { date: string; time: string } {
       <span v-if="props.events.length" class="el-count">{{ props.events.length }} events</span>
     </div>
 
-    <!-- Loading -->
     <div v-if="props.isLoading" class="el-skeleton">
       <div v-for="i in 4" :key="i" class="el-sk-row">
         <Skeleton shape="circle" size="2rem" />
@@ -81,13 +72,11 @@ function formatTs(iso: string): { date: string; time: string } {
       </div>
     </div>
 
-    <!-- Empty -->
     <div v-else-if="props.events.length === 0" class="el-empty">
       <i class="pi pi-check-circle" />
       <span>No events — all clear</span>
     </div>
 
-    <!-- Timeline -->
     <Timeline
       v-else
       :value="props.events"
@@ -135,7 +124,6 @@ function formatTs(iso: string): { date: string; time: string } {
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
-
 .event-log-header {
   display: flex;
   align-items: center;
@@ -143,33 +131,19 @@ function formatTs(iso: string): { date: string; time: string } {
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-border);
 }
-
 .el-count {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-faint);
 }
-
-/* Skeleton */
 .el-skeleton {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   padding: var(--space-5);
 }
-.el-sk-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.el-sk-lines {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  flex: 1;
-}
-
-/* Empty */
+.el-sk-row { display: flex; align-items: center; gap: var(--space-3); }
+.el-sk-lines { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
 .el-empty {
   display: flex;
   align-items: center;
@@ -180,14 +154,11 @@ function formatTs(iso: string): { date: string; time: string } {
   justify-content: center;
 }
 .el-empty i { color: var(--color-synced); font-size: 0.9rem; }
-
-/* Timeline wrapper */
 .el-timeline {
   padding: var(--space-3) var(--space-4);
   max-height: 360px;
   overflow-y: auto;
 }
-
 :deep(.p-timeline-event) {
   display: flex;
   align-items: flex-start;
@@ -219,8 +190,6 @@ function formatTs(iso: string): { date: string; time: string } {
   min-width: 0;
   padding: 0 0 var(--space-2) 0;
 }
-
-/* Marker */
 .el-marker {
   display: flex;
   align-items: center;
@@ -235,8 +204,6 @@ function formatTs(iso: string): { date: string; time: string } {
 .el-marker--warning  { background: rgba(251,146,60,0.12);  color: var(--color-degraded); }
 .el-marker--error    { background: rgba(248,113,113,0.12); color: var(--color-offline); }
 .el-marker--critical { background: rgba(248,113,113,0.15); color: var(--color-offline); }
-
-/* Item */
 .el-item {
   display: flex;
   flex-direction: column;
@@ -258,7 +225,6 @@ function formatTs(iso: string): { date: string; time: string } {
 }
 .el-date { color: var(--color-text-muted); }
 .el-sep  { color: var(--color-text-faint); opacity: 0.5; }
-
 .el-node-tag,
 .el-level-tag {
   font-size: 0.6rem !important;
