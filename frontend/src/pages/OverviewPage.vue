@@ -12,18 +12,23 @@ import EventLog from '@/components/overview/EventLog.vue'
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
 
-// ТЗ п.10.1: два отдельных запроса — status и log
-const { data, isLoading, isError }           = useClusterStatus(clusterId)
+const { data, isLoading, isError }               = useClusterStatus(clusterId)
 const { data: logData, isLoading: isLogLoading } = useClusterLog(clusterId)
 
-const nodes       = computed(() => data.value?.nodes ?? [])
+const nodes       = computed(() => data.value?.nodes       ?? [])
 const arbitrators = computed(() => data.value?.arbitrators ?? [])
-const events      = computed(() => logData.value ?? [])
+const events      = computed(() => logData.value           ?? [])
 
+// fix: wsrep-поля лежат в node.live.*, не в корне NodeStatusItem
 const syncedCount = computed(() =>
   nodes.value.filter((n) =>
-    (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED'
+    (n.live?.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED'
   ).length
+)
+
+// wsrep_cluster_size и flow_control — из live первой живой ноды
+const firstLive = computed(() =>
+  nodes.value.find((n) => n.live?.ssh_ok)?.live ?? null
 )
 </script>
 
@@ -37,22 +42,20 @@ const syncedCount = computed(() =>
 
     <template v-else>
 
-      <!-- Error -->
       <Message v-if="isError" severity="error" :closable="false">
         Failed to load cluster data. Check backend connection.
       </Message>
 
-      <!-- Summary bar (shows inline skeletons while loading) -->
+      <!-- fix: wsrep_cluster_size и flow_control_paused берём из live первой живой ноды -->
       <ClusterSummaryBar
         :total-nodes="nodes.length"
         :synced-nodes="syncedCount"
         :cluster-status="data?.status ?? null"
-        :cluster-size="nodes[0]?.wsrep_cluster_size ?? null"
-        :flow-control-paused="nodes[0]?.wsrep_flow_control_paused ?? null"
+        :cluster-size="firstLive?.wsrep_cluster_size ?? null"
+        :flow-control-paused="firstLive?.wsrep_flow_control_paused ?? null"
         :is-loading="isLoading"
       />
 
-      <!-- Nodes -->
       <section class="overview-section">
         <div class="section-title">Nodes</div>
         <div class="nodes-grid">
@@ -69,7 +72,6 @@ const syncedCount = computed(() =>
         </div>
       </section>
 
-      <!-- Arbitrators -->
       <section v-if="arbitrators.length" class="overview-section">
         <div class="section-title">Arbitrators</div>
         <div class="arb-grid">
@@ -81,7 +83,6 @@ const syncedCount = computed(() =>
         </div>
       </section>
 
-      <!-- Event log — отдельный запрос GET /api/clusters/{id}/log (ТЗ п.10.1) -->
       <section class="overview-section">
         <EventLog :events="events" :is-loading="isLogLoading" />
       </section>

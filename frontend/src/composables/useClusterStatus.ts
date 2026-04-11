@@ -1,5 +1,5 @@
 // Composable — инкапсулирует useQuery на GET /api/clusters/{id}/status
-// + инвалидацию по WS-событиям node_state_changed / arbitrator_state_changed
+// + инвалидацию по WS-событиям node_state_changed / operation_finished
 import { computed, onUnmounted } from 'vue'
 import type { Ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -36,6 +36,17 @@ export interface ClusterStatusResponse {
   active_operation: unknown | null
 }
 
+// WS-события, триггерящие инвалидацию статуса кластера
+const STATUS_INVALIDATE_EVENTS = new Set([
+  'node_state_changed',
+  'arbitrator_state_changed',
+  // fix: после завершения операции (stop/start/restart) нода
+  // не меняет wsrep-статус мгновенно — поллер подтянет новое состояние
+  // только когда придёт operation_finished и мы форсируем рефетч
+  'operation_finished',
+  'operation_started',
+])
+
 export function useClusterStatus(clusterId: Ref<number | null>) {
   const qc             = useQueryClient()
   const settingsStore  = useSettingsStore()
@@ -54,10 +65,8 @@ export function useClusterStatus(clusterId: Ref<number | null>) {
   })
 
   const unsub = onWsEvent((event) => {
-    if (
-      event.cluster_id === clusterId.value &&
-      (event.event === 'node_state_changed' || event.event === 'arbitrator_state_changed')
-    ) {
+    if (event.cluster_id !== clusterId.value) return
+    if (STATUS_INVALIDATE_EVENTS.has(event.event)) {
       qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'status'] })
     }
   })

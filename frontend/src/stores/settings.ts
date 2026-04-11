@@ -19,23 +19,20 @@ export type SystemSettingsPatch = Partial<Omit<SystemSettings, 'id' | 'updated_a
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
         settings:    null as SystemSettings | null,
-        // MAJOR fix: _loaded — соглашение "не трогать снаружи напрямую, только через reload()"
         _loaded:     false,
         loading:     false,
         loadError:   null as string | null,
-        // MAJOR fix: updateError убран — update() только пробрасывает ошибку,
-        // компонент сам решает как её показать. Двойная ответственность устранена.
     }),
 
     getters: {
         isReady: (state): boolean => state._loaded && !state.loading,
 
-        // MAJOR fix: дефолты приведены к значениям из SystemTab и ТЗ
         pollingIntervalSec: (state): number =>
             state.settings?.polling_interval_sec ?? 30,
 
+        // fix: дефолт 100 — backend /log принимает <= 500
         eventLogLimit: (state): number =>
-            state.settings?.event_log_limit ?? 1000,
+            state.settings?.event_log_limit ?? 100,
 
         rollingRestartTimeoutSec: (state): number =>
             state.settings?.rolling_restart_timeout_sec ?? 300,
@@ -51,9 +48,7 @@ export const useSettingsStore = defineStore('settings', {
                 this.settings = data
                 this._loaded  = true
             } catch (err) {
-                // MAJOR fix: extractApiError вместо дублирующегося chain
                 this.loadError = extractApiError(err)
-                // _loaded остаётся false — следующий вызов повторит попытку
             } finally {
                 this.loading = false
             }
@@ -65,19 +60,15 @@ export const useSettingsStore = defineStore('settings', {
                 const { data } = await api.patch<SystemSettings>('/api/settings/system', patch)
                 this.settings = data
             } catch (err) {
-                // MAJOR fix: только пробрасываем — компонент обрабатывает через extractApiError
                 throw err
             }
         },
 
-        // MAJOR fix: reload вместо forceLoad — семантически точнее,
-        // SystemTab вызывает settingsStore.reload() после сохранения
         async reload() {
             this._loaded = false
             await this.load(true)
         },
 
-        // MINOR fix: сброс при logout
         reset() {
             this.settings  = null
             this._loaded   = false
