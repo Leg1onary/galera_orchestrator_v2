@@ -84,7 +84,7 @@ const firstLive = computed(() =>
       </section>
 
       <section class="overview-section">
-        <EventLog :events="events" :is-loading="isLogLoading" />
+        <EventLog :events="events" :is-loading="isLogLoading" :cluster-id="clusterId"/>
       </section>
 
     </template>
