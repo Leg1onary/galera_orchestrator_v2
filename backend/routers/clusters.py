@@ -1,10 +1,11 @@
 """
 Clusters router
 
-GET  /api/clusters                     — список кластеров с live-сводкой
-GET  /api/clusters?contour_id=N        — фильтр по контуру
-GET  /api/clusters/{cluster_id}/status — полный live-статус кластера
-GET  /api/clusters/{cluster_id}/log    — event_log кластера (с фильтрами)
+GET    /api/clusters                     — список кластеров с live-сводкой
+GET    /api/clusters?contour_id=N        — фильтр по контуру
+GET    /api/clusters/{cluster_id}/status — полный live-статус кластера
+GET    /api/clusters/{cluster_id}/log    — event_log кластера (с фильтрами)
+DELETE /api/clusters/{cluster_id}/log    — очистить event_log кластера
 
 ТЗ разделы 6.1, 7, 9.1, 9.2
 """
@@ -95,11 +96,7 @@ def _fetch_arbitrators(cluster_id: int) -> list[dict]:
 
 
 def _fetch_active_operation(cluster_id: int) -> dict | None:
-    """Возвращает активную операцию кластера (pending/running/cancel_requested).
-
-    Включает error_message и details_json чтобы фронт мог показать
-    детали и ошибку прямо из active_operation без доп. запросов.
-    """
+    """Возвращает активную операцию кластера (pending/running/cancel_requested)."""
     with engine.begin() as conn:
         row = conn.execute(
             text("""
@@ -317,13 +314,6 @@ async def cluster_log(
     GET /api/clusters/{cluster_id}/log
 
     Возвращает event_log по кластеру с опциональными фильтрами.
-
-    Query params:
-      node_id        — фильтр по ноде
-      arbitrator_id  — фильтр по арбитратору
-      source         — фильтр по источнику (ssh|ui|recovery|maintenance|...)
-      level          — фильтр по уровню (INFO|WARN|ERROR)
-      limit          — макс 500, default 100
     """
     cluster = _fetch_cluster_by_id(cluster_id)
     if cluster is None:
@@ -377,3 +367,33 @@ async def cluster_log(
         }
         for r in rows
     ]
+
+
+@router.delete(
+    "/{cluster_id}/log",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_auth)],
+)
+async def clear_cluster_log(cluster_id: int) -> dict:
+    """
+    DELETE /api/clusters/{cluster_id}/log
+
+    Удаляет все записи event_logs для кластера.
+    Возвращает { deleted: N }.
+    """
+    cluster = _fetch_cluster_by_id(cluster_id)
+    if cluster is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cluster {cluster_id} not found",
+        )
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("DELETE FROM event_logs WHERE cluster_id = :cluster_id"),
+            {"cluster_id": cluster_id},
+        )
+
+    deleted = result.rowcount
+    logger.info("[cluster %d] event_log cleared: %d rows deleted", cluster_id, deleted)
+    return {"deleted": deleted}

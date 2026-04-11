@@ -1,10 +1,14 @@
 <script setup lang="ts">
-// Реальная схема из GET /api/clusters/{id}/log:
-// { id, ts, level (uppercase: INFO/WARNING/ERROR), source, message, node_id, arbitrator_id, operation_id }
+import { useConfirm } from 'primevue/useconfirm'
+import { useToast }   from 'primevue/usetoast'
+import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { api } from '@/api/client'
+
+// Реальная схема от API
 interface ClusterEvent {
   id: number
-  ts: string             // реальное поле (не created_at)
-  level: string          // приходит uppercase: 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+  ts: string
+  level: string
   source?: string | null
   message: string
   node_id?: number | null
@@ -12,9 +16,51 @@ interface ClusterEvent {
   operation_id?: number | null
 }
 
-const props = defineProps<{ events: ClusterEvent[]; isLoading?: boolean }>()
+const props = defineProps<{
+  events: ClusterEvent[]
+  isLoading?: boolean
+  clusterId: number
+}>()
 
-// level lowercase для маппинга иконок/severity
+const confirm = useConfirm()
+const toast   = useToast()
+const qc      = useQueryClient()
+
+const { mutate: clearLog, isPending: isClearing } = useMutation({
+  mutationFn: () => api.delete(`/api/clusters/${props.clusterId}/log`),
+  onSuccess: (res) => {
+    const deleted = res.data?.deleted ?? 0
+    toast.add({
+      severity: 'success',
+      summary:  'Log cleared',
+      detail:   `Deleted ${deleted} event${deleted !== 1 ? 's' : ''}`,
+      life:     3000,
+    })
+    qc.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'log'] })
+  },
+  onError: () => {
+    toast.add({
+      severity: 'error',
+      summary:  'Failed to clear log',
+      life:     4000,
+    })
+  },
+})
+
+function confirmClear(event: MouseEvent) {
+  confirm.require({
+    target:  event.currentTarget as HTMLElement,
+    message: 'Delete all log entries for this cluster?',
+    icon:    'pi pi-exclamation-triangle',
+    accept:  () => clearLog(),
+    acceptLabel: 'Clear',
+    rejectLabel: 'Cancel',
+    acceptClass: 'p-button-danger p-button-sm',
+    rejectClass: 'p-button-text p-button-sm',
+  })
+}
+
+// level: uppercase → lowercase для маппинга иконок
 function normLevel(level: string): string {
   return (level ?? 'info').toLowerCase()
 }
@@ -31,16 +77,11 @@ function cfg(level: string) {
 }
 
 // ts приходит как "2026-04-11 18:31:30.923662" (без T, без Z)
-// заменяем пробел на T и добавляем Z — UTC
 function parseTs(ts: string): Date {
   if (!ts) return new Date(NaN)
-  // «2026-04-11 18:31:30.923662» → «2026-04-11T18:31:30.923662Z»
-  const normalized = ts.trim().replace(' ', 'T').replace(/([+-]\d{2}:\d{2}|Z)$/, '$1')
-  // Если нет timezone суффикса — добавляем Z (UTC)
-  const withZ = /[Z+\-]\d*$/.test(normalized) ? normalized : normalized + 'Z'
-  const d = new Date(withZ)
-  if (!isNaN(d.getTime())) return d
-  return new Date(NaN)
+  const withT = ts.trim().replace(' ', 'T')
+  const withZ = /[Z+\-]\d*$/.test(withT) ? withT : withT + 'Z'
+  return new Date(withZ)
 }
 
 function formatTs(ts: string): { date: string; time: string } {
@@ -69,8 +110,26 @@ function formatTs(ts: string): { date: string; time: string } {
   <div class="event-log">
     <div class="event-log-header">
       <span class="section-title">Event Log</span>
-      <span v-if="props.events.length" class="el-count">{{ props.events.length }} events</span>
+
+      <div class="el-header-right">
+        <span v-if="props.events.length" class="el-count">
+          {{ props.events.length }} events
+        </span>
+        <Button
+          v-if="props.events.length"
+          label="Clear"
+          icon="pi pi-trash"
+          size="small"
+          severity="secondary"
+          text
+          :loading="isClearing"
+          class="el-clear-btn"
+          @click="confirmClear"
+        />
+      </div>
     </div>
+
+    <ConfirmPopup />
 
     <div v-if="props.isLoading" class="el-skeleton">
       <div v-for="i in 4" :key="i" class="el-sk-row">
@@ -141,10 +200,19 @@ function formatTs(ts: string): { date: string; time: string } {
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-border);
 }
+.el-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 .el-count {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-faint);
+}
+.el-clear-btn {
+  /* компенсируем внутренние отступы PrimeVue text-кнопки */
+  margin-right: calc(var(--space-2) * -1);
 }
 .el-skeleton {
   display: flex;
