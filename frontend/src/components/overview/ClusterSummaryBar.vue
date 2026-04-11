@@ -8,8 +8,8 @@ interface Props {
   clusterStatus:     string | null
   clusterSize:       number | null
   flowControlPaused: number | null
-  maintenanceNodes:  number          // кол-во нод в maintenance
-  maxRecvQueue:      number | null   // max wsrep_local_recv_queue по всем нодам
+  maintenanceNodes:  number
+  maxRecvQueue:      number | null
   clusterId:         number
   isLoading?:        boolean
 }
@@ -73,11 +73,13 @@ const opLabel = computed(() => {
   return OP_LABEL[op.type] ?? op.type
 })
 
-const opStatus = computed(() => activeOp.value?.status ?? null)
-
+const opStatus  = computed(() => activeOp.value?.status ?? null)
 const opRunning = computed(() =>
   opStatus.value != null && ['pending', 'running', 'cancel_requested'].includes(opStatus.value)
 )
+
+// Показываем блок только пока есть активная операция
+const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.value)
 </script>
 
 <template>
@@ -147,7 +149,7 @@ const opRunning = computed(() =>
 
     <div class="csb-divider" />
 
-    <!-- 6. Recv queue (max across nodes) -->
+    <!-- 6. Recv queue -->
     <div class="csb-item">
       <span class="csb-label">Recv queue</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="50px" /></div>
@@ -162,7 +164,7 @@ const opRunning = computed(() =>
 
     <div class="csb-divider" />
 
-    <!-- 7. Maintenance nodes count -->
+    <!-- 7. Maintenance -->
     <div class="csb-item">
       <span class="csb-label">Maint</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="40px" /></div>
@@ -172,21 +174,22 @@ const opRunning = computed(() =>
       </div>
     </div>
 
-    <div class="csb-divider" />
-
-    <!-- 8. Active operation -->
-    <div class="csb-item csb-item--op">
-      <span class="csb-label">Operation</span>
-      <div v-if="props.isLoading"><Skeleton height="1rem" width="100px" /></div>
-      <div v-else-if="activeOp && opLabel" class="csb-op" :class="opRunning ? 'csb-op--running' : 'csb-op--idle'">
-        <i :class="opRunning ? 'pi pi-spin pi-spinner csb-op-icon' : 'pi pi-check-circle csb-op-icon'" />
-        <div class="csb-op-text">
-          <span class="csb-op-name">{{ opLabel }}</span>
-          <span class="csb-op-status">{{ opStatus }}</span>
+    <!-- 8. Active operation — появляется только когда есть операция -->
+    <Transition name="csb-op-slide">
+      <template v-if="showOp">
+        <div class="csb-divider csb-divider--op" />
+        <div class="csb-item csb-item--op">
+          <span class="csb-label">Operation</span>
+          <div class="csb-op" :class="opRunning ? 'csb-op--running' : 'csb-op--done'">
+            <i :class="opRunning ? 'pi pi-spin pi-spinner csb-op-icon' : 'pi pi-check-circle csb-op-icon'" />
+            <div class="csb-op-text">
+              <span class="csb-op-name">{{ opLabel }}</span>
+              <span class="csb-op-status">{{ opStatus }}</span>
+            </div>
+          </div>
         </div>
-      </div>
-      <span v-else class="csb-val csb-val--faint">\u2014</span>
-    </div>
+      </template>
+    </Transition>
 
   </div>
 </template>
@@ -229,8 +232,7 @@ const opRunning = computed(() =>
   color: var(--color-text);
   line-height: 1;
 }
-.csb-val--mono  { font-family: var(--font-mono); }
-.csb-val--faint { color: var(--color-text-faint); font-weight: 400; }
+.csb-val--mono { font-family: var(--font-mono); }
 
 .csb-total {
   color: var(--color-text-muted);
@@ -264,9 +266,7 @@ const opRunning = computed(() =>
   color: var(--color-text-faint);
 }
 .csb-maint-icon { font-size: 0.75rem; }
-.csb-maint--active {
-  color: var(--color-warning);
-}
+.csb-maint--active { color: var(--color-warning); }
 .csb-maint--active .csb-val { color: var(--color-warning); }
 
 /* ── Active Operation ── */
@@ -298,6 +298,26 @@ const opRunning = computed(() =>
 .csb-op--running .csb-op-icon   { color: var(--color-primary); }
 .csb-op--running .csb-op-status { color: var(--color-primary); }
 
-.csb-op--idle .csb-op-icon   { color: var(--color-success); }
-.csb-op--idle .csb-op-status { color: var(--color-text-faint); }
+.csb-op--done .csb-op-icon   { color: var(--color-success); }
+.csb-op--done .csb-op-status { color: var(--color-text-faint); }
+
+/* ── Slide-in transition ── */
+.csb-op-slide-enter-active {
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1), max-width 220ms ease;
+  overflow: hidden;
+}
+.csb-op-slide-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease, max-width 180ms ease;
+  overflow: hidden;
+}
+.csb-op-slide-enter-from,
+.csb-op-slide-leave-to {
+  opacity: 0;
+  transform: translateX(8px);
+  max-width: 0;
+}
+.csb-op-slide-enter-to,
+.csb-op-slide-leave-from {
+  max-width: 300px;
+}
 </style>
