@@ -44,8 +44,16 @@ const STATE_MAP: Record<string, { label: string; cls: string; severity: string }
 
 const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
 
-// Показываем Start вместо Stop когда нода offline
 const isNodeOffline = computed(() => nodeState.value === 'OFFLINE')
+
+// non-Primary — критическое состояние кластерного компонента
+const clusterStatus    = computed(() => props.node.live.wsrep_cluster_status ?? null)
+const isNonPrimary     = computed(() =>
+  clusterStatus.value !== null && clusterStatus.value.toLowerCase() !== 'primary'
+)
+
+// Карточка занята: идёт action (не ping)
+const isBusy = computed(() => actionLoading.value !== null)
 
 const flowControlDisplay = computed(() => {
   const v = props.node.live.wsrep_flow_control_paused
@@ -116,7 +124,9 @@ function confirmDestructive(action: NodeAction, label: string) {
   <article class="node-card" :class="'node-card--' + stateInfo.cls">
     <div class="nc-stripe" aria-hidden="true" />
 
-    <div class="nc-body">
+    <!-- nc-body--busy: dims card + блокирует pointer events пока идёт action -->
+    <div class="nc-body" :class="{ 'nc-body--busy': isBusy }">
+
       <!-- HEADER -->
       <div class="nc-header">
         <div class="nc-title-group">
@@ -145,10 +155,23 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span class="nc-mk">Cluster Size</span>
           <span class="nc-mv">{{ node.live.wsrep_cluster_size ?? '\u2014' }}</span>
         </div>
+
+        <!-- Component: non-Primary подсвечивается красным -->
         <div class="nc-metric">
           <span class="nc-mk">Component</span>
-          <span class="nc-mv nc-mv--mono">{{ node.live.wsrep_cluster_status ?? '\u2014' }}</span>
+          <span
+            class="nc-mv nc-mv--mono"
+            :class="isNonPrimary ? 'nc-mv--critical' : ''"
+          >
+            <i
+              v-if="isNonPrimary"
+              class="pi pi-exclamation-triangle nc-critical-icon"
+              v-tooltip.top="'Split-brain risk: node is not part of Primary Component'"
+            />
+            {{ clusterStatus ?? '\u2014' }}
+          </span>
         </div>
+
         <div class="nc-metric">
           <span class="nc-mk">Flow Ctrl</span>
           <span class="nc-mv nc-mv--mono" :class="flowWarn ? 'nc-mv--warn' : ''">
@@ -187,7 +210,7 @@ function confirmDestructive(action: NodeAction, label: string) {
         <button
           class="nc-btn nc-btn--primary"
           :disabled="!!isLocked || pingLoading"
-          :title="'Check node reachability'"
+          title="Check node reachability"
           @click.stop="ping"
         >
           <i :class="pingLoading ? 'pi pi-spin pi-spinner' : 'pi pi-wifi'" />
@@ -291,7 +314,17 @@ function confirmDestructive(action: NodeAction, label: string) {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /* плавный переход при появлении busy-состояния */
+  transition: opacity 200ms ease;
 }
+
+/* Busy: карточка выполняет action — приглушаем и блокируем клики */
+.nc-body--busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* Кнопку с активным спиннером оставляем видимой — она внутри nc-actions,
+   но pointer-events всё равно none (пользователь не может нажать дважды) */
 
 /* ═══════════════════════════════════════
    HEADER
@@ -406,6 +439,23 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-mv--mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .nc-mv--warn { color: var(--color-degraded); }
 
+/* non-Primary: красный + иконка предупреждения */
+.nc-mv--critical {
+  color: var(--color-offline);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.nc-critical-icon {
+  font-size: 0.72rem;
+  flex-shrink: 0;
+  animation: nc-pulse 1.8s ease-in-out infinite;
+}
+@keyframes nc-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
 /* ═══════════════════════════════════════
    SSH BADGE
 ═══════════════════════════════════════ */
@@ -462,7 +512,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   flex-wrap: wrap;
 }
 
-/* Base button */
 .nc-btn {
   display: inline-flex;
   align-items: center;
@@ -485,7 +534,6 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-btn i { font-size: 0.78rem; flex-shrink: 0; }
 .nc-btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 
-/* Primary — Ping */
 .nc-btn--primary {
   background: color-mix(in oklch, var(--color-primary) 14%, transparent);
   border-color: color-mix(in oklch, var(--color-primary) 38%, transparent);
@@ -496,7 +544,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   border-color: var(--color-primary);
 }
 
-/* Default — Restart */
 .nc-btn--default {
   background: color-mix(in oklch, var(--color-text-faint) 8%, transparent);
   border-color: color-mix(in oklch, var(--color-text-faint) 22%, transparent);
@@ -508,7 +555,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   color: var(--color-text);
 }
 
-/* Danger — Stop / Rejoin */
 .nc-btn--danger {
   background: color-mix(in oklch, var(--color-offline) 10%, transparent);
   border-color: color-mix(in oklch, var(--color-offline) 28%, transparent);
@@ -519,7 +565,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   border-color: color-mix(in oklch, var(--color-offline) 55%, transparent);
 }
 
-/* Success — Start */
 .nc-btn--success {
   background: color-mix(in oklch, var(--color-synced) 12%, transparent);
   border-color: color-mix(in oklch, var(--color-synced) 35%, transparent);
