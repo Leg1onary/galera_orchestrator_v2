@@ -99,7 +99,6 @@ const qc           = useQueryClient()
 const toast        = useToast()
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
-const contourId    = computed(() => clusterStore.selectedContourId)
 
 const { data: items, isLoading } = useQuery({
   queryKey: computed(() => ['cluster', clusterId.value, 'arbitrators-settings']),
@@ -108,8 +107,8 @@ const { data: items, isLoading } = useQuery({
 })
 
 const { data: datacenters } = useQuery({
-  queryKey: computed(() => ['datacenters', contourId.value]),
-  queryFn:  () => settingsApi.listDatacenters(contourId.value ?? undefined),
+  queryKey: ['datacenters'],
+  queryFn:  () => settingsApi.listDatacenters(),
 })
 
 const dcOptions = computed(() => [
@@ -129,7 +128,6 @@ const arbFields = computed((): FormField[] => [
   { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535 },
   { key: 'datacenter_id', label: 'Datacenter', type: 'select', options: dcOptions.value },
   { key: 'enabled',       label: 'Enabled',    type: 'toggle', toggleLabel: 'Monitor this arbitrator' },
-  { key: 'description',   label: 'Description', type: 'textarea' },
 ])
 
 const modal = ref<{
@@ -149,10 +147,13 @@ function openEdit(arb: ArbitratorSetting) {
   modal.value = {
     open: true, mode: 'edit', id: arb.id,
     initial: {
-      name: arb.name, host: arb.host, port: arb.port,
-      ssh_user: arb.ssh_user, ssh_port: arb.ssh_port,
-      datacenter_id: arb.datacenter_id, enabled: arb.enabled,
-      description: arb.description ?? '',
+      name:          arb.name,
+      host:          arb.host,
+      port:          arb.port,
+      ssh_user:      arb.ssh_user,
+      ssh_port:      arb.ssh_port,
+      datacenter_id: arb.datacenter_id,
+      enabled:       arb.enabled,
     },
   }
   apiError.value = null
@@ -165,9 +166,9 @@ async function handleSubmit(values: Record<string, unknown>) {
   saving.value = true; apiError.value = null
   try {
     if (modal.value.mode === 'create') {
-      await settingsApi.createArbitrator(clusterId.value, values as any)
+      await settingsApi.createArbitrator({ cluster_id: clusterId.value, ...(values as any) })
     } else {
-      await settingsApi.updateArbitrator(clusterId.value, modal.value.id!, values as any)
+      await settingsApi.updateArbitrator(modal.value.id!, values as any)
     }
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
     toast.add({ severity: 'success', summary: 'Saved', life: 2500 })
@@ -183,7 +184,7 @@ async function handleDelete() {
   if (!deleteTarget.value || !clusterId.value) return
   deleting.value = true
   try {
-    await settingsApi.deleteArbitrator(clusterId.value, deleteTarget.value.id)
+    await settingsApi.deleteArbitrator(deleteTarget.value.id)
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'arbitrators-settings'] })
     toast.add({ severity: 'success', summary: 'Deleted', life: 2500 })
     deleteTarget.value = null
