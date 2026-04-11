@@ -42,7 +42,7 @@ const syncedCount = computed(() =>
       <ClusterSummaryBar
         :total-nodes="nodes.length"
         :synced-nodes="syncedCount"
-        :cluster-status="data?.cluster_status ?? null"
+        :cluster-status="data?.status ?? null"
         :cluster-size="nodes[0]?.wsrep_cluster_size ?? null"
         :flow-control-paused="nodes[0]?.wsrep_flow_control_paused ?? null"
         :is-loading="isLoading"
