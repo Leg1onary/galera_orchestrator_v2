@@ -2,13 +2,24 @@
 import { ref, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
-import NodeCard from '@/components/overview/NodeCard.vue'
+import NodeTable from '@/components/nodes/NodeTable.vue'
+import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
+import type { NodeListItem } from '@/api/nodes'
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
 const { data, isLoading, refetch } = useClusterStatus(clusterId)
 
 const nodes = computed(() => data.value?.nodes ?? [])
+
+const selectedNode = ref<NodeListItem | null>(null)
+
+function onSelect(node: NodeListItem) {
+  selectedNode.value = node
+}
+function onDrawerClose() {
+  selectedNode.value = null
+}
 </script>
 
 <template>
@@ -45,15 +56,21 @@ const nodes = computed(() => data.value?.nodes ?? [])
         <span>No nodes registered for this cluster</span>
       </div>
 
-      <div v-else class="nodes-grid">
-        <NodeCard
-          v-for="node in nodes"
-          :key="node.id"
-          :node="node"
-          :cluster-id="clusterId"
-        />
-      </div>
+      <NodeTable
+        v-else
+        :nodes="nodes"
+        :loading="isLoading"
+        :cluster-id="clusterId"
+        @select="onSelect"
+        @refresh="refetch()"
+      />
     </template>
+
+    <NodeDetailDrawer
+      :node="selectedNode"
+      :cluster-id="clusterId"
+      @close="onDrawerClose"
+    />
   </div>
 </template>
 
@@ -92,9 +109,12 @@ const nodes = computed(() => data.value?.nodes ?? [])
   font-size: var(--text-sm);
 }
 
-.nodes-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-4);
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-8);
+  font-size: var(--text-sm);
 }
 </style>

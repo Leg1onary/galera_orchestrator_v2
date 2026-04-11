@@ -7,7 +7,6 @@
       style="width: min(680px, 95vw)"
       @hide="emit('close')"
   >
-    <!-- ── Custom header ─────────────────────────────────────── -->
     <template #header>
       <div class="drawer-header">
         <NodeStatusBadge v-if="node" :node="node" />
@@ -16,7 +15,6 @@
       </div>
     </template>
 
-    <!-- ── Tabs ──────────────────────────────────────────────── -->
     <Tabs v-model:value="activeTab" lazy>
       <TabList>
         <Tab value="overview">Overview</Tab>
@@ -26,68 +24,68 @@
 
       <TabPanels>
 
-        <!-- ── Tab: Overview ─────────────────────────────────── -->
+        <!-- Tab: Overview -->
         <TabPanel value="overview">
           <div v-if="detailsLoading" class="tab-state">
             <i class="pi pi-spin pi-spinner" /> Loading…
           </div>
           <div v-else-if="details" class="overview-body">
 
-            <!-- Sparklines -->
+            <!-- Sparklines (данные из details.live) -->
             <div class="sparklines-grid">
               <SparklineCard
                   label="Flow Control"
-                  :data="details.sparkline_flow_control ?? []"
-                  :color="fcColor(details.wsrep_flow_control_paused)"
+                  :data="details.live?.flow_control_history ?? []"
+                  :color="fcColor(details.live?.wsrep_flow_control_paused ?? null)"
                   unit="%"
                   :scale="100"
               />
               <SparklineCard
                   label="Recv Queue"
-                  :data="details.sparkline_recv_queue ?? []"
-                  :color="recvColor(details.wsrep_local_recv_queue_avg)"
+                  :data="details.live?.recv_queue_history ?? []"
+                  :color="recvColor(details.live?.wsrep_local_recv_queue ?? null)"
                   unit=""
               />
             </div>
 
-            <!-- Live stats -->
+            <!-- Live stats (все поля через details.live) -->
             <div class="stats-grid">
-              <StatRow label="Cluster status"  :value="details.wsrep_cluster_status" />
-              <StatRow label="Cluster size"    :value="details.wsrep_cluster_size" />
-              <StatRow label="State"           :value="details.wsrep_local_state_comment" />
-              <StatRow label="Connected"       :value="boolLabel(details.wsrep_connected)" />
-              <StatRow label="Ready"           :value="boolLabel(details.wsrep_ready)" />
-              <StatRow label="Read-only"       :value="boolLabel(details.read_only)" />
-              <StatRow label="Flow control"    :value="details.wsrep_flow_control_paused != null
-                                                 ? (details.wsrep_flow_control_paused * 100).toFixed(2) + '%'
-                                                 : '—'" />
-              <StatRow label="Send queue"      :value="details.wsrep_local_send_queue_avg" />
-              <StatRow label="Recv queue"      :value="details.wsrep_local_recv_queue_avg" />
-              <StatRow label="Last check"      :value="details.last_check_ts
-                                                 ? formatRelative(details.last_check_ts)
-                                                 : '—'" />
+              <StatRow label="Cluster status"  :value="details.live?.wsrep_cluster_status ?? '\u2014'" />
+              <StatRow label="Cluster size"    :value="details.live?.wsrep_cluster_size ?? '\u2014'" />
+              <StatRow label="State"           :value="details.live?.wsrep_local_state_comment ?? '\u2014'" />
+              <StatRow label="Connected"       :value="boolLabel(details.live?.wsrep_connected)" />
+              <StatRow label="Ready"           :value="boolLabel(details.live?.wsrep_ready)" />
+              <StatRow label="Read-only"       :value="boolLabel(details.live?.readonly)" />
+              <StatRow label="Flow control"    :value="details.live?.wsrep_flow_control_paused != null
+                                                 ? (details.live.wsrep_flow_control_paused * 100).toFixed(2) + '%'
+                                                 : '\u2014'" />
+              <StatRow label="Send queue"      :value="details.live?.wsrep_local_send_queue ?? '\u2014'" />
+              <StatRow label="Recv queue"      :value="details.live?.wsrep_local_recv_queue ?? '\u2014'" />
+              <StatRow label="Last check"      :value="details.live?.last_check_ts
+                                                 ? formatRelative(details.live.last_check_ts)
+                                                 : '\u2014'" />
             </div>
 
-            <!-- Node config info -->
+            <!-- Node config info (статические поля напрямую с details) -->
             <div class="stats-grid mt-section">
               <StatRow label="Host"        :value="`${details.host}:${details.port}`" />
               <StatRow label="SSH port"    :value="details.ssh_port" />
               <StatRow label="SSH user"    :value="details.ssh_user" />
-              <StatRow label="DB user"     :value="details.db_user ?? '—'" />
-              <StatRow label="Datacenter"  :value="details.datacenter_name ?? '—'" />
+              <StatRow label="DB user"     :value="details.db_user ?? '\u2014'" />
+              <StatRow label="Datacenter"  :value="details.datacenter_name ?? '\u2014'" />
               <StatRow label="Enabled"     :value="boolLabel(details.enabled)" />
             </div>
 
-            <!-- Last error block -->
-            <div v-if="details.last_error" class="error-block">
+            <!-- Last error (из live.error) -->
+            <div v-if="details.live?.error" class="error-block">
               <i class="pi pi-exclamation-triangle" />
-              {{ details.last_error }}
+              {{ details.live.error }}
             </div>
           </div>
           <div v-else class="tab-state">No data available.</div>
         </TabPanel>
 
-        <!-- ── Tab: Logs ─────────────────────────────────────── -->
+        <!-- Tab: Logs -->
         <TabPanel value="logs">
           <div v-if="logsLoading" class="tab-state">
             <i class="pi pi-spin pi-spinner" /> Loading…
@@ -109,7 +107,7 @@
           </ul>
         </TabPanel>
 
-        <!-- ── Tab: InnoDB ────────────────────────────────────── -->
+        <!-- Tab: InnoDB -->
         <TabPanel value="innodb">
           <div class="innodb-toolbar">
             <Button
@@ -126,15 +124,17 @@
             <i class="pi pi-spin pi-spinner" /> Loading…
           </div>
           <div v-else-if="innodbStatus">
-            <div v-if="innodbStatus.deadlock_section" class="innodb-deadlock">
+            <!-- latest_deadlock — поле из InnoDbStatus (бэк: latest_deadlock) -->
+            <div v-if="innodbStatus.latest_deadlock" class="innodb-deadlock">
               <div class="innodb-deadlock-title">
                 <i class="pi pi-exclamation-circle" /> Last deadlock
               </div>
-              <pre class="innodb-pre">{{ innodbStatus.deadlock_section }}</pre>
+              <pre class="innodb-pre">{{ innodbStatus.latest_deadlock }}</pre>
             </div>
             <details>
               <summary class="innodb-summary">Full InnoDB status</summary>
-              <pre class="innodb-pre">{{ innodbStatus.raw }}</pre>
+              <!-- full_status — поле из InnoDbStatus (бэк: full_status) -->
+              <pre class="innodb-pre">{{ innodbStatus.full_status }}</pre>
             </details>
           </div>
           <div v-else class="tab-state">
@@ -145,7 +145,6 @@
       </TabPanels>
     </Tabs>
 
-    <!-- ── Footer ────────────────────────────────────────────── -->
     <template #footer>
       <div class="drawer-footer">
         <Button
@@ -156,8 +155,8 @@
             @click="showTestModal = true"
         />
         <span class="footer-ts">
-          {{ details?.last_check_ts
-            ? 'Last seen ' + formatRelative(details.last_check_ts)
+          {{ details?.live?.last_check_ts
+            ? 'Last seen ' + formatRelative(details.live.last_check_ts)
             : '' }}
         </span>
       </div>
@@ -187,7 +186,6 @@ import NodeStatusBadge from './NodeStatusBadge.vue'
 import SparklineCard from './SparklineCard.vue'
 import StatRow from './StatRow.vue'
 import TestConnectionModal from './TestConnectionModal.vue'
-// fix: getNodeLogs — named export из объекта nodesApi, не standalone функция
 import { nodesApi } from '@/api/nodes'
 import type { NodeListItem, InnoDbStatus, NodeDetails, NodeLogEntry } from '@/api/nodes'
 import { formatRelative } from '@/utils/time'
@@ -203,17 +201,17 @@ const visible = computed({
   set: (val) => { if (!val) emit('close') },
 })
 
-const activeTab = ref('overview')
+const activeTab     = ref('overview')
 const showTestModal = ref(false)
-const innodbStatus = ref<InnoDbStatus | null>(null)
+const innodbStatus  = ref<InnoDbStatus | null>(null)
 const innodbLoading = ref(false)
 
 watch(
     () => props.node?.id,
     () => {
-      activeTab.value = 'overview'
+      activeTab.value    = 'overview'
       showTestModal.value = false
-      innodbStatus.value = null
+      innodbStatus.value  = null
     },
 )
 
@@ -224,7 +222,6 @@ const { data: details, isLoading: detailsLoading } = useQuery<NodeDetails>({
   refetchInterval: 10_000,
 })
 
-// fix: nodesApi.getNodeLogs вместо standalone getNodeLogs
 const { data: nodeLogs, isLoading: logsLoading } = useQuery<NodeLogEntry[]>({
   queryKey: computed(() => ['cluster', props.clusterId, 'node-logs', props.node?.id]),
   queryFn: () => nodesApi.getNodeLogs(props.clusterId, props.node!.id, 50),
@@ -243,7 +240,7 @@ async function fetchInnodb() {
 }
 
 function boolLabel(v: boolean | string | null | undefined): string {
-  if (v === null || v === undefined) return '—'
+  if (v === null || v === undefined) return '\u2014'
   if (typeof v === 'string') return v
   return v ? 'Yes' : 'No'
 }
