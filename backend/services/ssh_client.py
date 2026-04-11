@@ -127,12 +127,31 @@ class SSHClient:
 
     # ── Command execution ─────────────────────────────────────────────────────
 
-    def execute(self, command: str) -> tuple[str, str]:
+    def execute(self, command: str, check: bool = False) -> tuple[str, str]:
+        """
+        Execute a command over SSH.
+
+        Args:
+            command: shell command to run on the remote host.
+            check:   if True, raise SSHError when the remote exit code is
+                     non-zero.  Use this for destructive/management commands
+                     (systemctl start/stop/restart) where a non-zero exit
+                     code means the action genuinely failed.
+                     Defaults to False for backward-compatibility with
+                     read-only queries that may return non-zero (e.g. grep).
+
+        Returns:
+            (stdout, stderr) as stripped UTF-8 strings.
+
+        Raises:
+            SSHError: on connection/transport errors, timeout, or (when
+                      check=True) non-zero remote exit code.
+        """
         if self._client is None:
             raise SSHError("Not connected — call connect() first")
 
         try:
-            stdin, stdout, stderr = self._client.exec_command(
+            _, stdout, stderr = self._client.exec_command(
                 command,
                 timeout=SSH_EXECUTE_TIMEOUT_SEC,
             )
@@ -142,7 +161,8 @@ class SSHClient:
 
             out = stdout.read().decode("utf-8", errors="replace").strip()
             err = stderr.read().decode("utf-8", errors="replace").strip()
-        except TimeoutError as exc:
+            exit_code = stdout.channel.recv_exit_status()
+        except (TimeoutError, socket.timeout) as exc:
             raise SSHError(
                 f"SSH exec timed out [{self.host}:{self.port}] `{command}`"
             ) from exc
@@ -154,15 +174,19 @@ class SSHClient:
             raise SSHError(
                 f"SSH exec I/O error [{self.host}:{self.port}] `{command}`: {exc}"
             ) from exc
-        except (TimeoutError, socket.timeout) as exc:
-            raise SSHError(
-                f"SSH exec timed out [{self.host}:{self.port}] `{command}`"
-            ) from exc
 
         logger.debug(
-            "SSH exec [%s:%s] `%s` → stdout=%r stderr=%r",
-            self.host, self.port, command, out[:200], err[:200],
+            "SSH exec [%s:%s] `%s` → exit=%d stdout=%r stderr=%r",
+            self.host, self.port, command, exit_code, out[:200], err[:200],
         )
+
+        if check and exit_code != 0:
+            detail = err or out or "(no output)"
+            raise SSHError(
+                f"Command failed (exit {exit_code}) [{self.host}:{self.port}] "
+                f"`{command}`: {detail}"
+            )
+
         return out, err
 
     # ── Diagnostics ───────────────────────────────────────────────────────────
