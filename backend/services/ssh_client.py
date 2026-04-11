@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
 SSH_CONNECT_TIMEOUT_SEC = 5
 SSH_EXECUTE_TIMEOUT_SEC = 10
 
+# Disable DSA (ssh-dss) to prevent "q must be exactly 160/224/256 bits" ValueError
+# in Paramiko + cryptography>=41 when the server offers DSA during key negotiation.
+_DISABLED_ALGORITHMS = {
+    "pubkeys": ["ssh-dss"],
+    "keys": ["ssh-dss"],
+}
+
 
 class SSHError(Exception):
     """Raised when an SSH operation fails."""
@@ -84,6 +91,8 @@ class SSHClient:
                 # Disable password auth — key-only per ТЗ раздел 3.2
                 allow_agent=False,
                 look_for_keys=False,
+                # Disable DSA to prevent ValueError in cryptography>=41
+                disabled_algorithms=_DISABLED_ALGORITHMS,
             )
         except paramiko.AuthenticationException as exc:
             raise SSHError(
