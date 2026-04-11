@@ -11,7 +11,7 @@
       @row-click="(e) => emit('select', e.data)"
   >
     <!-- Status -->
-    <Column field="wsrep_local_state_comment" header="Status" :sortable="true" style="width: 160px">
+    <Column field="name" header="Status" style="width: 160px">
       <template #body="{ data }">
         <NodeStatusBadge :node="data" />
       </template>
@@ -20,9 +20,9 @@
     <!-- Name -->
     <Column field="name" header="Node" :sortable="true" style="min-width: 160px">
       <template #body="{ data }">
-        <div class="flex flex-col gap-0.5">
-          <span class="font-medium text-sm">{{ data.name }}</span>
-          <span class="text-xs text-muted-color font-mono">{{ data.host }}:{{ data.port }}</span>
+        <div class="node-name-cell">
+          <span class="node-name">{{ data.name }}</span>
+          <span class="node-host">{{ data.host }}:{{ data.port }}</span>
         </div>
       </template>
     </Column>
@@ -30,19 +30,19 @@
     <!-- Datacenter -->
     <Column field="datacenter_name" header="DC" :sortable="true" style="width: 100px">
       <template #body="{ data }">
-        <span class="text-sm text-muted-color">{{ data.datacenter_name ?? '—' }}</span>
+        <span class="col-muted">{{ data.datacenter_name ?? '\u2014' }}</span>
       </template>
     </Column>
 
-    <!-- Read-only — field read_only (snake_case) согласно NodeListItem из api/nodes.ts -->
-    <Column field="read_only" header="R/O" :sortable="true" style="width: 70px">
+    <!-- Read-only -->
+    <Column header="R/O" style="width: 70px">
       <template #body="{ data }">
         <Tag
-          v-if="data.read_only !== null"
-          :value="data.read_only ? 'RO' : 'RW'"
-          :severity="data.read_only ? 'warn' : 'success'"
+          v-if="data.live !== null"
+          :value="data.live?.readonly ? 'RO' : 'RW'"
+          :severity="data.live?.readonly ? 'warn' : 'success'"
         />
-        <span v-else class="text-muted-color text-xs">—</span>
+        <span v-else class="col-muted text-xs">\u2014</span>
       </template>
     </Column>
 
@@ -55,50 +55,60 @@
             severity="warn"
             class="text-xs"
         />
-        <!-- Drift: maintenance=true в БД но read_only=false в MariaDB -->
         <Tag
-            v-else-if="data.maintenance_drift"
+            v-else-if="data.live?.maintenance_drift"
             value="DRIFT"
             severity="danger"
             class="text-xs"
             v-tooltip.top="'maintenance flag set but node is read-write'"
         />
-        <span v-else class="text-muted-color text-xs">—</span>
+        <span v-else class="col-muted text-xs">\u2014</span>
       </template>
     </Column>
 
     <!-- Flow Control -->
-    <Column field="wsrep_flow_control_paused" header="FC" style="width: 80px">
+    <Column header="FC" style="width: 80px">
       <template #body="{ data }">
         <span
-            class="text-sm font-mono"
-            :class="fcClass(data.wsrep_flow_control_paused)"
+            class="mono-val"
+            :class="fcClass(data.live?.wsrep_flow_control_paused ?? null)"
         >
-          {{ data.wsrep_flow_control_paused !== null
-            ? (data.wsrep_flow_control_paused * 100).toFixed(1) + '%'
-            : '—' }}
+          {{ data.live?.wsrep_flow_control_paused != null
+            ? (data.live.wsrep_flow_control_paused * 100).toFixed(1) + '%'
+            : '\u2014' }}
         </span>
       </template>
     </Column>
 
     <!-- Recv Queue -->
-    <Column field="wsrep_local_recv_queue_avg" header="RecvQ" style="width: 90px">
+    <Column header="RecvQ" style="width: 90px">
       <template #body="{ data }">
         <span
-            class="text-sm font-mono"
-            :class="recvClass(data.wsrep_local_recv_queue_avg)"
+            class="mono-val"
+            :class="recvClass(data.live?.wsrep_local_recv_queue ?? null)"
         >
-          {{ data.wsrep_local_recv_queue_avg !== null
-            ? data.wsrep_local_recv_queue_avg.toFixed(2)
-            : '—' }}
+          {{ data.live?.wsrep_local_recv_queue != null
+            ? data.live.wsrep_local_recv_queue
+            : '\u2014' }}
         </span>
       </template>
     </Column>
 
     <!-- Last seen -->
-    <Column field="last_check_ts" header="Last seen" :sortable="true" style="width: 120px">
+    <Column header="Last seen" style="width: 120px">
       <template #body="{ data }">
-        {{ data.last_check_ts ? formatRelative(data.last_check_ts) : '—' }}
+        <span class="col-muted">
+          {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '\u2014' }}
+        </span>
+      </template>
+    </Column>
+
+    <!-- Enabled — ТЗ 11.3 -->
+    <Column field="enabled" header="Enabled" style="width: 90px">
+      <template #body="{ data }">
+        <span :class="['enabled-badge', data.enabled ? 'enabled-badge--on' : 'enabled-badge--off']">
+          {{ data.enabled ? 'Yes' : 'No' }}
+        </span>
       </template>
     </Column>
 
@@ -110,11 +120,11 @@
     </Column>
 
     <template #empty>
-      <div class="py-12 text-center text-muted-color text-sm">No nodes configured for this cluster.</div>
+      <div class="table-empty">No nodes configured for this cluster.</div>
     </template>
 
     <template #loading>
-      <div class="py-12 text-center text-muted-color text-sm">Loading nodes…</div>
+      <div class="table-empty">Loading nodes\u2026</div>
     </template>
   </DataTable>
 </template>
@@ -158,6 +168,20 @@ function recvClass(val: number | null) {
 .val-danger { color: var(--color-notification); }
 .val-warn   { color: var(--color-gold); }
 .val-ok     { color: var(--color-success); }
-.node-host  { color: var(--color-text-muted); font-family: monospace; }
-.col-muted  { color: var(--color-text-muted); }
+.node-name-cell { display: flex; flex-direction: column; gap: 2px; }
+.node-name  { font-weight: 500; font-size: var(--text-sm); }
+.node-host  { color: var(--color-text-muted); font-family: monospace; font-size: var(--text-xs); }
+.col-muted  { color: var(--color-text-muted); font-size: var(--text-sm); }
+.mono-val   { font-family: monospace; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.table-empty { padding: var(--space-12); text-align: center; color: var(--color-text-muted); font-size: var(--text-sm); }
+.enabled-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.enabled-badge--on  { background: rgba(74,222,128,0.1); color: #4ade80; }
+.enabled-badge--off { background: rgba(255,255,255,0.05); color: var(--color-text-faint); }
 </style>

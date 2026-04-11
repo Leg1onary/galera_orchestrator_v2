@@ -31,20 +31,18 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import Button from 'primevue/button'      // BLOCKER fix: именованный импорт PrimeVue 4
+import Button from 'primevue/button'
 import Popover from 'primevue/popover'
 import { useToast } from 'primevue/usetoast'
 import { nodesApi, type NodeAction, type NodeListItem } from '@/api/nodes'
 import { useOperationsStore } from '@/stores/operations'
 
-// ── Props / Emits ─────────────────────────────────────────────────────────────
 const props = defineProps<{
   node: NodeListItem
   clusterId: number
 }>()
 const emit = defineEmits<{ actionDone: [] }>()
 
-// ── Refs ──────────────────────────────────────────────────────────────────────
 const popoverRef = ref()
 const toast      = useToast()
 const opsStore   = useOperationsStore()
@@ -52,21 +50,19 @@ const busy       = ref(false)
 
 function toggle(e: Event) { popoverRef.value?.toggle(e) }
 
-// ── Computed state (ТЗ п.7.3: live-статусы нод) ──────────────────────────────
 const ONLINE_STATES = ['SYNCED', 'DONOR', 'JOINER', 'DESYNCED'] as const
 
-// MAJOR fix: last_check_ts вместо last_seen + корректная проверка по state_comment
-const isOnline = computed(() =>
-    ONLINE_STATES.includes(
-        (props.node.wsrep_local_state_comment ?? '') as typeof ONLINE_STATES[number],
-    ),
+// Все live-поля читаем через props.node.live?.* — live является вложенным объектом NodeLiveData
+const stateComment = computed(() => props.node.live?.wsrep_local_state_comment ?? '')
+const isOnline     = computed(() =>
+    ONLINE_STATES.includes(stateComment.value as typeof ONLINE_STATES[number]),
 )
 const isOffline     = computed(() => !isOnline.value)
-const isReadOnly    = computed(() => !!props.node.read_only)      // null → false
-const isMaintenance = computed(() => !!props.node.maintenance)    // null → false
-const isSynced      = computed(() => props.node.wsrep_local_state_comment === 'SYNCED')
+// NodeLiveData.readonly (не read_only) — см. api/nodes.ts
+const isReadOnly    = computed(() => !!props.node.live?.readonly)
+const isMaintenance = computed(() => !!props.node.maintenance)
+const isSynced      = computed(() => stateComment.value === 'SYNCED')
 
-// ── Action groups (ТЗ п.9.3, п.11.6) ─────────────────────────────────────────
 const actionGroups = computed(() => [
   {
     label: 'State',
@@ -75,7 +71,6 @@ const actionGroups = computed(() => [
         key: 'set-readonly' as NodeAction,
         label: 'Set read-only',
         icon: 'pi pi-lock',
-        // Нельзя, если уже RO или нода offline
         disabled: isReadOnly.value || isOffline.value,
         danger: false,
       },
@@ -83,14 +78,12 @@ const actionGroups = computed(() => [
         key: 'set-readwrite' as NodeAction,
         label: 'Set read-write',
         icon: 'pi pi-lock-open',
-        // Нельзя, если уже RW или нода offline
         disabled: !isReadOnly.value || isOffline.value,
         danger: false,
       },
       {
         key: (isMaintenance.value ? 'exit-maintenance' : 'enter-maintenance') as NodeAction,
         label: isMaintenance.value ? 'Exit maintenance' : 'Enter maintenance',
-        // MINOR fix: разные иконки для enter/exit
         icon: isMaintenance.value ? 'pi pi-check-circle' : 'pi pi-wrench',
         disabled: isOffline.value,
         danger: false,
@@ -104,7 +97,6 @@ const actionGroups = computed(() => [
         key: 'restart' as NodeAction,
         label: 'Restart',
         icon: 'pi pi-refresh',
-        // Рестарт только для онлайн-ноды (ТЗ п.11.6)
         disabled: isOffline.value,
         danger: true,
       },
@@ -119,7 +111,6 @@ const actionGroups = computed(() => [
         key: 'start' as NodeAction,
         label: 'Start',
         icon: 'pi pi-play',
-        // Start только для OFFLINE ноды (ТЗ п.11.6)
         disabled: isOnline.value,
         danger: false,
       },
@@ -127,8 +118,6 @@ const actionGroups = computed(() => [
         key: 'rejoin-force' as NodeAction,
         label: 'Force rejoin',
         icon: 'pi pi-sign-in',
-        // rejoin-force — для нод НЕ-SYNCED (ТЗ п.10.4, п.11.6)
-        // SYNCED нода не нуждается в force rejoin
         disabled: isOnline.value && isSynced.value,
         danger: true,
       },
@@ -136,11 +125,9 @@ const actionGroups = computed(() => [
   },
 ])
 
-// ── Run action ────────────────────────────────────────────────────────────────
 async function run(action: NodeAction) {
   popoverRef.value?.hide()
 
-  // ТЗ п.19.1: cluster-level lock — проверяем до запроса
   if (opsStore.isLocked(props.clusterId)) {
     toast.add({
       severity: 'warn',
@@ -155,7 +142,6 @@ async function run(action: NodeAction) {
   try {
     const result = await nodesApi.action(props.clusterId, props.node.id, action)
 
-    // MAJOR fix: если action вернул operation_id — сообщаем store (ТЗ п.2.8, п.9.3)
     if (result.operation_id) {
       opsStore.setActiveOperation(props.clusterId, result.operation_id)
     }
@@ -163,12 +149,11 @@ async function run(action: NodeAction) {
     toast.add({
       severity: 'success',
       summary: 'Done',
-      detail: result.message,
+      detail: result.message ?? `Action '${action}' accepted`,
       life: 3000,
     })
     emit('actionDone')
   } catch (err: any) {
-    // ТЗ п.19.1: 409 Conflict — cluster locked на стороне backend
     const is409 = err?.response?.status === 409
     toast.add({
       severity: is409 ? 'warn' : 'error',
@@ -190,8 +175,6 @@ async function run(action: NodeAction) {
   min-width: 9rem;
   padding: var(--space-1) 0;
 }
-
-/* BLOCKER fix: убрали Tailwind text-muted-color → scoped CSS */
 .group-label {
   padding: var(--space-2) var(--space-3) var(--space-1);
   font-size: var(--text-xs);
@@ -199,7 +182,6 @@ async function run(action: NodeAction) {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-
 .action-item {
   display: flex;
   align-items: center;

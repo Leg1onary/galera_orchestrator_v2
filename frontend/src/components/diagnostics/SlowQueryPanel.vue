@@ -25,11 +25,21 @@
       <span>{{ error.message }}</span>
     </div>
 
+    <!-- slow_query_log=OFF banner (per node) -->
+    <div
+        v-for="n in disabledNodes"
+        :key="n.node_id"
+        class="info-banner"
+    >
+      <i class="pi pi-info-circle" />
+      <span><strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>OFF</strong> on this node. Enable it with <code>SET GLOBAL slow_query_log = ON</code>.</span>
+    </div>
+
     <div class="table-wrap">
       <DataTable
-          :value="data ?? []"
+          :value="allRows"
           :loading="isLoading"
-          dataKey="start_time"
+          dataKey="_key"
           size="small"
           :rows="50"
           paginator
@@ -45,12 +55,18 @@
               <i class="pi pi-clock" />
               Slow queries
             </span>
-            <span v-if="data?.length" class="row-count">
+            <span v-if="allRows.length" class="row-count">
               <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
-              {{ data.length }}
+              {{ allRows.length }}
             </span>
           </div>
         </template>
+
+        <Column field="node_name" header="Node" style="width: 120px" :sortable="true">
+          <template #body="{ data }">
+            <span class="cell-node">{{ data.node_name }}</span>
+          </template>
+        </Column>
 
         <Column field="start_time" header="Started" style="width: 160px" :sortable="true">
           <template #body="{ data }">
@@ -123,11 +139,11 @@ import { useQuery }      from '@tanstack/vue-query'
 import DataTable  from 'primevue/datatable'
 import Column     from 'primevue/column'
 import Select     from 'primevue/select'
-import { useClusterStore }   from '@/stores/cluster'
-import { diagnosticsApi }    from '@/api/diagnostics'
-import PanelToolbar          from './PanelToolbar.vue'
-import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
-import { useNodeOptions }     from '@/composables/useNodeOptions'
+import { useClusterStore }                            from '@/stores/cluster'
+import { diagnosticsApi, type SlowQueryNodeResult }  from '@/api/diagnostics'
+import PanelToolbar                                  from './PanelToolbar.vue'
+import { useDiagAutoRefresh }                        from '@/composables/useDiagAutoRefresh'
+import { useNodeOptions }                            from '@/composables/useNodeOptions'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
@@ -137,8 +153,8 @@ const { nodeOptions }                  = useNodeOptions()
 
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
   queryKey: computed(() => ['diag-slow', clusterStore.selectedClusterId, selectedNodeId.value]),
-  queryFn: () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, selectedNodeId.value),
-  enabled: computed(() => props.active && !!clusterStore.selectedClusterId),
+  queryFn:  () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, selectedNodeId.value),
+  enabled:  computed(() => props.active && !!clusterStore.selectedClusterId),
   refetchInterval,
   staleTime: 0,
 })
@@ -146,10 +162,28 @@ const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
 const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
+
+// Nodes where slow_query_log is explicitly OFF
+const disabledNodes = computed(() =>
+    (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === false)
+)
+
+// Flatten rows from all nodes, annotate with node_name
+const allRows = computed(() =>
+    (data.value ?? [])
+        .filter((n: SlowQueryNodeResult) => n.slow_log_enabled !== false)
+        .flatMap((n: SlowQueryNodeResult, ni: number) =>
+            n.rows.map((r, ri) => ({
+                ...r,
+                node_name: n.node_name,
+                node_id:   n.node_id,
+                _key:      `${n.node_id}-${ni}-${ri}`,
+            }))
+        )
+)
 </script>
 
 <style scoped>
-/* ── Layout ──────────────────────────────────────── */
 .diag-panel {
   display: flex;
   flex-direction: column;
@@ -162,7 +196,6 @@ const fetchedAt = computed(() =>
   flex-shrink: 0;
 }
 
-/* ── Error alert ───────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -176,7 +209,20 @@ const fetchedAt = computed(() =>
 }
 .error-alert .pi { font-size: var(--text-base); flex-shrink: 0; }
 
-/* ── Table wrapper ──────────────────────────────── */
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--color-warning) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 25%, transparent);
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}
+.info-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
+.info-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
+
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -184,7 +230,6 @@ const fetchedAt = computed(() =>
   background: var(--color-surface);
 }
 
-/* ── Table header toolbar ─────────────────────────── */
 .table-header {
   display: flex;
   align-items: center;
@@ -205,11 +250,7 @@ const fetchedAt = computed(() =>
   color: var(--color-text-muted);
   flex: 1 1 auto;
 }
-.table-title .pi {
-  font-size: var(--text-sm);
-  color: var(--color-warning);
-  opacity: 0.8;
-}
+.table-title .pi { font-size: var(--text-sm); color: var(--color-warning); opacity: 0.8; }
 
 .row-count {
   flex-shrink: 0;
@@ -226,11 +267,7 @@ const fetchedAt = computed(() =>
   padding: 2px var(--space-3);
 }
 
-/* ── DataTable overrides ───────────────────────────── */
-:deep(.diag-table .p-datatable-table) {
-  width: 100%;
-  table-layout: fixed;
-}
+:deep(.diag-table .p-datatable-table) { width: 100%; table-layout: fixed; }
 
 :deep(.diag-table .p-datatable-thead > tr > th) {
   font-size: var(--text-xs);
@@ -251,11 +288,8 @@ const fetchedAt = computed(() =>
   border-bottom: 1px solid var(--color-border-muted);
 }
 
-:deep(.diag-table .p-datatable-tbody > tr:last-child > td) {
-  border-bottom: none;
-}
+:deep(.diag-table .p-datatable-tbody > tr:last-child > td) { border-bottom: none; }
 
-/* ── Paginator ───────────────────────────────────── */
 :deep(.p-paginator) {
   background: var(--color-surface-2);
   border-top: 1px solid var(--color-border-muted);
@@ -268,15 +302,11 @@ const fetchedAt = computed(() =>
   border-color: var(--color-primary-glow);
 }
 
-/* ── Cells ───────────────────────────────────────── */
-.cell-mono     { font-family: var(--font-mono); }
+.cell-node    { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; }
+.cell-mono    { font-family: var(--font-mono); }
 .cell-muted-sm { font-size: var(--text-xs); color: var(--color-text-muted); }
-
-.cell-dim {
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-  font-variant-numeric: tabular-nums;
-}
+.cell-dim     { font-size: var(--text-xs); color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
+.cell-dash    { color: var(--color-text-faint); font-size: var(--text-xs); }
 
 .cell-time-warn {
   font-size: var(--text-sm);
@@ -296,11 +326,6 @@ const fetchedAt = computed(() =>
   color: var(--color-primary);
 }
 
-.cell-dash {
-  color: var(--color-text-faint);
-  font-size: var(--text-xs);
-}
-
 .cell-query {
   display: block;
   overflow: hidden;
@@ -313,7 +338,6 @@ const fetchedAt = computed(() =>
 }
 :deep(tr:hover) .cell-query { color: var(--color-text); }
 
-/* ── Empty state ────────────────────────────────── */
 .empty-row {
   display: flex;
   flex-direction: column;

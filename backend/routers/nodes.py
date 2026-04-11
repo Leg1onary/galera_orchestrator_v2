@@ -48,7 +48,6 @@ from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# FIX BLOCKER: убран /api из prefix — main.py уже монтирует с prefix="/api"
 router = APIRouter(
     prefix="/clusters",
     tags=["nodes"],
@@ -61,7 +60,6 @@ SYNC_ACTIONS  = frozenset({"set-readonly", "set-readwrite", "enter-maintenance",
 ASYNC_ACTIONS = frozenset({"start", "stop", "restart", "rejoin-force"})
 ALL_ACTIONS   = SYNC_ACTIONS | ASYNC_ACTIONS
 
-# Per ТЗ раздел 15.11
 SSH_CONNECT_TIMEOUT = 5
 DB_CONNECT_TIMEOUT  = 3
 
@@ -124,10 +122,6 @@ def _assert_cluster_exists(cluster_id: int) -> None:
 
 @router.get("/{cluster_id}/nodes")
 async def list_nodes(cluster_id: int) -> list[dict]:
-    """
-    GET /api/clusters/{cluster_id}/nodes — список нод кластера с live state.
-    ТЗ 9.1, 11.1
-    """
     _assert_cluster_exists(cluster_id)
     with engine.connect() as conn:
         rows = conn.execute(
@@ -153,7 +147,6 @@ async def list_nodes(cluster_id: int) -> list[dict]:
             "ssh_port":       node["ssh_port"],
             "ssh_user":       node["ssh_user"],
             "db_user":        node["db_user"],
-            # db_password намеренно не возвращается
             "enabled":        bool(node["enabled"]),
             "maintenance":    bool(node["maintenance"]),
             "datacenter_id":  node["datacenter_id"],
@@ -168,7 +161,7 @@ async def list_nodes(cluster_id: int) -> list[dict]:
 
 @router.get("/{cluster_id}/nodes/{node_id}")
 async def get_node(cluster_id: int, node_id: int) -> dict:
-    """Full config + live state for a single node. ТЗ 11.4"""
+    """Full config + live state for a single node."""
     node = _fetch_node(cluster_id, node_id)
     live = live_node_states.get(cluster_id, {}).get(node_id)
     return {
@@ -196,11 +189,7 @@ async def patch_node(
         node_id: int,
         body: NodePatchRequest,
 ) -> dict:
-    """
-    PATCH enabled / maintenance flag на ноде.
-    ТЗ 11.1, 11.6 — enable/disable через NodeDetailDrawer.
-    """
-    _fetch_node(cluster_id, node_id)  # проверка 404
+    _fetch_node(cluster_id, node_id)
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -219,11 +208,6 @@ async def patch_node(
 
 @router.get("/{cluster_id}/nodes/{node_id}/test-connection")
 async def test_node_connection(cluster_id: int, node_id: int) -> dict:
-    """
-    Live SSH + DB connectivity and latency test.
-    Does NOT use cached poller state — opens fresh connections.
-    ТЗ 15.3, 15.11
-    """
     node = _fetch_node(cluster_id, node_id)
 
     result: dict = {
@@ -235,7 +219,6 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
         "error":          None,
     }
 
-    # SSH
     ssh = SSHClient(
         host=node["host"],
         port=int(node["ssh_port"] or 22),
@@ -252,7 +235,6 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     finally:
         await asyncio.to_thread(ssh.close)
 
-    # DB
     db = DBClient(
         host=node["host"],
         port=int(node["port"] or 3306),
@@ -276,11 +258,6 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
 
 @router.get("/{cluster_id}/nodes/{node_id}/innodb-status")
 async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
-    """
-    Run SHOW ENGINE INNODB STATUS on the node.
-    Parses full text + LATEST DETECTED DEADLOCK section.
-    ТЗ 15.7
-    """
     node = _fetch_node(cluster_id, node_id)
 
     db = DBClient(
@@ -333,12 +310,6 @@ async def node_action(
         node_id: int,
         body: NodeActionRequest,
 ) -> dict:
-    """
-    Execute a node action.
-    Sync actions execute immediately.
-    Async actions create a cluster_operation and run in background.
-    ТЗ 9.3, 11.6, 14.5
-    """
     node = _fetch_node(cluster_id, node_id)
 
     if not bool(node["enabled"]):
@@ -377,13 +348,12 @@ async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
         return {"accepted": True, "action": action, "node_id": node_id}
 
     if action == "enter-maintenance":
-        # FIX MAJOR: ТЗ 14.9 — сначала SET readonly=ON, потом maintenance=true
-        await _db_exec(node, "SET GLOBAL read_only = ON")           # ← 1
+        await _db_exec(node, "SET GLOBAL read_only = ON")
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE nodes SET maintenance = 1 WHERE id = :id"),
                 {"id": node_id},
-            )                                                         # ← 2
+            )
         write_event(
             level="INFO", cluster_id=cluster_id, node_id=node_id,
             source="ui", message=f"Node '{node['name']}': entered maintenance mode",
@@ -391,19 +361,18 @@ async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
         return {"accepted": True, "action": action, "node_id": node_id}
 
     if action == "exit-maintenance":
-        # FIX MAJOR: ТЗ 14.9 — сначала SET readonly=OFF, потом maintenance=false
         live = live_node_states.get(cluster_id, {}).get(node_id)
         if live and live.maintenance_drift:
             logger.warning(
                 "exit-maintenance on node %d: maintenance_drift=True "
                 "(read_only already OFF in MariaDB)", node_id,
             )
-        await _db_exec(node, "SET GLOBAL read_only = OFF")           # ← 1
+        await _db_exec(node, "SET GLOBAL read_only = OFF")
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE nodes SET maintenance = 0 WHERE id = :id"),
                 {"id": node_id},
-            )                                                         # ← 2
+            )
         write_event(
             level="INFO", cluster_id=cluster_id, node_id=node_id,
             source="ui", message=f"Node '{node['name']}': exited maintenance mode",
@@ -414,7 +383,6 @@ async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
 
 
 async def _db_exec(node: dict, sql: str) -> None:
-    """Execute a single SQL statement on a node. Raises 502 on failure."""
     db = DBClient(
         host=node["host"],
         port=int(node["port"] or 3306),
@@ -436,13 +404,6 @@ async def _db_exec(node: dict, sql: str) -> None:
 # ── Async action launcher ─────────────────────────────────────────────────────
 
 async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
-    """
-    Create cluster_operation for start/stop/restart/rejoin-force.
-    Returns immediately; execution runs in background.
-    Raises 409 if cluster already has an active operation.
-    ТЗ 19.1
-    """
-    # FIX BLOCKER: синхронные вызовы обёрнуты в to_thread
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
     op_id = await asyncio.to_thread(
@@ -459,6 +420,7 @@ async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
         cluster_id=cluster_id,
         node_id=node["id"],
         source="ui",
+        operation_id=op_id,
         message=f"Node '{node['name']}': async action '{action}' queued (op_id={op_id})",
     )
 
@@ -499,7 +461,6 @@ async def _execute_node_action(
     node_id   = node["id"]
     node_name = node["name"]
 
-    # FIX BLOCKER: все синхронные вызовы operations обёрнуты в to_thread
     await asyncio.to_thread(set_operation_status, op_id, "running")
 
     await ws_manager.broadcast(cluster_id, {
@@ -519,53 +480,44 @@ async def _execute_node_action(
     except SSHError as exc:
         error_msg = f"SSH error during '{action}' on '{node_name}': {exc}"
         logger.error(error_msg)
-        write_event(level="ERROR", cluster_id=cluster_id, node_id=node_id,
-                    source="ssh", message=error_msg)
+        write_event(
+            level="ERROR", cluster_id=cluster_id, node_id=node_id,
+            source="ssh", operation_id=op_id, message=error_msg,
+        )
         await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
-        # Poll immediately so frontend sees the (possibly unchanged) state ASAP
         await _safe_poll_node(cluster_id, node)
         return
     except Exception as exc:
         error_msg = f"Unexpected error during '{action}' on '{node_name}': {exc}"
         logger.exception(error_msg)
-        write_event(level="ERROR", cluster_id=cluster_id, node_id=node_id,
-                    source="system", message=error_msg)
+        write_event(
+            level="ERROR", cluster_id=cluster_id, node_id=node_id,
+            source="system", operation_id=op_id, message=error_msg,
+        )
         await asyncio.to_thread(set_operation_status, op_id, "failed", error_msg)
         await _broadcast_op_finished(cluster_id, op_id, "failed", error_msg)
-        # Poll immediately so frontend sees the (possibly unchanged) state ASAP
         await _safe_poll_node(cluster_id, node)
         return
 
     write_event(
         level="INFO", cluster_id=cluster_id, node_id=node_id,
-        source="ui",
+        source="ui", operation_id=op_id,
         message=f"Node '{node_name}': action '{action}' completed successfully",
     )
     await asyncio.to_thread(set_operation_status, op_id, "success")
     await _broadcast_op_finished(cluster_id, op_id, "success")
-    # Per ТЗ п.5.2 — emit node_state_changed immediately after action completes
     await _safe_poll_node(cluster_id, node)
 
 
 async def _safe_poll_node(cluster_id: int, node: dict) -> None:
-    """Fire-and-forget poll after action; swallows exceptions so they
-    never propagate into the operation result."""
     try:
         await poll_single_node(cluster_id, node)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("post-action poll failed for node %d: %s", node["id"], exc)
 
 
 def _ssh_node_action(node: dict, action: str) -> None:
-    """
-    Blocking: execute SSH command for the given action.
-    ТЗ 11.6:
-      start        → systemctl start mariadb
-      stop         → systemctl stop mariadb
-      restart      → systemctl restart mariadb
-      rejoin-force → stop + reset safe_to_bootstrap + start
-    """
     ssh = SSHClient(
         host=node["host"],
         port=int(node["ssh_port"] or 22),
@@ -613,7 +565,6 @@ async def _broadcast_op_finished(
 
 @router.get("/{cluster_id}/operations/active")
 async def get_active_op(cluster_id: int) -> dict:
-    """Return the currently active operation for the cluster, or null."""
     _assert_cluster_exists(cluster_id)
     active = await asyncio.to_thread(get_active_operation, cluster_id)
     return {"operation": active}
@@ -623,17 +574,12 @@ async def get_active_op(cluster_id: int) -> dict:
 
 @router.post("/{cluster_id}/operations/cancel")
 async def cancel_operation(cluster_id: int) -> dict:
-    """
-    Request cancellation of active operation.
-    Idempotent if already cancel_requested.
-    Raises 404 if no active operation.
-    ТЗ 19.1
-    """
     _assert_cluster_exists(cluster_id)
     op = await asyncio.to_thread(request_cancel, cluster_id)
     write_event(
         level="INFO",
         cluster_id=cluster_id,
+        operation_id=op["id"],
         source="ui",
         message=f"Cancel requested for operation id={op['id']} type={op['type']}",
     )

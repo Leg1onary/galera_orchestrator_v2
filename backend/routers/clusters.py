@@ -94,6 +94,28 @@ def _fetch_arbitrators(cluster_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _fetch_active_operation(cluster_id: int) -> dict | None:
+    """Возвращает активную операцию кластера (pending/running/cancel_requested).
+
+    Включает error_message и details_json чтобы фронт мог показать
+    детали и ошибку прямо из active_operation без доп. запросов.
+    """
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("""
+                 SELECT id, type, status, started_at, target_node_id,
+                        error_message, details_json
+                 FROM cluster_operations
+                 WHERE cluster_id = :cid
+                   AND status IN ('pending', 'running', 'cancel_requested')
+                 ORDER BY id DESC
+                 LIMIT 1
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
 # ── Live status helpers ─────────────────────────────────────────────────────────────
 
 def _calc_cluster_status(
@@ -111,12 +133,10 @@ def _calc_cluster_status(
     if not enabled_nodes:
         return "degraded"
 
-    # Split-brain check
     for s in node_states.values():
         if s.db_ok and s.wsrep_cluster_status.upper() != "PRIMARY":
             return "critical"
 
-    # Healthy: все enabled-ноды онлайн, видят Primary, в рабочем состоянии
     _LIVE_STATES = {"SYNCED", "DONOR", "JOINER"}
     for node in enabled_nodes:
         s = node_states.get(node["id"])
@@ -136,7 +156,6 @@ def _build_cluster_live_summary(
         cluster_id: int,
         nodes: list[dict],
 ) -> dict[str, Any]:
-    """Компактная live-сводка для GET /api/clusters (list endpoint)."""
     node_states = live_node_states.get(cluster_id, {})
 
     if not node_states:
@@ -178,10 +197,14 @@ async def list_clusters(contour_id: int | None = None) -> list[dict]:
     clusters = _fetch_clusters(contour_id)
     result = []
     for cluster in clusters:
-        nodes = _fetch_nodes(cluster["id"])
+        nodes     = _fetch_nodes(cluster["id"])
+        live      = _build_cluster_live_summary(cluster["id"], nodes)
+        active_op = _fetch_active_operation(cluster["id"])
         result.append({
             **cluster,
-            "live": _build_cluster_live_summary(cluster["id"], nodes),
+            "status":           live["status"],
+            "active_operation": active_op,
+            "live":             live,
         })
     return result
 
@@ -204,7 +227,6 @@ async def cluster_status(cluster_id: int) -> dict:
     node_states = live_node_states.get(cluster_id, {})
     arb_states  = live_arbitrator_states.get(cluster_id, {})
 
-    # Nodes с live-полями
     nodes_out = []
     for n in nodes:
         live = node_states.get(n["id"])
@@ -223,7 +245,6 @@ async def cluster_status(cluster_id: int) -> dict:
             "live":        live.to_dict() if live is not None else None,
         })
 
-    # Arbitrators с live-полями
     arbitrators_out = []
     for a in arbitrators:
         live = arb_states.get(a["id"])
@@ -239,7 +260,6 @@ async def cluster_status(cluster_id: int) -> dict:
             "live":     live.to_dict() if live is not None else None,
         })
 
-    # Cluster-level derived fields (ТЗ 9.2 response shape)
     cluster_status_str = _calc_cluster_status(node_states, nodes)
     has_live = bool(node_states)
 
@@ -251,51 +271,36 @@ async def cluster_status(cluster_id: int) -> dict:
         for s in node_states.values()
     )
 
-    # last_update_ts: берём max last_check_ts среди живых нод
     ts_values = [
         s.last_check_ts for s in node_states.values()
         if s.last_check_ts is not None
     ]
     last_update_ts = max(ts_values).isoformat() if ts_values else None
 
-    # wsrep_cluster_size из любой живой ноды
     wsrep_cluster_size = None
     for s in node_states.values():
         if s.db_ok and s.wsrep_cluster_size:
             wsrep_cluster_size = s.wsrep_cluster_size
             break
 
-    # active_operation — ТЗ 9.2
-    with engine.begin() as conn:
-        op_row = conn.execute(
-            text("""
-                 SELECT id, type, status, started_at, target_node_id
-                 FROM cluster_operations
-                 WHERE cluster_id = :cid
-                   AND status IN ('pending', 'running', 'cancel_requested')
-                 ORDER BY id DESC
-                 LIMIT 1
-                 """),
-            {"cid": cluster_id},
-        ).mappings().fetchone()
-    active_operation = dict(op_row) if op_row else None
+    active_operation = _fetch_active_operation(cluster_id)
 
     return {
-        "id":                cluster["id"],
-        "name":              cluster["name"],
-        "contour":           cluster["contour_name"],
-        "status":            cluster_status_str,
-        "primary":           primary,
+        "id":                 cluster["id"],
+        "name":               cluster["name"],
+        "contour":            cluster["contour_name"],
+        "status":             cluster_status_str,
+        "primary":            primary,
         "wsrep_cluster_size": wsrep_cluster_size,
-        "online_nodes":      online_nodes,
-        "total_nodes":       len(nodes),
+        "online_nodes":       online_nodes,
+        "total_nodes":        len(nodes),
         "online_arbitrators": online_arbs,
-        "total_arbitrators": len(arbitrators),
-        "has_live_data":     has_live,
-        "last_update_ts":    last_update_ts,
-        "nodes":             nodes_out,
-        "arbitrators":       arbitrators_out,
-        "active_operation":  active_operation,
+        "total_arbitrators":  len(arbitrators),
+        "has_live_data":      has_live,
+        "last_update_ts":     last_update_ts,
+        "nodes":              nodes_out,
+        "arbitrators":        arbitrators_out,
+        "active_operation":   active_operation,
     }
 
 
@@ -312,7 +317,6 @@ async def cluster_log(
     GET /api/clusters/{cluster_id}/log
 
     Возвращает event_log по кластеру с опциональными фильтрами.
-    Используется фронтом для вкладки "События" в NodeDetailDrawer.
 
     Query params:
       node_id        — фильтр по ноде
@@ -362,14 +366,14 @@ async def cluster_log(
 
     return [
         {
-            "id":             r["id"],
-            "ts":             r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else r["ts"],
-            "level":          r["level"],
-            "source":         r["source"],
-            "message":        r["message"],
-            "node_id":        r["node_id"],
-            "arbitrator_id":  r["arbitrator_id"],
-            "operation_id":   r["operation_id"],
+            "id":            r["id"],
+            "ts":            r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else r["ts"],
+            "level":         r["level"],
+            "source":        r["source"],
+            "message":       r["message"],
+            "node_id":       r["node_id"],
+            "arbitrator_id": r["arbitrator_id"],
+            "operation_id":  r["operation_id"],
         }
         for r in rows
     ]

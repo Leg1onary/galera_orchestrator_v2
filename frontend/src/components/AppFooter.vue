@@ -5,7 +5,7 @@ import { useClusterStore }    from '@/stores/cluster'
 
 const opsStore     = useOperationsStore()
 const clusterStore = useClusterStore()
-const clusterId    = computed(() => clusterStore.currentCluster?.id ?? 0)
+const clusterId    = computed(() => clusterStore.selectedCluster?.id ?? 0)
 
 const activeOp = computed(() =>
   clusterId.value ? opsStore.activeOperation(clusterId.value) : null
