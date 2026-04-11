@@ -89,8 +89,8 @@ const clusterStore = useClusterStore()
 const contourId    = computed(() => clusterStore.selectedContourId)
 
 const { data: items, isLoading } = useQuery({
-  queryKey: computed(() => ['datacenters', contourId.value]),
-  queryFn:  () => settingsApi.listDatacenters(contourId.value ?? undefined),
+  queryKey: ['datacenters'],
+  queryFn:  () => settingsApi.listDatacenters(),
 })
 
 const DC_FIELDS: FormField[] = [
@@ -125,7 +125,7 @@ async function handleSubmit(values: Record<string, unknown>) {
   if (!contourId.value) { apiError.value = 'No contour selected'; return }
   saving.value = true; apiError.value = null
   try {
-    const description = (values.description as string).trim() || undefined
+    const description = (values.description as string)?.trim() || undefined
     if (modal.value.mode === 'create') {
       await settingsApi.createDatacenter({ name: values.name as string, contour_id: contourId.value, description })
     } else {
