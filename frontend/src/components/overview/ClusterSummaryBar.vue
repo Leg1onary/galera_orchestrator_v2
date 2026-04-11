@@ -12,12 +12,14 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), { isLoading: false })
 
+// Backend _calc_cluster_status() returns 'healthy' | 'degraded' | 'critical'
+// (see ТЗ п.7.1). Map directly — no wsrep_cluster_status parsing needed here.
 const healthState = computed(() => {
-  if (!props.clusterStatus) return 'unknown'
-  const s = props.clusterStatus.toUpperCase()
-  if (s === 'PRIMARY' && props.syncedNodes === props.totalNodes) return 'healthy'
-  if (s === 'PRIMARY') return 'degraded'
-  return 'critical'
+  const s = props.clusterStatus?.toLowerCase()
+  if (s === 'healthy')  return 'healthy'
+  if (s === 'degraded') return 'degraded'
+  if (s === 'critical') return 'critical'
+  return 'unknown'
 })
 
 const HEALTH_MAP = {
