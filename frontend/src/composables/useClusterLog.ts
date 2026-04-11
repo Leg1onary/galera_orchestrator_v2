@@ -1,7 +1,5 @@
 // Composable — GET /api/clusters/{id}/log
 // ТЗ п.10.1: Overview использует этот эндпоинт для EventLog.
-// Таблица event_logs хранит операции оркестратора (recovery, maintenance,
-// node actions, auth, diagnostics, ssh) — см. ТЗ п.2.6, п.19.2.
 import { computed, onUnmounted } from 'vue'
 import type { Ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -27,15 +25,20 @@ export function useClusterLog(clusterId: Ref<number | null>) {
         `/api/clusters/${clusterId.value}/log`,
         { params: { limit } },
       )
-      // Бэкенд может вернуть { events: [...] } или сразу [...]
-      return Array.isArray(data) ? data : data.events
+      // DEBUG: убрать после диагностики
+      console.log('[useClusterLog] raw response:', JSON.stringify(data).slice(0, 500))
+      const items = Array.isArray(data) ? data : data.events
+      if (items?.length) {
+        console.log('[useClusterLog] first item keys:', Object.keys(items[0]))
+        console.log('[useClusterLog] first item:', JSON.stringify(items[0]))
+      }
+      return items
     },
     refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
     staleTime: 5_000,
     enabled: computed(() => !!clusterId.value),
   })
 
-  // ТЗ п.5.2: инвалидируем лог при появлении новых записей через WS
   const unsub = onWsEvent((event) => {
     if (event.cluster_id !== clusterId.value) return
     if (
