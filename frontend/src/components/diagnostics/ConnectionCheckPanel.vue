@@ -17,7 +17,7 @@ async function runCheck() {
   loading.value = true
   error.value   = null
   try {
-    rows.value  = await diagnosticsApi.checkAll(id)
+    rows.value    = await diagnosticsApi.checkAll(id)
     lastRun.value = new Date().toLocaleTimeString()
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
@@ -30,12 +30,12 @@ const nodes = computed(() => rows.value.filter(r => r.role === 'Node'))
 const arbs  = computed(() => rows.value.filter(r => r.role === 'Arbitrator'))
 
 function statusIcon(ok: boolean | null) {
-  if (ok === null) return { icon: 'pi-minus-circle', cls: 'st-unknown' }
+  if (ok === null || ok === undefined) return { icon: 'pi-minus-circle', cls: 'st-unknown' }
   return ok ? { icon: 'pi-check-circle', cls: 'st-ok' } : { icon: 'pi-times-circle', cls: 'st-err' }
 }
 
-function fmtLatency(ms: number | null) {
-  if (ms === null) return '—'
+function fmtLatency(ms: number | null | undefined) {
+  if (ms === null || ms === undefined) return '—'
   return ms < 1 ? '<1 ms' : `${Math.round(ms)} ms`
 }
 </script>
@@ -116,10 +116,12 @@ function fmtLatency(ms: number | null) {
                 <td class="center">
                   <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
                 </td>
+                <!-- garbd_running — отдельное поле от бэка, не db_ok -->
                 <td class="center">
-                  <i :class="['pi', statusIcon(row.db_ok).icon, statusIcon(row.db_ok).cls]" />
+                  <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
                 </td>
-                <td class="center mono">{{ fmtLatency(row.ssh_latency_ms) }}</td>
+                <!-- бэк возвращает latency_ssh_ms для арбитраторов -->
+                <td class="center mono">{{ fmtLatency(row.latency_ssh_ms) }}</td>
               </tr>
             </tbody>
           </table>
