@@ -1,28 +1,28 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import ProcessListPanel  from '@/components/diagnostics/ProcessListPanel.vue'
-import SlowQueryPanel    from '@/components/diagnostics/SlowQueryPanel.vue'
-import GaleraVarsPanel   from '@/components/diagnostics/GaleraVarsPanel.vue'
-import GaleraStatusPanel from '@/components/diagnostics/GaleraStatusPanel.vue'
-import InnodbStatusPanel from '@/components/diagnostics/InnodbStatusPanel.vue'
-import ErrorLogPanel     from '@/components/diagnostics/ErrorLogPanel.vue'
+import ConnectionCheckPanel from '@/components/diagnostics/ConnectionCheckPanel.vue'
+import ConfigDiffPanel      from '@/components/diagnostics/ConfigDiffPanel.vue'
+import VariablesPanel       from '@/components/diagnostics/VariablesPanel.vue'
+import SystemResourcesPanel from '@/components/diagnostics/SystemResourcesPanel.vue'
+import InnodbStatusPanel    from '@/components/diagnostics/InnodbStatusPanel.vue'
+import ArbitratorLogPanel   from '@/components/diagnostics/ArbitratorLogPanel.vue'
 
 const clusterStore = useClusterStore()
-const activeTab    = ref('processes')
+const activeTab    = ref('connections')
 
 watch(
   () => clusterStore.selectedClusterId,
-  (id, prev) => { if (id && prev && id !== prev) activeTab.value = 'processes' }
+  (id, prev) => { if (id && prev && id !== prev) activeTab.value = 'connections' }
 )
 
 const TABS = [
-  { value: 'processes',     label: 'Process list',    icon: 'pi-list' },
-  { value: 'slow-queries',  label: 'Slow queries',    icon: 'pi-clock' },
-  { value: 'galera-vars',   label: 'Galera variables', icon: 'pi-sliders-h' },
-  { value: 'galera-status', label: 'Galera status',   icon: 'pi-chart-bar' },
-  { value: 'innodb',        label: 'InnoDB status',   icon: 'pi-database' },
-  { value: 'errorlog',      label: 'Error log',       icon: 'pi-file-edit' },
+  { value: 'connections', label: 'Connection check',   icon: 'pi-wifi' },
+  { value: 'config-diff', label: 'Config diff',        icon: 'pi-code' },
+  { value: 'variables',   label: 'Variables',          icon: 'pi-sliders-h' },
+  { value: 'resources',   label: 'System resources',   icon: 'pi-server' },
+  { value: 'innodb',      label: 'InnoDB status',      icon: 'pi-database' },
+  { value: 'arb-log',     label: 'Arbitrator log',     icon: 'pi-file-edit' },
 ]
 </script>
 
@@ -53,23 +53,23 @@ const TABS = [
       </TabList>
 
       <TabPanels class="diag-panels">
-        <TabPanel value="processes">
-          <ProcessListPanel :active="activeTab === 'processes'" />
+        <TabPanel value="connections">
+          <ConnectionCheckPanel :active="activeTab === 'connections'" />
         </TabPanel>
-        <TabPanel value="slow-queries">
-          <SlowQueryPanel :active="activeTab === 'slow-queries'" />
+        <TabPanel value="config-diff">
+          <ConfigDiffPanel :active="activeTab === 'config-diff'" />
         </TabPanel>
-        <TabPanel value="galera-vars">
-          <GaleraVarsPanel :active="activeTab === 'galera-vars'" />
+        <TabPanel value="variables">
+          <VariablesPanel :active="activeTab === 'variables'" />
         </TabPanel>
-        <TabPanel value="galera-status">
-          <GaleraStatusPanel :active="activeTab === 'galera-status'" />
+        <TabPanel value="resources">
+          <SystemResourcesPanel :active="activeTab === 'resources'" />
         </TabPanel>
         <TabPanel value="innodb">
           <InnodbStatusPanel :active="activeTab === 'innodb'" />
         </TabPanel>
-        <TabPanel value="errorlog">
-          <ErrorLogPanel :active="activeTab === 'errorlog'" />
+        <TabPanel value="arb-log">
+          <ArbitratorLogPanel :active="activeTab === 'arb-log'" />
         </TabPanel>
       </TabPanels>
     </Tabs>
@@ -83,7 +83,6 @@ const TABS = [
   gap: var(--space-5);
 }
 
-/* ── PAGE HEADER ── */
 .pg-head {
   display: flex;
   align-items: center;
@@ -121,7 +120,6 @@ const TABS = [
   letter-spacing: 0.01em;
 }
 
-/* ── EMPTY ── */
 .pg-empty {
   display: flex;
   flex-direction: column;
@@ -149,7 +147,6 @@ const TABS = [
   color: var(--color-text-muted);
 }
 
-/* ── TABS ── */
 .diag-tabs {
   display: flex;
   flex-direction: column;
