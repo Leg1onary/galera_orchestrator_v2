@@ -20,39 +20,46 @@ function cfg(level: string) {
   return LEVEL_CFG[level] ?? LEVEL_CFG.info
 }
 
-// fix: нормализуем строку даты перед парсингом.
-// Бэкенд отдаёт "2026-04-11T18:11:40.514681+00:00" — браузеры могут
-// не распознать offset +00:00, заменяем на Z для надёжности.
+/**
+ * Надёжный парсинг ISO-даты.
+ * Бэкенд отдаёт "2026-04-11T18:11:40.514681+00:00".
+ * Стратегия: убираем timezone-suffix целиком
+ * (любой вид offset) и прицепляем Z — все браузеры парсят это без проблем.
+ * Даты из БД всегда UTC, поэтому потеря точности нет.
+ */
 function parseDate(iso: string): Date {
   if (!iso) return new Date(NaN)
-  // Уже содержит Z — оставляем как есть
-  if (iso.endsWith('Z')) return new Date(iso)
-  // +00:00 или -00:00 → Z
-  const normalized = iso.replace(/([+-])00:00$/, 'Z').replace(/([+-]\d{2}:\d{2})$/, (_, tz) => {
-    // Любой другой offset — Date умеет его, просто убедимся что нет пробелов
-    return tz
-  })
-  return new Date(normalized)
+  // Убираем любой timezone suffix: Z, +HH:MM, -HH:MM
+  // и заменяем на Z
+  const normalized = iso
+    .trim()
+    .replace(/([+-]\d{2}:\d{2}|Z)$/, 'Z')
+  const d = new Date(normalized)
+  if (!isNaN(d.getTime())) return d
+  // Фолбэк: пробуем оригинальную строку
+  return new Date(iso)
 }
 
-function formatTime(iso: string): string {
+// Всегда показываем время, если сегодня — без даты
+function formatTs(iso: string): { date: string; time: string } {
   const d = parseDate(iso)
-  if (isNaN(d.getTime())) return '—'
-  return d.toLocaleTimeString('en-GB', {
+  if (isNaN(d.getTime())) return { date: '', time: '—' }
+
+  const time = d.toLocaleTimeString('en-GB', {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
-}
 
-function formatDate(iso: string): string {
-  const d = parseDate(iso)
-  if (isNaN(d.getTime())) return ''
   const today = new Date()
   const isToday =
-    d.getDate() === today.getDate() &&
-    d.getMonth() === today.getMonth() &&
-    d.getFullYear() === today.getFullYear()
-  if (isToday) return ''
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+    d.getUTCFullYear() === today.getUTCFullYear() &&
+    d.getUTCMonth()    === today.getUTCMonth() &&
+    d.getUTCDate()     === today.getUTCDate()
+
+  const date = isToday
+    ? ''
+    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+
+  return { date, time }
 }
 </script>
 
@@ -96,8 +103,11 @@ function formatDate(iso: string): string {
         <div class="el-item">
           <div class="el-item-head">
             <span class="el-time">
-              <span v-if="formatDate(item.created_at)" class="el-date">{{ formatDate(item.created_at) }} </span>
-              {{ formatTime(item.created_at) }}
+              <template v-if="formatTs(item.created_at).date">
+                <span class="el-date">{{ formatTs(item.created_at).date }}</span>
+                <span class="el-sep"> · </span>
+              </template>
+              {{ formatTs(item.created_at).time }}
             </span>
             <Tag
               v-if="item.node_name"
@@ -178,23 +188,17 @@ function formatDate(iso: string): string {
   overflow-y: auto;
 }
 
-/* fix: контент на всю ширину — убираем колонку opposite,
-   растягиваем event-container и content */
 :deep(.p-timeline-event) {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
   min-height: unset;
 }
-
-/* Скрываем пустую opposite-колонку */
 :deep(.p-timeline-event-opposite) {
   display: none !important;
   flex: 0 !important;
   padding: 0 !important;
 }
-
-/* Колонка с маркером + коннектором — фиксированная ширина */
 :deep(.p-timeline-event-separator) {
   display: flex;
   flex-direction: column;
@@ -202,8 +206,6 @@ function formatDate(iso: string): string {
   flex: 0 0 auto;
   gap: 0;
 }
-
-/* fix: укорачиваем коннектор между событиями */
 :deep(.p-timeline-event-connector) {
   flex-grow: 0 !important;
   height: 16px !important;
@@ -212,8 +214,6 @@ function formatDate(iso: string): string {
   background: var(--color-border);
   margin: 2px 0;
 }
-
-/* fix: контент растягивается на всю оставшуюся ширину */
 :deep(.p-timeline-event-content) {
   flex: 1 1 0;
   min-width: 0;
@@ -231,7 +231,6 @@ function formatDate(iso: string): string {
   font-size: 0.7rem;
   flex-shrink: 0;
 }
-
 .el-marker--info     { background: rgba(96,165,250,0.12);  color: #60a5fa; }
 .el-marker--warning  { background: rgba(251,146,60,0.12);  color: var(--color-degraded); }
 .el-marker--error    { background: rgba(248,113,113,0.12); color: var(--color-offline); }
@@ -245,23 +244,20 @@ function formatDate(iso: string): string {
   padding-bottom: var(--space-1);
   width: 100%;
 }
-
 .el-item-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-
 .el-time {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-faint);
   white-space: nowrap;
 }
-.el-date {
-  color: var(--color-text-muted);
-}
+.el-date { color: var(--color-text-muted); }
+.el-sep  { color: var(--color-text-faint); opacity: 0.5; }
 
 .el-node-tag,
 .el-level-tag {
@@ -270,7 +266,6 @@ function formatDate(iso: string): string {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-
 .el-msg {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
