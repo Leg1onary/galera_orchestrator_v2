@@ -9,19 +9,25 @@
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/test-connection
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/log
 #
-# innodb-status живёт в routers/nodes.py — здесь не дублируется.
-# Таймауты (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
+# Extra endpoints (frontend already implemented, backend was missing):
+#   GET  /api/clusters/{cluster_id}/diagnostics/galera-status
+#   GET  /api/clusters/{cluster_id}/diagnostics/process-list?node_id=N
+#   GET  /api/clusters/{cluster_id}/diagnostics/slow-queries?node_id=N
+#   GET  /api/clusters/{cluster_id}/nodes/{node_id}/error-log?lines=N
+#
+# innodb-status lives in routers/nodes.py — not duplicated here.
+# Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
 
 from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
-# FIX BLOCKER: убран get_connection() — используем engine (SQLAlchemy Core)
 from database import engine
 from dependencies import require_auth
 from services.db_client import DBClient, DBError
@@ -38,7 +44,6 @@ router = APIRouter(
 # ── Internal DB helpers ───────────────────────────────────────────────────────
 
 def _assert_cluster_exists(cluster_id: int) -> dict:
-    # FIX BLOCKER: get_connection() → engine.connect()
     with engine.connect() as conn:
         row = conn.execute(
             text("SELECT id, name FROM clusters WHERE id = :cid"),
@@ -110,8 +115,6 @@ def _get_node_for_cluster(node_id: int, cluster_id: int) -> dict | None:
 
 def _probe_node_ssh(node: dict) -> dict:
     """SSH connectivity + latency for one node."""
-    # FIX MAJOR: node["ssh_port"] может быть None
-    # FIX MAJOR: used as context manager (with) для гарантии close()
     t0 = time.monotonic()
     try:
         with SSHClient(
@@ -119,7 +122,6 @@ def _probe_node_ssh(node: dict) -> dict:
                 port=int(node.get("ssh_port") or 22),
                 username=node.get("ssh_user") or "root",
         ) as client:
-            # FIX BLOCKER: client.exec() → client.execute()
             client.execute("echo ok")
         latency_ms = round((time.monotonic() - t0) * 1000)
         return {"ssh_ok": True, "ssh_latency_ms": latency_ms, "ssh_error": None}
@@ -135,7 +137,6 @@ def _probe_node_db(node: dict) -> dict:
         return {"db_ok": None, "db_latency_ms": None, "db_error": "No credentials"}
     t0 = time.monotonic()
     try:
-        # FIX MAJOR: используем context manager
         with DBClient(
                 host=node["host"],
                 port=int(node.get("port") or 3306),
@@ -155,7 +156,6 @@ def _probe_arbitrator(arb: dict) -> dict:
     """SSH + garbd process check for one arbitrator."""
     t0 = time.monotonic()
     try:
-        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
         with SSHClient(
                 host=arb["host"],
                 port=int(arb.get("ssh_port") or 22),
@@ -193,7 +193,6 @@ def _fetch_wsrep_variables(node: dict) -> dict[str, str] | None:
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
-        # FIX MAJOR: context manager
         with DBClient(
                 host=node["host"],
                 port=int(node.get("port") or 3306),
@@ -213,7 +212,6 @@ def _fetch_all_variables(node: dict) -> list[dict] | None:
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
-        # FIX MAJOR: context manager
         with DBClient(
                 host=node["host"],
                 port=int(node.get("port") or 3306),
@@ -239,7 +237,6 @@ def _fetch_resources(node: dict) -> dict:
         "error":        None,
     }
     try:
-        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
         with SSHClient(
                 host=node["host"],
                 port=int(node.get("ssh_port") or 22),
@@ -298,7 +295,6 @@ def _fetch_resources(node: dict) -> dict:
 def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
     """journalctl -u garbd -n N with fallback to tail. Per ТЗ 15.8."""
     try:
-        # FIX MAJOR: context manager + FIX BLOCKER: execute() вместо exec()
         with SSHClient(
                 host=arb["host"],
                 port=int(arb.get("ssh_port") or 22),
@@ -401,7 +397,6 @@ async def check_all(cluster_id: int) -> dict:
         })
 
     failed_nodes = [r for r in node_checks if not r.get("ssh_ok")]
-    # ТЗ 2.6: уровни INFO / WARN / ERROR
     level = "WARN" if failed_nodes else "INFO"
     await asyncio.to_thread(
         write_event,
@@ -483,7 +478,6 @@ async def variables(
     """ТЗ 15.5: SHOW GLOBAL VARIABLES с фильтрацией."""
     _assert_cluster_exists(cluster_id)
 
-    # FIX BLOCKER: get_connection() → engine helper
     node = _get_node_for_cluster(node_id, cluster_id)
     if not node:
         raise HTTPException(
@@ -557,6 +551,368 @@ async def resources(cluster_id: int) -> dict:
         )
 
     return {"nodes": node_resources}
+
+
+# ── GET /diagnostics/galera-status ───────────────────────────────────────────
+
+def _fetch_galera_status(node: dict) -> dict:
+    """SHOW GLOBAL STATUS LIKE 'wsrep%' for one node."""
+    if not node.get("db_user") or not node.get("db_password"):
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     "No DB credentials configured",
+        }
+    try:
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query("SHOW GLOBAL STATUS LIKE 'wsrep%'")
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {r["Variable_name"]: r["Value"] for r in rows},
+            "error":     None,
+        }
+    except DBError as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     str(exc),
+        }
+
+
+@router.get("/diagnostics/galera-status")
+async def galera_status(cluster_id: int) -> list[dict]:
+    """
+    SHOW GLOBAL STATUS LIKE 'wsrep%' across all enabled nodes in parallel.
+    Returns per-node status dict for GaleraStatusPanel.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_galera_status, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "status":    {},
+                "error":     str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
+
+
+# ── GET /diagnostics/process-list ────────────────────────────────────────────
+
+def _fetch_process_list(node: dict) -> list[dict]:
+    """SHOW FULL PROCESSLIST for one node."""
+    if not node.get("db_user") or not node.get("db_password"):
+        raise DBError("No DB credentials configured")
+    with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+    ) as client:
+        rows = client.query("SHOW FULL PROCESSLIST")
+    return [
+        {
+            "id":      r.get("Id"),
+            "user":    r.get("User"),
+            "host":    r.get("Host"),
+            "db":      r.get("db"),
+            "command": r.get("Command"),
+            "time":    r.get("Time"),
+            "state":   r.get("State"),
+            "info":    r.get("Info"),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/diagnostics/process-list")
+async def process_list(
+        cluster_id: int,
+        node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
+) -> list[dict]:
+    """
+    SHOW FULL PROCESSLIST across enabled nodes (or a single node if node_id given).
+    Each row is annotated with node_id and node_name.
+    Kill action is intentionally NOT exposed — read-only endpoint.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if node_id is not None:
+        nodes = [n for n in nodes if n["id"] == node_id]
+        if not nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+            )
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_process_list, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            # Return an error sentinel row per node so the frontend can surface it
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "error":     str(result),
+                "processes": [],
+            })
+        else:
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "error":     None,
+                "processes": result,
+            })
+
+    return output
+
+
+# ── GET /diagnostics/slow-queries ────────────────────────────────────────────
+
+def _fetch_slow_queries(node: dict) -> dict:
+    """
+    SELECT from mysql.slow_log.
+    Returns graceful result if slow_query_log is OFF or table is missing.
+    """
+    if not node.get("db_user") or not node.get("db_password"):
+        return {
+            "node_id":          node["id"],
+            "node_name":        node["name"],
+            "slow_log_enabled": None,
+            "rows":             [],
+            "error":            "No DB credentials configured",
+        }
+    try:
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            # Check if slow_query_log is ON
+            var_rows = client.query(
+                "SHOW GLOBAL VARIABLES LIKE 'slow_query_log'"
+            )
+            slow_log_on = (
+                var_rows[0]["Value"].upper() == "ON"
+                if var_rows else False
+            )
+
+            if not slow_log_on:
+                return {
+                    "node_id":          node["id"],
+                    "node_name":        node["name"],
+                    "slow_log_enabled": False,
+                    "rows":             [],
+                    "error":            None,
+                }
+
+            rows = client.query(
+                """
+                SELECT
+                    DATE_FORMAT(start_time, '%Y-%m-%dT%H:%i:%S') AS start_time,
+                    user_host,
+                    TIME_FORMAT(query_time,  '%H:%i:%s') AS query_time,
+                    TIME_FORMAT(lock_time,   '%H:%i:%s') AS lock_time,
+                    rows_sent,
+                    rows_examined,
+                    db,
+                    CONVERT(sql_text USING utf8mb4) AS sql_text
+                FROM mysql.slow_log
+                ORDER BY start_time DESC
+                LIMIT 200
+                """
+            )
+        return {
+            "node_id":          node["id"],
+            "node_name":        node["name"],
+            "slow_log_enabled": True,
+            "rows":             rows,
+            "error":            None,
+        }
+    except DBError as exc:
+        return {
+            "node_id":          node["id"],
+            "node_name":        node["name"],
+            "slow_log_enabled": None,
+            "rows":             [],
+            "error":            str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":          node["id"],
+            "node_name":        node["name"],
+            "slow_log_enabled": None,
+            "rows":             [],
+            "error":            str(exc),
+        }
+
+
+@router.get("/diagnostics/slow-queries")
+async def slow_queries(
+        cluster_id: int,
+        node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
+) -> list[dict]:
+    """
+    Fetch slow query log rows from mysql.slow_log.
+    Gracefully handles slow_query_log=OFF case — returns slow_log_enabled=false
+    instead of an error, so the frontend can show a meaningful message.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if node_id is not None:
+        nodes = [n for n in nodes if n["id"] == node_id]
+        if not nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+            )
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_slow_queries, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":          node["id"],
+                "node_name":        node["name"],
+                "slow_log_enabled": None,
+                "rows":             [],
+                "error":            str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
+
+
+# ── GET /nodes/{node_id}/error-log ───────────────────────────────────────────
+
+def _fetch_error_log(node: dict, lines: int) -> dict:
+    """
+    journalctl -u mariadb -n N --no-pager
+    Fallback: common MariaDB/MySQL log file locations.
+    """
+    try:
+        with SSHClient(
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
+        ) as client:
+            stdout, _ = client.execute(
+                f"journalctl -u mariadb -n {lines} --no-pager 2>/dev/null"
+            )
+            log_lines = stdout.strip().splitlines() if stdout.strip() else []
+
+            # Fallback chain: common MariaDB / MySQL error log paths
+            if not log_lines:
+                stdout, _ = client.execute(
+                    f"tail -n {lines} /var/log/mysql/error.log 2>/dev/null || "
+                    f"tail -n {lines} /var/log/mariadb/mariadb.log 2>/dev/null || "
+                    f"tail -n {lines} /var/log/mysqld.log 2>/dev/null || "
+                    f"tail -n {lines} /var/lib/mysql/*.err 2>/dev/null || echo ''"
+                )
+                log_lines = stdout.strip().splitlines() if stdout.strip() else []
+
+        return {
+            "node_id":    node["id"],
+            "node_name":  node["name"],
+            "lines":      log_lines,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "error":      None,
+        }
+    except SSHError as exc:
+        return {
+            "node_id":    node["id"],
+            "node_name":  node["name"],
+            "lines":      [],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "error":      str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":    node["id"],
+            "node_name":  node["name"],
+            "lines":      [],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "error":      str(exc),
+        }
+
+
+@router.get("/nodes/{node_id}/error-log")
+async def error_log(
+        cluster_id: int,
+        node_id: int,
+        lines: int = Query(default=200, ge=10, le=1000, description="Number of log lines"),
+) -> dict:
+    """
+    Fetch MariaDB error log via SSH.
+    Uses journalctl -u mariadb with fallback to common log file paths.
+    """
+    _assert_cluster_exists(cluster_id)
+    node = _get_node_for_cluster(node_id, cluster_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+        )
+
+    result = await asyncio.to_thread(_fetch_error_log, node, lines)
+
+    if result["error"]:
+        await asyncio.to_thread(
+            write_event,
+            cluster_id=cluster_id,
+            node_id=node_id,
+            source="diagnostics",
+            level="WARN",
+            message=f"error-log fetch failed for {node['name']}: {result['error']}",
+        )
+
+    return result
 
 
 # ── GET /arbitrators/{arb_id}/test-connection ─────────────────────────────────
