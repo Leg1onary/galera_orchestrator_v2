@@ -17,7 +17,7 @@
     </template>
 
     <Tabs v-model:value="activeTab" lazy>
-      <TabList>
+      <TabList class="drawer-tablist">
         <Tab value="overview">Overview</Tab>
         <Tab value="logs">Logs</Tab>
         <Tab value="innodb">InnoDB</Tab>
@@ -76,20 +76,20 @@
 
             <!-- Live stats -->
             <div class="stats-grid">
-              <StatRow label="Cluster status"  :value="details.live?.wsrep_cluster_status ?? '\u2014'" />
-              <StatRow label="Cluster size"    :value="details.live?.wsrep_cluster_size ?? '\u2014'" />
-              <StatRow label="State"           :value="details.live?.wsrep_local_state_comment ?? '\u2014'" />
+              <StatRow label="Cluster status"  :value="details.live?.wsrep_cluster_status ?? '—'" />
+              <StatRow label="Cluster size"    :value="details.live?.wsrep_cluster_size ?? '—'" />
+              <StatRow label="State"           :value="details.live?.wsrep_local_state_comment ?? '—'" />
               <StatRow label="Connected"       :value="boolLabel(details.live?.wsrep_connected)" />
               <StatRow label="Ready"           :value="boolLabel(details.live?.wsrep_ready)" />
               <StatRow label="Read-only"       :value="boolLabel(details.live?.readonly)" />
               <StatRow label="Flow control"    :value="details.live?.wsrep_flow_control_paused != null
                                                  ? (details.live.wsrep_flow_control_paused * 100).toFixed(2) + '%'
-                                                 : '\u2014'" />
-              <StatRow label="Send queue"      :value="details.live?.wsrep_local_send_queue ?? '\u2014'" />
-              <StatRow label="Recv queue"      :value="details.live?.wsrep_local_recv_queue ?? '\u2014'" />
+                                                 : '—'" />
+              <StatRow label="Send queue"      :value="details.live?.wsrep_local_send_queue ?? '—'" />
+              <StatRow label="Recv queue"      :value="details.live?.wsrep_local_recv_queue ?? '—'" />
               <StatRow label="Last check"      :value="details.live?.last_check_ts
                                                  ? formatRelative(details.live.last_check_ts)
-                                                 : '\u2014'" />
+                                                 : '—'" />
             </div>
 
             <!-- Node config -->
@@ -97,8 +97,8 @@
               <StatRow label="Host"        :value="`${details.host}:${details.port}`" />
               <StatRow label="SSH port"    :value="details.ssh_port" />
               <StatRow label="SSH user"    :value="details.ssh_user" />
-              <StatRow label="DB user"     :value="details.db_user ?? '\u2014'" />
-              <StatRow label="Datacenter"  :value="details.datacenter_name ?? '\u2014'" />
+              <StatRow label="DB user"     :value="details.db_user ?? '—'" />
+              <StatRow label="Datacenter"  :value="details.datacenter_name ?? '—'" />
               <StatRow label="Enabled"     :value="boolLabel(details.enabled)" />
             </div>
 
@@ -272,14 +272,12 @@ async function fetchInnodb() {
   }
 }
 
-// ТЗ 11.6 — NodeActionBar: Enable/Disable через PATCH
 async function setEnabled(enabled: boolean) {
   if (!props.node) return
   patchLoading.value = true
   patchError.value   = null
   try {
     await settingsApi.updateNode(props.node.id, { enabled })
-    // инвалидируем nodes-list и node-details чтобы таблица обновилась
     await qc.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'nodes'] })
     await qc.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'node-details', props.node.id] })
     toast.add({ severity: 'success', summary: enabled ? 'Node enabled' : 'Node disabled', life: 2500 })
@@ -291,7 +289,7 @@ async function setEnabled(enabled: boolean) {
 }
 
 function boolLabel(v: boolean | string | null | undefined): string {
-  if (v === null || v === undefined) return '\u2014'
+  if (v === null || v === undefined) return '—'
   if (typeof v === 'string') return v
   return v ? 'Yes' : 'No'
 }
@@ -329,6 +327,36 @@ function recvColor(v: number | null): string {
   font-family: monospace;
   white-space: nowrap;
 }
+
+/* ── Tab styles ── */
+:deep(.p-tablist) {
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-4);
+}
+:deep(.p-tab) {
+  padding: var(--space-2) var(--space-4) !important;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: color 150ms ease, background 150ms ease;
+}
+:deep(.p-tab:hover) {
+  color: var(--color-text);
+  background: var(--color-surface-offset);
+}
+:deep(.p-tab[aria-selected='true']) {
+  color: var(--color-primary) !important;
+  border-bottom: 2px solid var(--color-primary);
+}
+:deep(.p-tabpanels) {
+  padding: 0;
+}
+:deep(.p-tabpanel) {
+  padding: var(--space-4) 0;
+}
+
 .overview-body {
   display: flex;
   flex-direction: column;
