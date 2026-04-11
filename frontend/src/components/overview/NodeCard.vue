@@ -44,6 +44,9 @@ const STATE_MAP: Record<string, { label: string; cls: string; severity: string }
 
 const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN)
 
+// Показываем Start вместо Stop когда нода offline
+const isNodeOffline = computed(() => nodeState.value === 'OFFLINE')
+
 const flowControlDisplay = computed(() => {
   const v = props.node.live.wsrep_flow_control_paused
   if (v == null) return '\u2014'
@@ -180,52 +183,60 @@ function confirmDestructive(action: NodeAction, label: string) {
 
       <!-- ACTION BAR -->
       <div class="nc-actions">
-        <Button
-            class="nc-action-ping"
-            icon="pi pi-wifi"
-            label="Ping"
-            size="small"
-            :loading="pingLoading"
-            :disabled="!!isLocked"
-            v-tooltip.top="'Check node reachability'"
-            @click.stop="ping"
-        />
-        <Button
-          v-tooltip.top="'Restart MySQL'"
-          icon="pi pi-refresh"
-          text
-          rounded
-          size="small"
-          class="nc-action-icon"
-          :loading="actionLoading === 'restart'"
-          :disabled="!!isLocked"
-          aria-label="Restart"
+        <!-- Ping -->
+        <button
+          class="nc-btn nc-btn--primary"
+          :disabled="!!isLocked || pingLoading"
+          :title="'Check node reachability'"
+          @click.stop="ping"
+        >
+          <i :class="pingLoading ? 'pi pi-spin pi-spinner' : 'pi pi-wifi'" />
+          <span>Ping</span>
+        </button>
+
+        <!-- Restart -->
+        <button
+          class="nc-btn nc-btn--default"
+          :disabled="!!isLocked || actionLoading === 'restart'"
+          title="Restart MySQL"
           @click.stop="confirmDestructive('restart', 'Restart')"
-        />
-        <Button
-          v-tooltip.top="'Stop MySQL'"
-          icon="pi pi-stop-circle"
-          text
-          rounded
-          size="small"
-          class="nc-action-icon nc-action-danger"
-          :loading="actionLoading === 'stop'"
-          :disabled="!!isLocked"
-          aria-label="Stop"
+        >
+          <i :class="actionLoading === 'restart' ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'" />
+          <span>Restart</span>
+        </button>
+
+        <!-- Stop / Start toggle -->
+        <button
+          v-if="!isNodeOffline"
+          class="nc-btn nc-btn--danger"
+          :disabled="!!isLocked || actionLoading === 'stop'"
+          title="Stop MySQL"
           @click.stop="confirmDestructive('stop', 'Stop')"
-        />
-        <Button
-          v-tooltip.top="'Force Rejoin (wsrep_sst)'"
-          icon="pi pi-replay"
-          text
-          rounded
-          size="small"
-          class="nc-action-icon nc-action-danger"
-          :loading="actionLoading === 'rejoin-force'"
-          :disabled="!!isLocked"
-          aria-label="Force Rejoin"
+        >
+          <i :class="actionLoading === 'stop' ? 'pi pi-spin pi-spinner' : 'pi pi-stop-circle'" />
+          <span>Stop</span>
+        </button>
+        <button
+          v-else
+          class="nc-btn nc-btn--success"
+          :disabled="!!isLocked || actionLoading === 'start'"
+          title="Start MySQL"
+          @click.stop="confirmDestructive('start', 'Start')"
+        >
+          <i :class="actionLoading === 'start' ? 'pi pi-spin pi-spinner' : 'pi pi-play'" />
+          <span>Start</span>
+        </button>
+
+        <!-- Force Rejoin -->
+        <button
+          class="nc-btn nc-btn--danger"
+          :disabled="!!isLocked || actionLoading === 'rejoin-force'"
+          title="Force Rejoin (wsrep_sst)"
           @click.stop="confirmDestructive('rejoin-force', 'Force Rejoin')"
-        />
+        >
+          <i :class="actionLoading === 'rejoin-force' ? 'pi pi-spin pi-spinner' : 'pi pi-replay'" />
+          <span>Rejoin</span>
+        </button>
       </div>
     </div>
   </article>
@@ -319,9 +330,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 /* ═══════════════════════════════════════
    STATE TAG
 ═══════════════════════════════════════ */
-.nc-state-tag {
-  flex-shrink: 0;
-}
+.nc-state-tag { flex-shrink: 0; }
 
 :deep(.nc-state-tag.p-tag) {
   padding: 5px 10px !important;
@@ -334,7 +343,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   position: relative;
   overflow: hidden;
 }
-
 :deep(.nc-state-tag.p-tag)::after {
   content: '';
   position: absolute;
@@ -343,72 +351,12 @@ function confirmDestructive(action: NodeAction, label: string) {
   pointer-events: none;
 }
 
-.node-card--offline :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-offline) 22%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-offline) 45%, transparent) !important;
-  color: var(--color-offline) !important;
-  box-shadow: 0 0 0 0 transparent;
-}
-.node-card--offline :deep(.nc-state-tag.p-tag)::after {
-  background: linear-gradient(135deg,
-    oklch(from var(--color-offline) calc(l + 0.15) c h / 0.2) 0%,
-    transparent 55%
-  );
-}
-
-.node-card--synced :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-synced) 40%, transparent) !important;
-  color: var(--color-synced) !important;
-}
-.node-card--synced :deep(.nc-state-tag.p-tag)::after {
-  background: linear-gradient(135deg,
-    oklch(from var(--color-synced) calc(l + 0.15) c h / 0.18) 0%,
-    transparent 55%
-  );
-}
-
-.node-card--readonly :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-readonly) 18%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-readonly) 40%, transparent) !important;
-  color: var(--color-readonly) !important;
-}
-.node-card--readonly :deep(.nc-state-tag.p-tag)::after {
-  background: linear-gradient(135deg,
-    oklch(from var(--color-readonly) calc(l + 0.12) c h / 0.18) 0%,
-    transparent 55%
-  );
-}
-
-.node-card--donor :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-donor) 18%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important;
-  color: var(--color-donor) !important;
-}
-.node-card--donor :deep(.nc-state-tag.p-tag)::after {
-  background: linear-gradient(135deg,
-    oklch(from var(--color-donor) calc(l + 0.15) c h / 0.18) 0%,
-    transparent 55%
-  );
-}
-
-.node-card--degraded :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-degraded) 18%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-degraded) 40%, transparent) !important;
-  color: var(--color-degraded) !important;
-}
-.node-card--degraded :deep(.nc-state-tag.p-tag)::after {
-  background: linear-gradient(135deg,
-    oklch(from var(--color-degraded) calc(l + 0.12) c h / 0.18) 0%,
-    transparent 55%
-  );
-}
-
-.node-card--unknown :deep(.nc-state-tag.p-tag) {
-  background: color-mix(in oklch, var(--color-text-faint) 15%, transparent) !important;
-  border-color: color-mix(in oklch, var(--color-text-faint) 30%, transparent) !important;
-  color: var(--color-text-muted) !important;
-}
+.node-card--offline  :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-offline) 22%, transparent) !important; border-color: color-mix(in oklch, var(--color-offline) 45%, transparent) !important; color: var(--color-offline) !important; }
+.node-card--synced   :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-synced) 40%, transparent) !important; color: var(--color-synced) !important; }
+.node-card--readonly :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-readonly) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-readonly) 40%, transparent) !important; color: var(--color-readonly) !important; }
+.node-card--donor    :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-donor) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important; color: var(--color-donor) !important; }
+.node-card--degraded :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-degraded) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-degraded) 40%, transparent) !important; color: var(--color-degraded) !important; }
+.node-card--unknown  :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-text-faint) 15%, transparent) !important; border-color: color-mix(in oklch, var(--color-text-faint) 30%, transparent) !important; color: var(--color-text-muted) !important; }
 
 /* ═══════════════════════════════════════
    HOST ROW
@@ -418,11 +366,7 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-items: center;
   gap: var(--space-2);
 }
-.nc-host-icon {
-  font-size: 0.7rem;
-  color: var(--color-text-faint);
-  flex-shrink: 0;
-}
+.nc-host-icon { font-size: 0.7rem; color: var(--color-text-faint); flex-shrink: 0; }
 .nc-host-addr {
   font-size: var(--text-sm);
   font-family: var(--font-mono);
@@ -440,16 +384,8 @@ function confirmDestructive(action: NodeAction, label: string) {
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
-.mode-rw {
-  background: color-mix(in oklch, var(--color-synced) 18%, transparent);
-  color: var(--color-synced);
-  border: 1px solid color-mix(in oklch, var(--color-synced) 35%, transparent);
-}
-.mode-ro {
-  background: color-mix(in oklch, var(--color-readonly) 18%, transparent);
-  color: var(--color-readonly);
-  border: 1px solid color-mix(in oklch, var(--color-readonly) 35%, transparent);
-}
+.mode-rw { background: color-mix(in oklch, var(--color-synced) 18%, transparent); color: var(--color-synced); border: 1px solid color-mix(in oklch, var(--color-synced) 35%, transparent); }
+.mode-ro { background: color-mix(in oklch, var(--color-readonly) 18%, transparent); color: var(--color-readonly); border: 1px solid color-mix(in oklch, var(--color-readonly) 35%, transparent); }
 
 /* ═══════════════════════════════════════
    METRICS
@@ -458,36 +394,17 @@ function confirmDestructive(action: NodeAction, label: string) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3) var(--space-4);
-  padding: var(--space-3) var(--space-3);
+  padding: var(--space-3);
   background: var(--color-surface-offset);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   margin-top: var(--space-1);
 }
-.nc-metric {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.nc-mk {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--color-text-faint);
-  font-weight: 600;
-}
-.nc-mv {
-  font-size: var(--text-base);
-  font-weight: 700;
-  color: var(--color-text);
-}
-.nc-mv--mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.nc-mv--warn {
-  color: var(--color-degraded);
-}
+.nc-metric   { display: flex; flex-direction: column; gap: var(--space-2); }
+.nc-mk       { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--color-text-faint); font-weight: 600; }
+.nc-mv       { font-size: var(--text-base); font-weight: 700; color: var(--color-text); }
+.nc-mv--mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.nc-mv--warn { color: var(--color-degraded); }
 
 /* ═══════════════════════════════════════
    SSH BADGE
@@ -504,15 +421,8 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-self: flex-start;
 }
 .nc-ssh i { font-size: 0.65rem; }
-.nc-ssh--ok {
-  background: color-mix(in oklch, var(--color-text-faint) 12%, transparent);
-  color: var(--color-text-faint);
-}
-.nc-ssh--fail {
-  background: color-mix(in oklch, var(--color-offline) 15%, transparent);
-  color: var(--color-offline);
-  border: 1px solid color-mix(in oklch, var(--color-offline) 30%, transparent);
-}
+.nc-ssh--ok   { background: color-mix(in oklch, var(--color-text-faint) 12%, transparent); color: var(--color-text-faint); }
+.nc-ssh--fail { background: color-mix(in oklch, var(--color-offline) 15%, transparent); color: var(--color-offline); border: 1px solid color-mix(in oklch, var(--color-offline) 30%, transparent); }
 
 /* ═══════════════════════════════════════
    PING RESULT
@@ -530,33 +440,14 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-self: flex-start;
   border: 1px solid transparent;
 }
-.nc-ping-result i {
-  font-size: 0.7rem;
-  flex-shrink: 0;
-}
-.nc-ping-result--ok {
-  background: color-mix(in oklch, var(--color-synced) 12%, transparent);
-  color: var(--color-synced);
-  border-color: color-mix(in oklch, var(--color-synced) 30%, transparent);
-}
-.nc-ping-result--fail {
-  background: color-mix(in oklch, var(--color-offline) 12%, transparent);
-  color: var(--color-offline);
-  border-color: color-mix(in oklch, var(--color-offline) 30%, transparent);
-}
+.nc-ping-result i { font-size: 0.7rem; flex-shrink: 0; }
+.nc-ping-result--ok   { background: color-mix(in oklch, var(--color-synced) 12%, transparent); color: var(--color-synced); border-color: color-mix(in oklch, var(--color-synced) 30%, transparent); }
+.nc-ping-result--fail { background: color-mix(in oklch, var(--color-offline) 12%, transparent); color: var(--color-offline); border-color: color-mix(in oklch, var(--color-offline) 30%, transparent); }
 
-/* Transition */
-.ping-result-enter-active {
-  transition: opacity 200ms ease, transform 200ms ease;
-}
-.ping-result-leave-active {
-  transition: opacity 600ms ease, transform 600ms ease;
-}
+.ping-result-enter-active { transition: opacity 200ms ease, transform 200ms ease; }
+.ping-result-leave-active  { transition: opacity 600ms ease, transform 600ms ease; }
 .ping-result-enter-from,
-.ping-result-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
+.ping-result-leave-to     { opacity: 0; transform: translateY(-4px); }
 
 /* ═══════════════════════════════════════
    ACTION BAR
@@ -564,47 +455,78 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding-top: var(--space-3);
   margin-top: var(--space-1);
   border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
 }
 
-.nc-action-ping {
-  flex: 1;
+/* Base button */
+.nc-btn {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  font-weight: 600 !important;
-  font-size: var(--text-sm) !important;
-  border-radius: var(--radius-md) !important;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  height: 34px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
-:deep(.nc-action-ping.p-button) {
-  background: color-mix(in oklch, var(--color-primary) 12%, transparent) !important;
-  border: 1px solid color-mix(in oklch, var(--color-primary) 40%, transparent) !important;
-  color: var(--color-primary) !important;
+.nc-btn i { font-size: 0.78rem; flex-shrink: 0; }
+.nc-btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
+
+/* Primary — Ping */
+.nc-btn--primary {
+  background: color-mix(in oklch, var(--color-primary) 14%, transparent);
+  border-color: color-mix(in oklch, var(--color-primary) 38%, transparent);
+  color: var(--color-primary);
 }
-:deep(.nc-action-ping.p-button:hover:not(:disabled)) {
-  background: color-mix(in oklch, var(--color-primary) 22%, transparent) !important;
-  border-color: var(--color-primary) !important;
+.nc-btn--primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-primary) 24%, transparent);
+  border-color: var(--color-primary);
 }
 
-.nc-action-icon {
-  width: 32px !important;
-  height: 32px !important;
-  padding: 0 !important;
-  flex-shrink: 0;
+/* Default — Restart */
+.nc-btn--default {
+  background: color-mix(in oklch, var(--color-text-faint) 8%, transparent);
+  border-color: color-mix(in oklch, var(--color-text-faint) 22%, transparent);
+  color: var(--color-text-muted);
 }
-:deep(.nc-action-icon.p-button) {
-  color: var(--color-text-muted) !important;
+.nc-btn--default:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-text-faint) 16%, transparent);
+  border-color: color-mix(in oklch, var(--color-text-faint) 40%, transparent);
+  color: var(--color-text);
 }
-:deep(.nc-action-icon.p-button:hover:not(:disabled)) {
-  color: var(--color-text) !important;
-  background: var(--color-surface-offset) !important;
+
+/* Danger — Stop / Rejoin */
+.nc-btn--danger {
+  background: color-mix(in oklch, var(--color-offline) 10%, transparent);
+  border-color: color-mix(in oklch, var(--color-offline) 28%, transparent);
+  color: var(--color-offline);
 }
-:deep(.nc-action-danger.p-button:hover:not(:disabled)) {
-  color: var(--color-offline) !important;
-  background: color-mix(in oklch, var(--color-offline) 12%, transparent) !important;
+.nc-btn--danger:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-offline) 20%, transparent);
+  border-color: color-mix(in oklch, var(--color-offline) 55%, transparent);
 }
-:deep(.nc-action-icon .p-button-icon) {
-  font-size: 0.9rem !important;
+
+/* Success — Start */
+.nc-btn--success {
+  background: color-mix(in oklch, var(--color-synced) 12%, transparent);
+  border-color: color-mix(in oklch, var(--color-synced) 35%, transparent);
+  color: var(--color-synced);
+}
+.nc-btn--success:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-synced) 22%, transparent);
+  border-color: color-mix(in oklch, var(--color-synced) 60%, transparent);
 }
 </style>
