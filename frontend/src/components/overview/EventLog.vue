@@ -76,12 +76,24 @@ function cfg(level: string) {
   return LEVEL_CFG[normLevel(level)] ?? LEVEL_CFG.info
 }
 
-// ts приходит как "2026-04-11 18:31:30.923662" (без T, без Z)
+// Python's datetime.isoformat() produces "2026-04-11T21:56:33.123456+00:00"
+// The regex /[Z+\-]\d*$/ does NOT match "+00:00" (ends with "00", but has ":" before it).
+// Fix: strip the space separator, then normalise any UTC offset (+00:00, -00:00, +0000) → Z,
+// so new Date() always receives a valid ISO 8601 string.
 function parseTs(ts: string): Date {
   if (!ts) return new Date(NaN)
-  const withT = ts.trim().replace(' ', 'T')
-  const withZ = /[Z+\-]\d*$/.test(withT) ? withT : withT + 'Z'
-  return new Date(withZ)
+
+  // 1. Replace space separator (SQLite datetime format) with T
+  let s = ts.trim().replace(' ', 'T')
+
+  // 2. Normalise UTC offsets → Z
+  //    Handles: +00:00  -00:00  +0000  -0000  (Python isoformat / SQLite)
+  s = s.replace(/[+-]00:?00$/, 'Z')
+
+  // 3. If still no timezone marker, assume UTC
+  if (!/[Z]$/.test(s)) s += 'Z'
+
+  return new Date(s)
 }
 
 function formatTs(ts: string): { date: string; time: string } {
