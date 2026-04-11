@@ -21,22 +21,22 @@ const isFinished = computed(() =>
   ['success', 'failed', 'cancelled'].includes(activeOp.value.status)
 )
 
-// ── Live UTC clock ──────────────────────────────────────────────
+// ── Live local clock ──────────────────────────────────────────────
 const nowStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
 function tick() {
   const d = new Date()
-  const hh = String(d.getUTCHours()).padStart(2, '0')
-  const mm = String(d.getUTCMinutes()).padStart(2, '0')
-  const ss = String(d.getUTCSeconds()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
   nowStr.value = `${hh}:${mm}:${ss}`
 }
 
 onMounted(() => { tick(); clockTimer = setInterval(tick, 1000) })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 
-// ── Op labels ───────────────────────────────────────────────────
+// ── Op labels ───────────────────────────────────────────────────────────
 const OP_LABELS: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
   'recovery-rejoin':    'Rejoin',
@@ -55,7 +55,7 @@ const STATUS_LABEL: Record<string, string> = {
 const opTypeLabel   = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
 const opStatusLabel = computed(() => STATUS_LABEL[activeOp.value?.status ?? ''] ?? activeOp.value?.status ?? '')
 
-// ── Elapsed timer ───────────────────────────────────────────────
+// ── Elapsed timer ────────────────────────────────────────────────────────
 const elapsedStr = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -113,7 +113,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
     <!-- RIGHT -->
     <div class="footer-right">
-      <span class="footer-clock-label">UTC</span>
       <span class="footer-clock">{{ nowStr }}</span>
     </div>
 
@@ -239,13 +238,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   flex-shrink: 0;
 }
 
-.footer-clock-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #3f3f46;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
 .footer-clock {
   font-size: 0.85rem;
   font-family: var(--font-mono, monospace);
