@@ -54,7 +54,7 @@ router = APIRouter(
     dependencies=[Depends(require_auth)],
 )
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────────
 
 SYNC_ACTIONS  = frozenset({"set-readonly", "set-readwrite", "enter-maintenance", "exit-maintenance"})
 ASYNC_ACTIONS = frozenset({"start", "stop", "restart", "rejoin-force"})
@@ -63,7 +63,7 @@ ALL_ACTIONS   = SYNC_ACTIONS | ASYNC_ACTIONS
 SSH_CONNECT_TIMEOUT = 5
 DB_CONNECT_TIMEOUT  = 3
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas ─────────────────────────────────────────────────────────────────
 
 class NodeActionRequest(BaseModel):
     action: str
@@ -118,7 +118,7 @@ def _assert_cluster_exists(cluster_id: int) -> None:
         )
 
 
-# ── GET /api/clusters/{cluster_id}/nodes ─────────────────────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes ──────────────────────────────────────────
 
 @router.get("/{cluster_id}/nodes")
 async def list_nodes(cluster_id: int) -> list[dict]:
@@ -157,7 +157,7 @@ async def list_nodes(cluster_id: int) -> list[dict]:
     return result
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id} ───────────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id} ─────────────────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}")
 async def get_node(cluster_id: int, node_id: int) -> dict:
@@ -181,7 +181,7 @@ async def get_node(cluster_id: int, node_id: int) -> dict:
     }
 
 
-# ── PATCH /api/clusters/{cluster_id}/nodes/{node_id} ─────────────────────────
+# ── PATCH /api/clusters/{cluster_id}/nodes/{node_id} ───────────────────────────────────
 
 @router.patch("/{cluster_id}/nodes/{node_id}")
 async def patch_node(
@@ -204,7 +204,7 @@ async def patch_node(
     return {"accepted": True, "node_id": node_id, **body.model_dump(exclude_none=True)}
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection ────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection ────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}/test-connection")
 async def test_node_connection(cluster_id: int, node_id: int) -> dict:
@@ -254,7 +254,7 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     return result
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status ──────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status ────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}/innodb-status")
 async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
@@ -302,7 +302,7 @@ def _extract_deadlock_section(innodb_text: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/actions ──────────────────
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/actions ────────────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/actions")
 async def node_action(
@@ -326,7 +326,7 @@ async def node_action(
         return await _start_async_action(cluster_id, node, action)
 
 
-# ── Sync action executor ──────────────────────────────────────────────────────
+# ── Sync action executor ───────────────────────────────────────────────────────
 
 async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
     node_id = node["id"]
@@ -401,7 +401,7 @@ async def _db_exec(node: dict, sql: str) -> None:
         await asyncio.to_thread(db.close)
 
 
-# ── Async action launcher ─────────────────────────────────────────────────────
+# ── Async action launcher ──────────────────────────────────────────────────────
 
 async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
@@ -518,6 +518,13 @@ async def _safe_poll_node(cluster_id: int, node: dict) -> None:
 
 
 def _ssh_node_action(node: dict, action: str) -> None:
+    """
+    Execute a management action on a node via SSH.
+
+    All systemctl commands use check=True so that a non-zero exit code
+    (e.g. systemd not available in Docker, permission denied, unit not
+    found) is surfaced as an SSHError instead of silently succeeding.
+    """
     ssh = SSHClient(
         host=node["host"],
         port=int(node["ssh_port"] or 22),
@@ -526,18 +533,19 @@ def _ssh_node_action(node: dict, action: str) -> None:
     ssh.connect()
     try:
         if action == "start":
-            ssh.execute("systemctl start mariadb")
+            ssh.execute("systemctl start mariadb", check=True)
         elif action == "stop":
-            ssh.execute("systemctl stop mariadb")
+            ssh.execute("systemctl stop mariadb", check=True)
         elif action == "restart":
-            ssh.execute("systemctl restart mariadb")
+            ssh.execute("systemctl restart mariadb", check=True)
         elif action == "rejoin-force":
-            ssh.execute("systemctl stop mariadb")
+            ssh.execute("systemctl stop mariadb", check=True)
             ssh.execute(
                 "sed -i 's/^safe_to_bootstrap:.*$/safe_to_bootstrap: 0/' "
-                "/var/lib/mysql/grastate.dat"
+                "/var/lib/mysql/grastate.dat",
+                check=True,
             )
-            ssh.execute("systemctl start mariadb")
+            ssh.execute("systemctl start mariadb", check=True)
         else:
             raise SSHError(f"Unknown async action: {action}")
     finally:
@@ -561,7 +569,7 @@ async def _broadcast_op_finished(
     })
 
 
-# ── GET /api/clusters/{cluster_id}/operations/active ─────────────────────────
+# ── GET /api/clusters/{cluster_id}/operations/active ───────────────────────────────
 
 @router.get("/{cluster_id}/operations/active")
 async def get_active_op(cluster_id: int) -> dict:
@@ -570,7 +578,7 @@ async def get_active_op(cluster_id: int) -> dict:
     return {"operation": active}
 
 
-# ── POST /api/clusters/{cluster_id}/operations/cancel ────────────────────────
+# ── POST /api/clusters/{cluster_id}/operations/cancel ────────────────────────────
 
 @router.post("/{cluster_id}/operations/cancel")
 async def cancel_operation(cluster_id: int) -> dict:
