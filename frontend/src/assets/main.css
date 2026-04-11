@@ -539,67 +539,272 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   padding: var(--space-2) var(--space-3);
 }
 
-/* ── Toast ── */
-.p-toast .p-toast-message {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+/* ============================================================
+   TOAST — Premium redesign
+   Глубокая тёмная подложка + цветной accent-полоса +
+   свечение по severity + анимация влета/вылета
+   ============================================================ */
+
+/* ─── Container ─── */
+.p-toast {
+  width: 340px;
+  max-width: calc(100vw - 2rem);
 }
 
-/* ── Confirm dialog ── */
+/* ─── Enter / Leave animations ─── */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(32px) scale(0.94);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(32px) scale(0.94);
+    filter: blur(2px);
+  }
+}
+
+@keyframes toast-progress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+@keyframes toast-icon-pop {
+  0%   { transform: scale(0.5) rotate(-15deg); opacity: 0; }
+  60%  { transform: scale(1.2) rotate(4deg);  opacity: 1; }
+  100% { transform: scale(1)   rotate(0deg);  opacity: 1; }
+}
+
+/* ─── Base message card ─── */
+.p-toast .p-toast-message {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(255,255,255,0.06);
+  background: #13141e;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5);
+  padding: 0;
+  margin-bottom: var(--space-3);
+  animation: toast-in 380ms var(--ease-out-expo) both;
+}
+
+/* ─── Top gradient accent bar ─── */
+.p-toast .p-toast-message::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--toast-gradient, linear-gradient(90deg, #2dd4bf, #60a5fa));
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  z-index: 2;
+}
+
+/* ─── Ambient glow bg splash ─── */
+.p-toast .p-toast-message::after {
+  content: '';
+  position: absolute;
+  top: -30px; right: -20px;
+  width: 120px; height: 120px;
+  background: var(--toast-glow, radial-gradient(circle, rgba(45,212,191,0.12) 0%, transparent 70%));
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Inner content wrapper ─── */
+.p-toast .p-toast-message-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-4);
+}
+
+/* ─── Icon container ─── */
+.p-toast .p-toast-message-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  background: var(--toast-icon-bg, rgba(45,212,191,0.12));
+  border: 1px solid var(--toast-icon-border, rgba(45,212,191,0.2));
+  color: var(--toast-color, #2dd4bf);
+  animation: toast-icon-pop 420ms var(--ease-out-expo) 80ms both;
+  margin-top: 1px;
+}
+
+/* ─── Text area ─── */
+.p-toast .p-toast-message-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.p-toast .p-toast-summary {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+}
+
+.p-toast .p-toast-detail {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ─── Close button ─── */
+.p-toast .p-toast-message-content .p-toast-close-button,
+.p-toast .p-toast-close-button {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  transition: color var(--transition-normal), background var(--transition-normal);
+  margin-top: 2px;
+  padding: 0;
+  font-size: 0.7rem;
+}
+
+.p-toast .p-toast-close-button:hover {
+  color: var(--color-text);
+  background: rgba(255,255,255,0.06);
+}
+
+/* ─── Severity: SUCCESS ─── */
+.p-toast .p-toast-message-success {
+  --toast-gradient:    linear-gradient(90deg, #4ade80 0%, #22d3ee 100%);
+  --toast-glow:        radial-gradient(circle, rgba(74,222,128,0.14) 0%, transparent 70%);
+  --toast-icon-bg:     rgba(74,222,128,0.12);
+  --toast-icon-border: rgba(74,222,128,0.25);
+  --toast-color:       #4ade80;
+  border-color: rgba(74,222,128,0.12);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5),
+    0 0 40px rgba(74,222,128,0.06);
+}
+
+/* ─── Severity: ERROR ─── */
+.p-toast .p-toast-message-error {
+  --toast-gradient:    linear-gradient(90deg, #f87171 0%, #fb923c 100%);
+  --toast-glow:        radial-gradient(circle, rgba(248,113,113,0.14) 0%, transparent 70%);
+  --toast-icon-bg:     rgba(248,113,113,0.12);
+  --toast-icon-border: rgba(248,113,113,0.25);
+  --toast-color:       #f87171;
+  border-color: rgba(248,113,113,0.12);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5),
+    0 0 40px rgba(248,113,113,0.08);
+}
+
+/* ─── Severity: WARN ─── */
+.p-toast .p-toast-message-warn {
+  --toast-gradient:    linear-gradient(90deg, #fbbf24 0%, #fb923c 100%);
+  --toast-glow:        radial-gradient(circle, rgba(251,191,36,0.14) 0%, transparent 70%);
+  --toast-icon-bg:     rgba(251,191,36,0.12);
+  --toast-icon-border: rgba(251,191,36,0.25);
+  --toast-color:       #fbbf24;
+  border-color: rgba(251,191,36,0.12);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5),
+    0 0 40px rgba(251,191,36,0.06);
+}
+
+/* ─── Severity: INFO ─── */
+.p-toast .p-toast-message-info {
+  --toast-gradient:    linear-gradient(90deg, #60a5fa 0%, #a78bfa 100%);
+  --toast-glow:        radial-gradient(circle, rgba(96,165,250,0.14) 0%, transparent 70%);
+  --toast-icon-bg:     rgba(96,165,250,0.12);
+  --toast-icon-border: rgba(96,165,250,0.25);
+  --toast-color:       #60a5fa;
+  border-color: rgba(96,165,250,0.12);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5),
+    0 0 40px rgba(96,165,250,0.06);
+}
+
+/* ─── Confirm dialog ─── */
 .p-confirmdialog .p-dialog-footer {
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--color-border-muted);
 }
 
-/* ── ToggleSwitch ─────────────────────────────────────────────
-   Aura theme в PrimeVue v4 позиционирует .p-toggleswitch-handle
-   через position:absolute + top:50% + translateY(-50%).
-   Это работает только если .p-toggleswitch-slider имеет
-   явный height И position:relative без внешних flex-искажений.
-   Наш глобальный reset (box-sizing, line-height:1.6 на body)
-   ломает вычисление — шарик съезжает вниз на ~2-3px.
-   Фикс: явно задаём геометрию слайдера и хэндла.
-   ──────────────────────────────────────────────────────────── */
+/* ============================================================
+   TOGGLESWITCH FIX
+   ============================================================ */
 .p-toggleswitch {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
   vertical-align: middle;
-  line-height: 1;        /* сбрасываем наследуемый line-height:1.6 с body */
+  line-height: 1;
 }
 
 .p-toggleswitch-slider {
-  /* Явные размеры — Aura default: 26x14, мы чуть компактнее */
-  width: 2.2rem;         /* 35px */
-  height: 1.25rem;       /* 20px */
+  width: 2.2rem;
+  height: 1.25rem;
   border-radius: var(--radius-full);
-  position: relative;    /* хэндл позиционируется relative к слайдеру */
-  display: block;        /* не flex — иначе top:50% считается от flex-контейнера */
+  position: relative;
+  display: block;
   flex-shrink: 0;
   cursor: pointer;
   transition: background var(--transition-normal);
 }
 
 .p-toggleswitch-handle {
-  /*
-    Явная геометрия шарика.
-    Aura ставит top:50% + translateY(-50%) — работает только
-    если height слайдера зафиксирован и нет box-model сдвигов.
-    Мы дублируем это явно чтобы перебить любые унаследованные стили.
-  */
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 0.875rem;       /* 14px — слайдер 20px, паддинг 3px с каждой стороны */
+  width: 0.875rem;
   height: 0.875rem;
   border-radius: 50%;
   transition:
     left var(--transition-normal),
     transform var(--transition-normal),
     background var(--transition-normal);
-  /* left управляется PrimeVue через data-p="checked" — не трогаем */
 }
 
 /* ============================================================
