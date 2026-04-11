@@ -1,331 +1,322 @@
-<template>
-  <div class="diag-panel">
-    <div class="toolbar">
-      <span class="toolbar-title">system_resources</span>
-      <div class="toolbar-actions">
-        <span v-if="fetchedAt" class="fetched-at">{{ fetchedAt }}</span>
-        <button class="btn-refresh" :disabled="isLoading" @click="run">
-          <i :class="['pi', isLoading ? 'pi-spin pi-spinner' : 'pi-play']" />
-          <span>{{ isLoading ? 'Collecting…' : 'Run check' }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div v-if="error" class="error-alert">
-      <i class="pi pi-exclamation-circle" />
-      <span>{{ (error as Error).message }}</span>
-    </div>
-
-    <template v-else-if="rows && rows.length">
-      <div v-for="row in rows" :key="row.node_id" class="resource-card">
-        <div class="rc-header">
-          <div class="node-dot" />
-          <span class="rc-name">{{ row.node_name }}</span>
-          <span v-if="row.error" class="rc-error-badge">error</span>
-        </div>
-
-        <div v-if="row.error" class="rc-error-msg">{{ row.error }}</div>
-
-        <template v-else>
-          <div class="rc-metrics">
-            <!-- CPU -->
-            <div class="metric">
-              <div class="metric-label">CPU</div>
-              <div class="metric-bar-wrap">
-                <div
-                    class="metric-bar"
-                    :class="barClass(row.cpu_percent)"
-                    :style="{ width: (row.cpu_percent ?? 0) + '%' }"
-                />
-              </div>
-              <div :class="['metric-val', severityClass(row.cpu_percent, 80, 95)]">{{ row.cpu_percent != null ? row.cpu_percent + '%' : '—' }}</div>
-            </div>
-            <!-- RAM -->
-            <div class="metric">
-              <div class="metric-label">RAM</div>
-              <div class="metric-bar-wrap">
-                <div
-                    class="metric-bar"
-                    :class="barClass(ramPct(row))"
-                    :style="{ width: (ramPct(row) ?? 0) + '%' }"
-                />
-              </div>
-              <div :class="['metric-val', severityClass(ramPct(row), 85, 95)]">
-                {{ row.ram_used_bytes != null && row.ram_total_bytes ? fmtBytes(row.ram_used_bytes) + ' / ' + fmtBytes(row.ram_total_bytes) : '—' }}
-              </div>
-            </div>
-            <!-- Disk -->
-            <div class="metric">
-              <div class="metric-label">Disk</div>
-              <div class="metric-bar-wrap">
-                <div
-                    class="metric-bar"
-                    :class="barClass(diskPct(row))"
-                    :style="{ width: (diskPct(row) ?? 0) + '%' }"
-                />
-              </div>
-              <div :class="['metric-val', severityClass(diskPct(row), 80, 90)]">
-                {{ row.disk_used_bytes != null && row.disk_total_bytes ? fmtBytes(row.disk_used_bytes) + ' / ' + fmtBytes(row.disk_total_bytes) : '—' }}
-              </div>
-            </div>
-          </div>
-
-          <div class="rc-extra">
-            <span class="extra-item">
-              <span class="extra-label">Load avg</span>
-              <span class="extra-val">{{ row.load_avg_1 != null ? row.load_avg_1.toFixed(2) : '—' }}</span>
-            </span>
-            <span class="extra-sep">·</span>
-            <span class="extra-item">
-              <span class="extra-label">Uptime since</span>
-              <span class="extra-val">{{ row.uptime_since ?? '—' }}</span>
-            </span>
-          </div>
-        </template>
-      </div>
-    </template>
-
-    <div v-else-if="!isLoading" class="empty-state">
-      <div class="empty-icon"><i class="pi pi-server" /></div>
-      <p>Click <strong>Run check</strong> to collect system metrics via SSH.</p>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useMutation } from '@tanstack/vue-query'
-import { useClusterStore }  from '@/stores/cluster'
+import { ref, watch } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type NodeResourceRow } from '@/api/diagnostics'
 
-defineProps<{ active: boolean }>()
+const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
-const fetchedAt    = ref<string | null>(null)
-const rows         = ref<NodeResourceRow[] | null>(null)
-const error        = ref<Error | null>(null)
 
-const { mutate, isPending: isLoading } = useMutation({
-  mutationFn: () => diagnosticsApi.resources(clusterStore.selectedClusterId!),
-  onSuccess: (data) => {
-    rows.value      = data
-    fetchedAt.value = new Date().toLocaleTimeString()
-    error.value     = null
-  },
-  onError: (e: unknown) => {
-    error.value = e instanceof Error ? e : new Error(String(e))
-  },
-})
+const rows    = ref<NodeResourceRow[]>([])
+const loading = ref(false)
+const error   = ref<string | null>(null)
+const lastRun = ref<string | null>(null)
 
-function run() {
-  if (!clusterStore.selectedClusterId) return
-  mutate()
+async function run() {
+  const id = clusterStore.selectedClusterId
+  if (!id) return
+  loading.value = true
+  error.value   = null
+  try {
+    rows.value    = await diagnosticsApi.resources(id)
+    lastRun.value = new Date().toLocaleTimeString()
+  } catch (e: any) {
+    error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
+  } finally {
+    loading.value = false
+  }
 }
 
-function ramPct(row: NodeResourceRow): number | null {
-  if (row.ram_used_bytes == null || !row.ram_total_bytes) return null
-  return Math.round((row.ram_used_bytes / row.ram_total_bytes) * 100)
+watch(() => props.active, (v) => { if (v) run() }, { immediate: true })
+watch(() => clusterStore.selectedClusterId, () => { if (props.active) run() })
+
+function pct(used: number | null, total: number | null): number | null {
+  if (used === null || total === null || total === 0) return null
+  return Math.round((used / total) * 100)
 }
 
-function diskPct(row: NodeResourceRow): number | null {
-  if (row.disk_used_bytes == null || !row.disk_total_bytes) return null
-  return Math.round((row.disk_used_bytes / row.disk_total_bytes) * 100)
+function fmtBytes(b: number | null): string {
+  if (b === null) return '—'
+  if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + ' GB'
+  if (b >= 1_048_576)     return (b / 1_048_576).toFixed(0) + ' MB'
+  return (b / 1024).toFixed(0) + ' KB'
 }
 
-function fmtBytes(b: number): string {
-  if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'
-  if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'
-  return (b / 1e3).toFixed(0) + ' KB'
-}
-
-function severityClass(val: number | null, warn: number, crit: number): string {
-  if (val == null) return ''
-  if (val >= crit) return 'val-crit'
-  if (val >= warn) return 'val-warn'
-  return ''
-}
-
-function barClass(val: number | null): string {
-  if (val == null) return ''
-  if (val >= 95) return 'bar-crit'
-  if (val >= 80) return 'bar-warn'
+function barCls(p: number | null, warnAt: number, critAt: number): string {
+  if (p === null) return 'bar-unknown'
+  if (p >= critAt) return 'bar-crit'
+  if (p >= warnAt) return 'bar-warn'
   return 'bar-ok'
 }
 </script>
 
-<style scoped>
-.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+<template>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <i class="pi pi-server" />
+        <span>System Resources</span>
+        <span v-if="lastRun" class="last-run">last run {{ lastRun }}</span>
+      </div>
+      <button class="btn-run" :disabled="loading" @click="run">
+        <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
+        {{ loading ? 'Fetching…' : 'Refresh' }}
+      </button>
+    </div>
 
-.toolbar {
+    <div v-if="error" class="alert-err">
+      <i class="pi pi-exclamation-triangle" /> {{ error }}
+    </div>
+
+    <div v-if="loading && rows.length === 0" class="skeleton-grid">
+      <div v-for="i in 3" :key="i" class="skeleton-card" />
+    </div>
+
+    <div v-else-if="rows.length === 0 && !error" class="empty-hint">
+      <i class="pi pi-info-circle" /> No data.
+    </div>
+
+    <div v-else class="cards-grid">
+      <div v-for="row in rows" :key="row.node_id" class="res-card" :class="{ 'has-error': !!row.error }">
+        <div class="card-head">
+          <span class="node-name">{{ row.node_name }}</span>
+          <span v-if="row.error" class="err-badge">SSH error</span>
+        </div>
+
+        <div v-if="row.error" class="node-err">{{ row.error }}</div>
+
+        <template v-else>
+          <!-- CPU -->
+          <div class="metric">
+            <div class="metric-label">
+              <span>CPU</span>
+              <span class="metric-val" :class="barCls(row.cpu_percent, 80, 95)">{{ row.cpu_percent !== null ? row.cpu_percent + '%' : '—' }}</span>
+            </div>
+            <div class="bar-track">
+              <div
+                class="bar-fill"
+                :class="barCls(row.cpu_percent, 80, 95)"
+                :style="{ width: (row.cpu_percent ?? 0) + '%' }"
+              />
+            </div>
+          </div>
+
+          <!-- RAM -->
+          <div class="metric">
+            <div class="metric-label">
+              <span>RAM</span>
+              <span class="metric-val" :class="barCls(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)">
+                {{ fmtBytes(row.ram_used_bytes) }} / {{ fmtBytes(row.ram_total_bytes) }}
+              </span>
+            </div>
+            <div class="bar-track">
+              <div
+                class="bar-fill"
+                :class="barCls(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)"
+                :style="{ width: (pct(row.ram_used_bytes, row.ram_total_bytes) ?? 0) + '%' }"
+              />
+            </div>
+          </div>
+
+          <!-- Disk -->
+          <div class="metric">
+            <div class="metric-label">
+              <span>Disk</span>
+              <span class="metric-val" :class="barCls(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)">
+                {{ fmtBytes(row.disk_used_bytes) }} / {{ fmtBytes(row.disk_total_bytes) }}
+              </span>
+            </div>
+            <div class="bar-track">
+              <div
+                class="bar-fill"
+                :class="barCls(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)"
+                :style="{ width: (pct(row.disk_used_bytes, row.disk_total_bytes) ?? 0) + '%' }"
+              />
+            </div>
+          </div>
+
+          <!-- Load / Uptime -->
+          <div class="meta-row">
+            <div class="meta-item">
+              <span class="meta-label">Load avg (1m)</span>
+              <span class="meta-val mono">{{ row.load_avg_1 !== null ? row.load_avg_1.toFixed(2) : '—' }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Up since</span>
+              <span class="meta-val mono">{{ row.uptime_since ?? '—' }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.panel { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
-.toolbar-title {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--color-text-muted);
-  letter-spacing: 0.03em;
-}
-
-.toolbar-actions { display: flex; align-items: center; gap: var(--space-3); }
-
-.fetched-at {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-faint);
-}
-
-.btn-refresh {
+.panel-title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 5px var(--space-4);
-  background: var(--color-primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition-normal);
+  color: var(--color-text);
 }
 
-.btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-refresh:hover:not(:disabled) { background: var(--color-primary-hover); }
-.btn-refresh .pi { font-size: 0.7rem; }
-
-/* RESOURCE CARDS */
-.resource-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+.last-run {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  margin-left: var(--space-2);
 }
 
-.rc-header {
+.btn-run {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   background: var(--color-surface-2);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.node-dot {
-  width: 6px; height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  flex-shrink: 0;
-}
-
-.rc-name {
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--color-text);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
 }
+.btn-run:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
+.btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.rc-error-badge {
-  margin-left: var(--space-2);
-  padding: 1px 7px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  background: rgba(248,113,113,0.15);
-  color: var(--color-error);
-}
-
-.rc-error-msg {
+.alert-err {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  font-size: var(--text-sm);
+  background: var(--color-error-highlight);
+  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border-radius: var(--radius-md);
   color: var(--color-error);
-  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
-.rc-metrics {
+.empty-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.skeleton-card {
+  height: 200px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.res-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
+}
+.res-card.has-error { border-color: oklch(from var(--color-error) l c h / 0.3); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
-.metric {
-  display: grid;
-  grid-template-columns: 60px 1fr 140px;
-  align-items: center;
-  gap: var(--space-3);
+.node-name { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
+
+.err-badge {
+  padding: 2px var(--space-2);
+  background: var(--color-error-highlight);
+  color: var(--color-error);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
+
+.node-err {
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.metric { display: flex; flex-direction: column; gap: var(--space-1); }
 
 .metric-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: var(--text-xs);
-  font-weight: 600;
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
-.metric-bar-wrap {
-  height: 6px;
+.metric-val { font-weight: 500; }
+.metric-val.bar-ok   { color: var(--color-success); }
+.metric-val.bar-warn { color: var(--color-warning); }
+.metric-val.bar-crit { color: var(--color-error); }
+.metric-val.bar-unknown { color: var(--color-text-faint); }
+
+.bar-track {
+  height: 4px;
   background: var(--color-surface-offset);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
 
-.metric-bar {
+.bar-fill {
   height: 100%;
   border-radius: var(--radius-full);
   transition: width 0.4s ease;
 }
+.bar-fill.bar-ok      { background: var(--color-success); }
+.bar-fill.bar-warn    { background: var(--color-warning); }
+.bar-fill.bar-crit    { background: var(--color-error); }
+.bar-fill.bar-unknown { background: var(--color-text-faint); }
 
-.bar-ok   { background: var(--color-success); }
-.bar-warn { background: var(--color-warning); }
-.bar-crit { background: var(--color-error); }
-
-.metric-val {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.val-warn { color: var(--color-warning); font-weight: 700; }
-.val-crit { color: var(--color-error); font-weight: 700; }
-
-.rc-extra {
+.meta-row {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4) var(--space-3);
-  border-top: 1px solid var(--color-border-muted);
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
 }
 
-.extra-item { display: flex; align-items: center; gap: var(--space-2); }
-.extra-label { font-size: var(--text-xs); color: var(--color-text-faint); }
-.extra-val   { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-muted); }
-.extra-sep   { color: var(--color-text-faint); }
-
-.error-alert {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: rgba(248,113,113,0.08);
-  border: 1px solid rgba(248,113,113,0.20);
-  color: var(--color-error); font-size: var(--text-sm);
-}
-
-.empty-state {
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
-  padding: var(--space-12);
-  color: var(--color-text-muted); font-size: var(--text-sm); text-align: center;
-}
-
-.empty-icon {
-  width: 44px; height: 44px; border-radius: var(--radius-full);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--color-surface-3); border: 1px solid var(--color-border);
-  color: var(--color-text-faint); font-size: 1.1rem;
-}
+.meta-item { display: flex; flex-direction: column; gap: 2px; }
+.meta-label { font-size: var(--text-xs); color: var(--color-text-muted); }
+.meta-val { font-size: var(--text-xs); color: var(--color-text); }
+.mono { font-family: var(--font-mono, monospace); }
 </style>

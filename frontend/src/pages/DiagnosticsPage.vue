@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import ConnectionCheckPanel from '@/components/diagnostics/ConnectionCheckPanel.vue'
-import ConfigDiffPanel      from '@/components/diagnostics/ConfigDiffPanel.vue'
-import VariablesPanel       from '@/components/diagnostics/VariablesPanel.vue'
-import SystemResourcesPanel from '@/components/diagnostics/SystemResourcesPanel.vue'
-import InnodbStatusPanel    from '@/components/diagnostics/InnodbStatusPanel.vue'
-import ArbitratorLogPanel   from '@/components/diagnostics/ArbitratorLogPanel.vue'
+import ConnectionCheckPanel  from '@/components/diagnostics/ConnectionCheckPanel.vue'
+import ConfigDiffPanel       from '@/components/diagnostics/ConfigDiffPanel.vue'
+import VariablesPanel        from '@/components/diagnostics/VariablesPanel.vue'
+import SystemResourcesPanel  from '@/components/diagnostics/SystemResourcesPanel.vue'
+import InnodbStatusPanel     from '@/components/diagnostics/InnodbStatusPanel.vue'
+import ArbitratorLogPanel    from '@/components/diagnostics/ArbitratorLogPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -17,12 +17,12 @@ watch(
 )
 
 const TABS = [
-  { value: 'connections', label: 'Connection check',   icon: 'pi-wifi' },
-  { value: 'config-diff', label: 'Config diff',        icon: 'pi-code' },
-  { value: 'variables',   label: 'Variables',          icon: 'pi-sliders-h' },
-  { value: 'resources',   label: 'System resources',   icon: 'pi-server' },
-  { value: 'innodb',      label: 'InnoDB status',      icon: 'pi-database' },
-  { value: 'arb-log',     label: 'Arbitrator log',     icon: 'pi-file-edit' },
+  { value: 'connections', label: 'Connection Check', icon: 'pi-wifi' },
+  { value: 'config-diff', label: 'Config Diff',      icon: 'pi-code' },
+  { value: 'variables',   label: 'Variables',         icon: 'pi-sliders-h' },
+  { value: 'resources',   label: 'System Resources',  icon: 'pi-server' },
+  { value: 'innodb',      label: 'InnoDB Status',     icon: 'pi-database' },
+  { value: 'arb-log',    label: 'Arbitrator Log',    icon: 'pi-file-edit' },
 ]
 </script>
 
@@ -35,7 +35,7 @@ const TABS = [
       </div>
       <div class="pg-head-text">
         <h1 class="pg-title">Diagnostics</h1>
-        <p class="pg-desc">Live database and system diagnostics for all cluster nodes.</p>
+        <p class="pg-desc">Connectivity, config, resources and logs for this cluster.</p>
       </div>
     </div>
 

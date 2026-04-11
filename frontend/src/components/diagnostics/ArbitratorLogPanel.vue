@@ -1,229 +1,264 @@
+<script setup lang="ts">
+import { ref, watch, computed } from 'vue'
+import { useClusterStore } from '@/stores/cluster'
+import { diagnosticsApi, type ArbitratorLogResult } from '@/api/diagnostics'
+
+type StatusInfo = { id: number; name: string; enabled: boolean }
+
+const props = defineProps<{ active: boolean }>()
+const clusterStore = useClusterStore()
+
+const arbitrators  = ref<StatusInfo[]>([])
+const selectedId   = ref<number | null>(null)
+const lines        = ref<20 | 50 | 100>(50)
+const logResult    = ref<ArbitratorLogResult | null>(null)
+const loading      = ref(false)
+const loadingArbs  = ref(false)
+const error        = ref<string | null>(null)
+
+async function loadArbitrators() {
+  const id = clusterStore.selectedClusterId
+  if (!id) return
+  loadingArbs.value = true
+  try {
+    const r = await import('@/api/client').then(m => m.api.get(`/api/clusters/${id}/arbitrators`))
+    arbitrators.value = (r.data as any[]).filter((a: any) => a.enabled)
+    if (arbitrators.value.length > 0 && selectedId.value === null) {
+      selectedId.value = arbitrators.value[0].id
+    }
+  } catch {
+    arbitrators.value = []
+  } finally {
+    loadingArbs.value = false
+  }
+}
+
+async function fetchLog() {
+  const clusterId = clusterStore.selectedClusterId
+  const arbId     = selectedId.value
+  if (!clusterId || !arbId) return
+  loading.value = true
+  error.value   = null
+  try {
+    logResult.value = await diagnosticsApi.arbitratorLog(clusterId, arbId, lines.value)
+  } catch (e: any) {
+    error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(() => props.active, async (v) => {
+  if (v) {
+    await loadArbitrators()
+    if (selectedId.value) fetchLog()
+  }
+}, { immediate: true })
+
+watch(() => clusterStore.selectedClusterId, async () => {
+  if (!props.active) return
+  selectedId.value = null
+  logResult.value  = null
+  await loadArbitrators()
+  if (selectedId.value) fetchLog()
+})
+
+watch([selectedId, lines], () => {
+  if (props.active && selectedId.value) fetchLog()
+})
+
+const logLines = computed(() => logResult.value?.lines ?? [])
+
+function lineClass(line: string): string {
+  const l = line.toLowerCase()
+  if (l.includes('error') || l.includes('err]')) return 'line-err'
+  if (l.includes('warn'))  return 'line-warn'
+  return ''
+}
+</script>
+
 <template>
-  <div class="diag-panel">
-    <PanelToolbar
-        title="arbitrator_log"
-        :loading="isLoading"
-        :fetched-at="fetchedAt"
-        :auto-refresh="autoRefresh"
-        @refresh="refetch()"
-        @toggle-auto="autoRefresh = $event"
-    />
-
-    <div class="selector-row">
-      <div class="sel-group">
-        <label class="sel-label">Arbitrator</label>
-        <Select
-            v-model="selectedArbId"
-            :options="arbOptions"
-            option-label="label"
-            option-value="value"
-            placeholder="Select arbitrator…"
-            class="arb-select"
-            size="small"
-        />
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <i class="pi pi-file-edit" />
+        <span>Arbitrator Log</span>
       </div>
-      <div class="sel-group">
-        <label class="sel-label">Lines</label>
-        <Select
-            v-model="lines"
-            :options="LINE_OPTIONS"
-            option-label="label"
-            option-value="value"
-            class="lines-select"
-            size="small"
-        />
+      <div class="header-actions">
+        <!-- Arbitrator picker -->
+        <select
+          v-model="selectedId"
+          class="sel"
+          :disabled="loadingArbs || arbitrators.length === 0"
+        >
+          <option v-if="arbitrators.length === 0" :value="null">No arbitrators</option>
+          <option v-for="a in arbitrators" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+
+        <!-- Lines picker -->
+        <select v-model="lines" class="sel sel-lines">
+          <option :value="20">20 lines</option>
+          <option :value="50">50 lines</option>
+          <option :value="100">100 lines</option>
+        </select>
+
+        <button class="btn-icon" :disabled="loading || !selectedId" @click="fetchLog" title="Refresh">
+          <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
+        </button>
       </div>
     </div>
 
-    <div v-if="error" class="error-alert">
-      <i class="pi pi-exclamation-circle" />
-      <span>{{ (error as Error).message }}</span>
+    <div v-if="error" class="alert-err">
+      <i class="pi pi-exclamation-triangle" /> {{ error }}
     </div>
 
-    <template v-else-if="data">
-      <div class="terminal-block">
-        <div class="terminal-header">
-          <span class="terminal-label">{{ data.arbitrator_name }}</span>
-          <span class="terminal-meta">fetched {{ data.fetched_at }}</span>
-        </div>
-        <div class="terminal-wrap">
-          <pre class="log-pre">{{ data.lines.join('\n') }}</pre>
-        </div>
-      </div>
-    </template>
-
-    <div v-else-if="!isLoading && selectedArbId" class="empty-state">
-      <div class="empty-icon"><i class="pi pi-file-edit" /></div>
-      <p>No data yet. Click refresh to load.</p>
+    <div v-if="arbitrators.length === 0 && !loadingArbs" class="empty-hint">
+      <i class="pi pi-info-circle" /> No enabled arbitrators found in this cluster.
     </div>
 
-    <div v-else-if="!selectedArbId" class="empty-state">
-      <div class="empty-icon"><i class="pi pi-file-edit" /></div>
-      <p>Select an arbitrator to view its log.</p>
+    <div v-else-if="loading && !logResult" class="skeleton-log">
+      <div v-for="i in 10" :key="i" class="skeleton-line" :style="{ width: (50 + Math.random() * 45).toFixed(0) + '%' }" />
+    </div>
+
+    <div v-else-if="logLines.length === 0 && !loading && !error && selectedId" class="empty-hint">
+      <i class="pi pi-info-circle" /> No log output returned.
+    </div>
+
+    <div v-else-if="logLines.length > 0" class="log-meta">
+      <span v-if="logResult">{{ logResult.arbitrator_name }} — {{ logLines.length }} lines</span>
+      <span v-if="logResult?.fetched_at" class="ts">fetched at {{ new Date(logResult.fetched_at).toLocaleTimeString() }}</span>
+    </div>
+
+    <div v-if="logLines.length > 0" class="log-box">
+      <pre
+        v-for="(line, idx) in logLines"
+        :key="idx"
+        class="log-line"
+        :class="lineClass(line)"
+      >{{ line }}</pre>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useQuery }   from '@tanstack/vue-query'
-import Select         from 'primevue/select'
-import { useClusterStore }    from '@/stores/cluster'
-import { diagnosticsApi }     from '@/api/diagnostics'
-import PanelToolbar           from './PanelToolbar.vue'
-import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
-
-const props = defineProps<{ active: boolean }>()
-const clusterStore  = useClusterStore()
-const selectedArbId = ref<number | null>(null)
-const lines         = ref<20 | 50 | 100>(50)
-const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
-
-const LINE_OPTIONS = [
-  { label: '20 lines',  value: 20  },
-  { label: '50 lines',  value: 50  },
-  { label: '100 lines', value: 100 },
-]
-
-// Fetch arbitrator list from cluster status
-const { data: statusData } = useQuery({
-  queryKey: computed(() => ['cluster-status', clusterStore.selectedClusterId]),
-  queryFn: () =>
-    import('@/api/client').then(({ api }) =>
-      api
-        .get(`/api/clusters/${clusterStore.selectedClusterId}/status`)
-        .then((r) => r.data)
-    ),
-  enabled: computed(() => props.active && !!clusterStore.selectedClusterId),
-  staleTime: 30_000,
-})
-
-const arbOptions = computed(() => {
-  const arbs: Array<{ id: number; name: string }> = statusData.value?.arbitrators ?? []
-  return arbs.filter((a) => a).map((a) => ({ label: a.name, value: a.id }))
-})
-
-watch(arbOptions, (opts) => {
-  if (opts.length && !selectedArbId.value) selectedArbId.value = opts[0].value
-}, { immediate: true })
-
-const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-  // ТЗ п.15.8: GET /api/clusters/{id}/arbitrators/{id}/log?lines=N
-  queryKey: computed(() => [
-    'diag-arb-log',
-    clusterStore.selectedClusterId,
-    selectedArbId.value,
-    lines.value,
-  ]),
-  queryFn: () =>
-    diagnosticsApi.arbitratorLog(
-      clusterStore.selectedClusterId!,
-      selectedArbId.value!,
-      lines.value,
-    ),
-  enabled: computed(() => props.active && !!clusterStore.selectedClusterId && !!selectedArbId.value),
-  refetchInterval,
-  staleTime: 0,
-})
-
-const fetchedAt = computed(() =>
-    dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
-)
-</script>
-
 <style scoped>
-.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.panel { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.selector-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-}
-
-.sel-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.sel-label {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.arb-select  { width: 220px; }
-.lines-select { width: 120px; }
-
-.terminal-block {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.terminal-header {
+.panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-surface-2);
-  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-4);
+  flex-wrap: wrap;
 }
 
-.terminal-label {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  font-weight: 700;
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--color-text);
 }
 
-.terminal-meta {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-faint);
+.header-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+.sel {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-interactive);
+}
+.sel:focus { border-color: var(--color-primary); }
+.sel:disabled { opacity: 0.5; cursor: not-allowed; }
+.sel-lines { width: 100px; }
+
+.btn-icon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
+}
+.btn-icon:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
+.btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.alert-err {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-error-highlight);
+  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: var(--text-sm);
 }
 
-.terminal-wrap { background: #0a0b0e; }
-
-.log-pre {
-  margin: 0;
+.empty-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
-  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.skeleton-log { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); }
+.skeleton-line {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: var(--text-xs);
-  color: #c0caf5;
-  line-height: 1.75;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-1);
+}
+.ts { color: var(--color-text-faint); }
+
+.log-box {
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.log-line {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-muted);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 580px;
-  overflow-y: auto;
+  margin: 0;
+  padding: 0;
 }
-
-.log-pre::-webkit-scrollbar       { width: 4px; }
-.log-pre::-webkit-scrollbar-track { background: transparent; }
-.log-pre::-webkit-scrollbar-thumb { background: rgba(192,202,245,0.2); border-radius: 2px; }
-
-.error-alert {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: rgba(248,113,113,0.08);
-  border: 1px solid rgba(248,113,113,0.20);
-  color: var(--color-error); font-size: var(--text-sm);
-}
-
-.empty-state {
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
-  padding: var(--space-12);
-  color: var(--color-text-muted); font-size: var(--text-sm);
-}
-
-.empty-icon {
-  width: 44px; height: 44px; border-radius: var(--radius-full);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--color-surface-3); border: 1px solid var(--color-border);
-  color: var(--color-text-faint); font-size: 1.1rem;
-}
+.log-line.line-err  { color: var(--color-error); }
+.log-line.line-warn { color: var(--color-warning); }
 </style>
