@@ -35,11 +35,13 @@ class Settings(BaseSettings):
     FERNET_SECRET_KEY: str = "change-me-fernet-base64-key"
 
     # SSH
-    #SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
-    SSH_KEY_PATH: str = r"C:\Users\ssholokhov\galera_orchestrator_v2\ssh\id_rsa"
+    SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
+    SSH_CONNECT_TIMEOUT: int = 5
+    SSH_COMMAND_TIMEOUT: int = 10
 
     # Database
     DATABASE_URL: str = "sqlite:////data/orchestrator.db"
+    DB_CONNECT_TIMEOUT: int = 3
 
     # App
     APP_VERSION: str = "2.0.0"
@@ -64,9 +66,6 @@ class Settings(BaseSettings):
                 "Change it before production use.",
                 file=sys.stderr,
             )
-            # Дефолтный ключ невалиден для Fernet — заменяем на заглушку
-            # чтобы не падать при импорте; реальные операции шифрования
-            # всё равно не будут выполняться с этим ключом в prod
             return v
         # Валидируем что это корректный Fernet-ключ (32 bytes URL-safe base64)
         try:
