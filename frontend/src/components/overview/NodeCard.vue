@@ -46,13 +46,11 @@ const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN
 
 const isNodeOffline = computed(() => nodeState.value === 'OFFLINE')
 
-// non-Primary — критическое состояние кластерного компонента
 const clusterStatus    = computed(() => props.node.live.wsrep_cluster_status ?? null)
 const isNonPrimary     = computed(() =>
   clusterStatus.value !== null && clusterStatus.value.toLowerCase() !== 'primary'
 )
 
-// Карточка занята: идёт action (не ping)
 const isBusy = computed(() => actionLoading.value !== null)
 
 const flowControlDisplay = computed(() => {
@@ -80,6 +78,17 @@ const pingResultText = computed(() => {
 const pingResultOk = computed(() =>
   !!pingResult.value?.ssh_ok && !!pingResult.value?.db_ok
 )
+
+// ── Last check timestamp ──────────────────────────────────────────────────
+const lastCheckLabel = computed(() => {
+  const ts = props.node.live.last_check_ts
+  if (!ts) return null
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ts
+  }
+})
 
 async function execAction(action: NodeAction) {
   actionLoading.value = action
@@ -124,7 +133,6 @@ function confirmDestructive(action: NodeAction, label: string) {
   <article class="node-card" :class="'node-card--' + stateInfo.cls">
     <div class="nc-stripe" aria-hidden="true" />
 
-    <!-- nc-body--busy: dims card + блокирует pointer events пока идёт action -->
     <div class="nc-body" :class="{ 'nc-body--busy': isBusy }">
 
       <!-- HEADER -->
@@ -156,7 +164,6 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span class="nc-mv">{{ node.live.wsrep_cluster_size ?? '\u2014' }}</span>
         </div>
 
-        <!-- Component: non-Primary подсвечивается красным -->
         <div class="nc-metric">
           <span class="nc-mk">Component</span>
           <span
@@ -206,7 +213,6 @@ function confirmDestructive(action: NodeAction, label: string) {
 
       <!-- ACTION BAR -->
       <div class="nc-actions">
-        <!-- Ping -->
         <button
           class="nc-btn nc-btn--primary"
           :disabled="!!isLocked || pingLoading"
@@ -217,7 +223,6 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span>Ping</span>
         </button>
 
-        <!-- Restart -->
         <button
           class="nc-btn nc-btn--default"
           :disabled="!!isLocked || actionLoading === 'restart'"
@@ -228,7 +233,6 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span>Restart</span>
         </button>
 
-        <!-- Stop / Start toggle -->
         <button
           v-if="!isNodeOffline"
           class="nc-btn nc-btn--danger"
@@ -250,7 +254,6 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span>Start</span>
         </button>
 
-        <!-- Force Rejoin -->
         <button
           class="nc-btn nc-btn--danger"
           :disabled="!!isLocked || actionLoading === 'rejoin-force'"
@@ -261,6 +264,13 @@ function confirmDestructive(action: NodeAction, label: string) {
           <span>Rejoin</span>
         </button>
       </div>
+
+      <!-- LAST CHECK -->
+      <div v-if="lastCheckLabel" class="nc-last-check">
+        <i class="pi pi-clock nc-last-check-icon" />
+        <span>{{ lastCheckLabel }}</span>
+      </div>
+
     </div>
   </article>
 </template>
@@ -314,17 +324,12 @@ function confirmDestructive(action: NodeAction, label: string) {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  /* плавный переход при появлении busy-состояния */
   transition: opacity 200ms ease;
 }
-
-/* Busy: карточка выполняет action — приглушаем и блокируем клики */
 .nc-body--busy {
   opacity: 0.55;
   pointer-events: none;
 }
-/* Кнопку с активным спиннером оставляем видимой — она внутри nc-actions,
-   но pointer-events всё равно none (пользователь не может нажать дважды) */
 
 /* ═══════════════════════════════════════
    HEADER
@@ -387,7 +392,7 @@ function confirmDestructive(action: NodeAction, label: string) {
 .node-card--offline  :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-offline) 22%, transparent) !important; border-color: color-mix(in oklch, var(--color-offline) 45%, transparent) !important; color: var(--color-offline) !important; }
 .node-card--synced   :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-synced) 40%, transparent) !important; color: var(--color-synced) !important; }
 .node-card--readonly :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-readonly) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-readonly) 40%, transparent) !important; color: var(--color-readonly) !important; }
-.node-card--donor    :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-donor) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important; color: var(--color-donor) !important; }
+.node-card--donor    :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-synced) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-donor) 40%, transparent) !important; color: var(--color-donor) !important; }
 .node-card--degraded :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-degraded) 18%, transparent) !important; border-color: color-mix(in oklch, var(--color-degraded) 40%, transparent) !important; color: var(--color-degraded) !important; }
 .node-card--unknown  :deep(.nc-state-tag.p-tag) { background: color-mix(in oklch, var(--color-text-faint) 15%, transparent) !important; border-color: color-mix(in oklch, var(--color-text-faint) 30%, transparent) !important; color: var(--color-text-muted) !important; }
 
@@ -439,7 +444,6 @@ function confirmDestructive(action: NodeAction, label: string) {
 .nc-mv--mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .nc-mv--warn { color: var(--color-degraded); }
 
-/* non-Primary: красный + иконка предупреждения */
 .nc-mv--critical {
   color: var(--color-offline);
   display: inline-flex;
@@ -574,4 +578,18 @@ function confirmDestructive(action: NodeAction, label: string) {
   background: color-mix(in oklch, var(--color-synced) 22%, transparent);
   border-color: color-mix(in oklch, var(--color-synced) 60%, transparent);
 }
+
+/* ═══════════════════════════════════════
+   LAST CHECK
+═══════════════════════════════════════ */
+.nc-last-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-divider);
+}
+.nc-last-check-icon { font-size: 0.65rem; }
 </style>
