@@ -5,35 +5,25 @@ import { api } from '@/api/client'
 export interface Datacenter {
     id: number
     name: string
-    // [MAJOR FIX] contour_id и description удалены — не в схеме ТЗ п.2.2
 }
 export interface DatacenterCreate {
     name: string
-    // [MAJOR FIX] contour_id удалён
 }
 
 // ── Clusters ───────────────────────────────────────────────────────────────
-// ТЗ п.2.3: clusters — id, name, contour_id
+// БД: id, name, contour_id, description
+// GET /api/settings/clusters также возвращает contour_name (JOIN contours)
 export interface ClusterSetting {
     id: number
     name: string
     contour_id: number
-    // [MAJOR] db_host, db_port, db_user, description — не в ТЗ п.2.3
-    // Раскомментировать если бэк реализует расширение:
-    // description?: string | null
-    // db_host?: string
-    // db_port?: number
-    // db_user?: string
+    contour_name?: string
+    description?: string | null
 }
 export interface ClusterCreate {
     name: string
     contour_id: number
-    // [MAJOR] см. выше — не в ТЗ:
-    // description?: string
-    // db_host?: string
-    // db_port?: number
-    // db_user?: string
-    // db_password?: string
+    description?: string
 }
 export type ClusterUpdate = Partial<ClusterCreate>
 
@@ -47,44 +37,41 @@ export interface NodeSetting {
     ssh_port: number
     ssh_user: string
     enabled: boolean
-    dc_id: number | null         // [MINOR FIX] dc_id, не datacenter_id
+    dc_id: number | null
     cluster_id: number
 }
 // ТЗ п.16.1: cluster_id в теле запроса при создании
 export interface NodeCreate {
-    cluster_id: number           // [MAJOR FIX] обязателен в body
+    cluster_id: number
     name: string
     host: string
-    port?: number                // default 3306
-    ssh_port?: number            // default 22
-    ssh_user?: string            // default root
+    port?: number        // default 3306
+    ssh_port?: number    // default 22
+    ssh_user?: string    // default root
     enabled?: boolean
-    dc_id?: number | null        // [MINOR FIX] dc_id
+    dc_id?: number | null
 }
 
 // ── Arbitrators ────────────────────────────────────────────────────────────
 // ТЗ п.2.5: id, name, host, ssh_port, ssh_user, cluster_id, dc_id, enabled
-// Нет поля port (garbd не имеет mysql-порта)
 export interface ArbitratorSetting {
     id: number
     name: string
     host: string
-    // [MAJOR FIX] port удалён — нет в ТЗ п.2.5
     ssh_port: number
     ssh_user: string
     enabled: boolean
-    dc_id: number | null         // [MINOR FIX] dc_id
+    dc_id: number | null
     cluster_id: number
 }
 export interface ArbitratorCreate {
-    cluster_id: number           // [MAJOR FIX] в body
+    cluster_id: number
     name: string
     host: string
     ssh_port?: number
     ssh_user?: string
     enabled?: boolean
-    dc_id?: number | null        // [MINOR FIX] dc_id
-    // [MAJOR FIX] port удалён
+    dc_id?: number | null
 }
 
 // ── System settings ────────────────────────────────────────────────────────
@@ -115,7 +102,6 @@ export const settingsApi = {
         api.delete(`/api/settings/datacenters/${id}`),
 
     // Clusters — ТЗ п.16.1: /api/settings/clusters
-    // MINOR: уточнить у бэка совпадает ли с /api/clusters
     listClusters: (contourId?: number) =>
         api
             .get<ClusterSetting[]>('/api/settings/clusters', {
@@ -155,7 +141,7 @@ export const settingsApi = {
     deleteArbitrator: (arbId: number) =>
         api.delete(`/api/settings/arbitrators/${arbId}`),
 
-    // System — ТЗ п.16.1: /api/settings/system ✅
+    // System — ТЗ п.16.1: /api/settings/system
     getSystem: () =>
         api.get<SystemSettingsFull>('/api/settings/system').then((r) => r.data),
     patchSystem: (data: SystemSettingsPatch) =>
