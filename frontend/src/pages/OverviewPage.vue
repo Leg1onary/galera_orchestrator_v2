@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
+import { useClusterLog } from '@/composables/useClusterLog'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
 import NodeCardSkeleton from '@/components/overview/NodeCardSkeleton.vue'
@@ -10,11 +11,14 @@ import EventLog from '@/components/overview/EventLog.vue'
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
-const { data, isLoading, isError } = useClusterStatus(clusterId)
+
+// ТЗ п.10.1: два отдельных запроса — status и log
+const { data, isLoading, isError }           = useClusterStatus(clusterId)
+const { data: logData, isLoading: isLogLoading } = useClusterLog(clusterId)
 
 const nodes       = computed(() => data.value?.nodes ?? [])
 const arbitrators = computed(() => data.value?.arbitrators ?? [])
-const events      = computed(() => data.value?.recent_events ?? [])
+const events      = computed(() => logData.value ?? [])
 
 const syncedCount = computed(() =>
   nodes.value.filter((n) =>
@@ -77,9 +81,9 @@ const syncedCount = computed(() =>
         </div>
       </section>
 
-      <!-- Event log -->
+      <!-- Event log — отдельный запрос GET /api/clusters/{id}/log (ТЗ п.10.1) -->
       <section class="overview-section">
-        <EventLog :events="events" :is-loading="isLoading" />
+        <EventLog :events="events" :is-loading="isLogLoading" />
       </section>
 
     </template>
