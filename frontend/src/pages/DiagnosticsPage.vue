@@ -22,7 +22,7 @@ const TABS = [
   { value: 'variables',   label: 'Variables',         icon: 'pi-sliders-h' },
   { value: 'resources',   label: 'System Resources',  icon: 'pi-server' },
   { value: 'innodb',      label: 'InnoDB Status',     icon: 'pi-database' },
-  { value: 'arb-log',    label: 'Arbitrator Log',    icon: 'pi-file-edit' },
+  { value: 'arb-log',     label: 'Arbitrator Log',    icon: 'pi-file-edit' },
 ]
 </script>
 
@@ -98,8 +98,8 @@ const TABS = [
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-primary-dim);
-  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: var(--color-primary-highlight);
+  border: 1px solid oklch(from var(--color-primary) l c h / 0.18);
   border-radius: var(--radius-md);
   color: var(--color-primary);
   font-size: 0.875rem;
@@ -136,7 +136,7 @@ const TABS = [
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-surface-3);
+  background: var(--color-surface-offset);
   border: 1px solid var(--color-border);
   color: var(--color-text-faint);
   font-size: 1.1rem;
@@ -176,7 +176,7 @@ const TABS = [
 
 .diag-tab:hover {
   color: var(--color-text);
-  background: var(--color-surface-3);
+  background: var(--color-surface-offset);
 }
 
 :deep(.p-tab[data-p-active='true'].diag-tab) {

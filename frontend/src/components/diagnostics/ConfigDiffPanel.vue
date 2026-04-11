@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ConfigDiffRow } from '@/api/diagnostics'
 
@@ -31,8 +31,10 @@ async function load() {
 watch(() => props.active, (v) => { if (v) load() }, { immediate: true })
 watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 
-const displayed = () => showAll.value ? rows.value : rows.value.filter(r => r.has_diff)
-const diffCount = () => rows.value.filter(r => r.has_diff).length
+const diffCount = computed(() => rows.value.filter(r => r.has_diff).length)
+const displayed = computed(() =>
+  showAll.value ? rows.value : rows.value.filter(r => r.has_diff)
+)
 </script>
 
 <template>
@@ -42,7 +44,7 @@ const diffCount = () => rows.value.filter(r => r.has_diff).length
         <i class="pi pi-code" />
         <span>Config Diff</span>
         <span v-if="!loading && rows.length > 0" class="badge-diff">
-          {{ diffCount() }} diff{{ diffCount() !== 1 ? 's' : '' }}
+          {{ diffCount }} diff{{ diffCount !== 1 ? 's' : '' }}
         </span>
       </div>
       <div class="header-actions">
@@ -65,7 +67,7 @@ const diffCount = () => rows.value.filter(r => r.has_diff).length
     </div>
 
     <template v-else-if="rows.length > 0">
-      <div v-if="diffCount() === 0 && !showAll" class="all-ok">
+      <div v-if="diffCount === 0 && !showAll" class="all-ok">
         <i class="pi pi-check-circle" />
         All wsrep variables are consistent across nodes.
       </div>
@@ -80,7 +82,7 @@ const diffCount = () => rows.value.filter(r => r.has_diff).length
           </thead>
           <tbody>
             <tr
-              v-for="row in displayed()"
+              v-for="row in displayed"
               :key="row.variable_name"
               :class="{ 'row-diff': row.has_diff }"
             >

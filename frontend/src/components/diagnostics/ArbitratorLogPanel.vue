@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ArbitratorLogResult } from '@/api/diagnostics'
 
-type StatusInfo = { id: number; name: string; enabled: boolean }
+type ArbitratorInfo = { id: number; name: string; enabled: boolean }
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
 
-const arbitrators  = ref<StatusInfo[]>([])
+const arbitrators  = ref<ArbitratorInfo[]>([])
 const selectedId   = ref<number | null>(null)
 const lines        = ref<20 | 50 | 100>(50)
 const logResult    = ref<ArbitratorLogResult | null>(null)
@@ -16,12 +17,15 @@ const loading      = ref(false)
 const loadingArbs  = ref(false)
 const error        = ref<string | null>(null)
 
+// Pre-computed skeleton widths so they don't jump on each render
+const skeletonWidths = Array.from({ length: 10 }, () => 50 + Math.floor(Math.random() * 45))
+
 async function loadArbitrators() {
   const id = clusterStore.selectedClusterId
   if (!id) return
   loadingArbs.value = true
   try {
-    const r = await import('@/api/client').then(m => m.api.get(`/api/clusters/${id}/arbitrators`))
+    const r = await api.get(`/api/clusters/${id}/arbitrators`)
     arbitrators.value = (r.data as any[]).filter((a: any) => a.enabled)
     if (arbitrators.value.length > 0 && selectedId.value === null) {
       selectedId.value = arbitrators.value[0].id
@@ -48,20 +52,27 @@ async function fetchLog() {
   }
 }
 
-watch(() => props.active, async (v) => {
-  if (v) {
+watch(
+  () => props.active,
+  async (v) => {
+    if (v) {
+      await loadArbitrators()
+      if (selectedId.value) fetchLog()
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => clusterStore.selectedClusterId,
+  async () => {
+    if (!props.active) return
+    selectedId.value = null
+    logResult.value  = null
     await loadArbitrators()
     if (selectedId.value) fetchLog()
   }
-}, { immediate: true })
-
-watch(() => clusterStore.selectedClusterId, async () => {
-  if (!props.active) return
-  selectedId.value = null
-  logResult.value  = null
-  await loadArbitrators()
-  if (selectedId.value) fetchLog()
-})
+)
 
 watch([selectedId, lines], () => {
   if (props.active && selectedId.value) fetchLog()
@@ -72,7 +83,7 @@ const logLines = computed(() => logResult.value?.lines ?? [])
 function lineClass(line: string): string {
   const l = line.toLowerCase()
   if (l.includes('error') || l.includes('err]')) return 'line-err'
-  if (l.includes('warn'))  return 'line-warn'
+  if (l.includes('warn'))                         return 'line-warn'
   return ''
 }
 </script>
@@ -85,7 +96,6 @@ function lineClass(line: string): string {
         <span>Arbitrator Log</span>
       </div>
       <div class="header-actions">
-        <!-- Arbitrator picker -->
         <select
           v-model="selectedId"
           class="sel"
@@ -95,7 +105,6 @@ function lineClass(line: string): string {
           <option v-for="a in arbitrators" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
 
-        <!-- Lines picker -->
         <select v-model="lines" class="sel sel-lines">
           <option :value="20">20 lines</option>
           <option :value="50">50 lines</option>
@@ -117,7 +126,12 @@ function lineClass(line: string): string {
     </div>
 
     <div v-else-if="loading && !logResult" class="skeleton-log">
-      <div v-for="i in 10" :key="i" class="skeleton-line" :style="{ width: (50 + Math.random() * 45).toFixed(0) + '%' }" />
+      <div
+        v-for="(w, i) in skeletonWidths"
+        :key="i"
+        class="skeleton-line"
+        :style="{ width: w + '%' }"
+      />
     </div>
 
     <div v-else-if="logLines.length === 0 && !loading && !error && selectedId" class="empty-hint">
@@ -126,7 +140,9 @@ function lineClass(line: string): string {
 
     <div v-else-if="logLines.length > 0" class="log-meta">
       <span v-if="logResult">{{ logResult.arbitrator_name }} — {{ logLines.length }} lines</span>
-      <span v-if="logResult?.fetched_at" class="ts">fetched at {{ new Date(logResult.fetched_at).toLocaleTimeString() }}</span>
+      <span v-if="logResult?.fetched_at" class="ts">
+        fetched at {{ new Date(logResult.fetched_at).toLocaleTimeString() }}
+      </span>
     </div>
 
     <div v-if="logLines.length > 0" class="log-box">
