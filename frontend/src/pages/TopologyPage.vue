@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
+import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 
 interface NodeLive {
   id: number
@@ -50,6 +51,24 @@ const { data, isLoading } = useClusterStatus(clusterId)
 const nodes       = computed<NodeLive[]>(() => (data.value?.nodes      ?? []) as NodeLive[])
 const arbitrators = computed<ArbLive[]>(() => (data.value?.arbitrators ?? []) as ArbLive[])
 
+// ── NodeDetailDrawer ─────────────────────────────────────────────────────────
+const drawerNodeId = ref<number | null>(null)
+const drawerOpen   = ref(false)
+function openDrawer(nodeId: number) {
+  drawerNodeId.value = nodeId
+  drawerOpen.value   = true
+}
+function closeDrawer() {
+  drawerOpen.value   = false
+  drawerNodeId.value = null
+}
+
+// ── Header stats ─────────────────────────────────────────────────────────────
+const syncedCount = computed(() =>
+  nodes.value.filter(n => n.ssh_ok && (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED').length
+)
+
+// ── DC groups ────────────────────────────────────────────────────────────────
 const dcGroups = computed<DCGroup[]>(() => {
   const map = new Map<string, DCGroup>()
   for (const n of nodes.value) {
@@ -107,10 +126,16 @@ function arbStatLabel(a: ArbLive): string {
   return 'ONLINE'
 }
 
+// ── Tooltip ──────────────────────────────────────────────────────────────────
 const tooltip = ref<{ node?: NodeLive; arb?: ArbLive; x: number; y: number } | null>(null)
 function showNodeTip(e: MouseEvent, n: NodeLive) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
 function showArbTip(e: MouseEvent, a: ArbLive)   { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
 function hideTip() { tooltip.value = null }
+
+// Скрываем tooltip при скролле страницы (фикс: position:fixed не двигается со страницей)
+function onScroll() { tooltip.value = null }
+onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
+onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 </script>
 
 <template>
@@ -121,7 +146,22 @@ function hideTip() { tooltip.value = null }
     </div>
 
     <template v-else>
-      <div class="section-title">Topology</div>
+      <!-- Page header -->
+      <div class="pg-header">
+        <div class="pg-header__left">
+          <span class="section-title">Topology</span>
+          <div class="topo-header-stats">
+            <span class="stat-chip stat-chip--synced">
+              <span class="stat-dot" style="background:var(--color-synced)"/>
+              {{ syncedCount }} / {{ nodes.length }} SYNCED
+            </span>
+            <span v-if="arbitrators.length" class="stat-chip">
+              <span class="stat-dot" style="background:var(--color-text-faint)"/>
+              {{ arbitrators.filter(a => a.is_reachable).length }} / {{ arbitrators.length }} ARB
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div v-if="isLoading" class="loading-state">
         <i class="pi pi-spin pi-spinner" /><span>Loading…</span>
@@ -151,19 +191,55 @@ function hideTip() { tooltip.value = null }
               <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
+              <!-- Full-mesh lines внутри DC (фикс: было n→n+1, теперь все пары) -->
+              <g v-if="dc.nodes.length > 1">
+                <line
+                  v-for="(_, ni) in dc.nodes" :key="`lna-${ni}`"
+                  v-for="(_, nj) in dc.nodes.slice(ni + 1)" :key="`lnb-${ni}-${nj}`"
+                  :x1="badgeX(di, ni) + B_W / 2" :y1="badgeY(ni) + B_H / 2"
+                  :x2="badgeX(di, ni + 1 + dc.nodes.slice(ni + 1).indexOf(_)) + B_W / 2"
+                  :y2="badgeY(ni + 1 + dc.nodes.slice(ni + 1).indexOf(_)) + B_H / 2"
+                  class="topo-line"
+                />
+              </g>
+
+              <!-- Simplified: sequential lines (stable approach) -->
+              <g v-if="dc.nodes.length > 1">
+                <template v-for="ni in dc.nodes.length - 1" :key="`ln-${ni}`">
+                  <template v-for="nj in dc.nodes.length" :key="`ln-${ni}-${nj}`">
+                    <line
+                      v-if="nj > ni"
+                      :x1="badgeX(di, ni - 1) + B_W / 2" :y1="badgeY(ni - 1) + B_H / 2"
+                      :x2="badgeX(di, nj - 1) + B_W / 2" :y2="badgeY(nj - 1) + B_H / 2"
+                      class="topo-line"
+                    />
+                  </template>
+                </template>
+              </g>
+
               <g
                 v-for="(node, ni) in dc.nodes" :key="node.id"
                 :transform="`translate(${badgeX(di, ni)}, ${badgeY(ni)})`"
-                class="topo-badge"
+                class="topo-badge topo-badge--clickable"
                 @mouseenter="(e) => showNodeTip(e, node)"
                 @mouseleave="hideTip"
+                @click="openDrawer(node.id)"
               >
                 <rect x="0" y="0" :width="B_W" :height="B_H" rx="5" class="badge-bg" />
                 <rect x="0" y="0" :width="B_W" height="3" rx="2"
                   :fill="nodeColor(node)"
                   :filter="node.ssh_ok && node.wsrep_local_state_comment?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <circle cx="9" cy="14" r="4" :fill="nodeColor(node)" :filter="!node.ssh_ok ? 'url(#glow-offline)' : undefined" />
+                <!-- Pulse animation для OFFLINE нод -->
+                <circle cx="9" cy="14" r="4" :fill="nodeColor(node)" :filter="!node.ssh_ok ? 'url(#glow-offline)' : undefined">
+                  <animate
+                    v-if="!node.ssh_ok"
+                    attributeName="opacity"
+                    values="1;0.2;1"
+                    dur="1.6s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
                 <text x="16" y="18" class="badge-name">{{ node.name }}</text>
                 <text x="4"  y="30" class="badge-host">{{ node.host }}:{{ node.port }}</text>
                 <text x="4"  y="42" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
@@ -172,6 +248,8 @@ function hideTip() { tooltip.value = null }
                 <rect v-if="node.maintenance" x="29" y="48" width="28" height="10" rx="2" fill="rgba(249,115,22,.15)" />
                 <text v-if="node.maintenance" x="43" y="56" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
                 <circle v-if="node.maintenance_drift" :cx="B_W - 6" :cy="B_H - 6" r="3" fill="var(--color-offline)" />
+                <!-- Click hint icon -->
+                <text :x="B_W - 6" y="10" class="badge-open-hint">⤢</text>
               </g>
 
               <g
@@ -189,17 +267,9 @@ function hideTip() { tooltip.value = null }
                 <text x="16" y="28" class="badge-host">{{ arb.host }}</text>
                 <text x="4"  y="40" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
               </g>
-
-              <g v-if="dc.nodes.length > 1">
-                <line
-                  v-for="(_, ni) in dc.nodes.slice(0, -1)" :key="`ln-${ni}`"
-                  :x1="badgeX(di, ni) + B_W / 2"     :y1="badgeY(ni) + B_H / 2"
-                  :x2="badgeX(di, ni + 1) + B_W / 2" :y2="badgeY(ni + 1) + B_H / 2"
-                  class="topo-line"
-                />
-              </g>
             </g>
 
+            <!-- Inter-DC lines -->
             <g v-if="dcGroups.length > 1">
               <line
                 v-for="di in dcGroups.length - 1" :key="`dcl-${di}`"
@@ -220,6 +290,7 @@ function hideTip() { tooltip.value = null }
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-donor)"/><span>DONOR / JOINER</span></div>
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-degraded)"/><span>wsrep_ready=OFF</span></div>
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-offline)"/><span>OFFLINE</span></div>
+            <div class="legend-item legend-item--hint"><span class="legend-icon">⤢</span><span>Click badge → details</span></div>
           </div>
         </div>
 
@@ -241,10 +312,19 @@ function hideTip() { tooltip.value = null }
               </tr>
             </thead>
             <tbody>
-              <tr v-for="n in nodes" :key="n.id" class="node-row">
+              <tr
+                v-for="n in nodes"
+                :key="n.id"
+                class="node-row node-row--clickable"
+                @click="openDrawer(n.id)"
+              >
                 <td>
                   <div class="cell-name">
-                    <span class="status-dot" :style="{ background: nodeColor(n), boxShadow: `0 0 6px ${nodeColor(n)}` }"/>
+                    <span
+                      class="status-dot"
+                      :class="{ 'status-dot--pulse': !n.ssh_ok }"
+                      :style="{ background: nodeColor(n), boxShadow: `0 0 6px ${nodeColor(n)}` }"
+                    />
                     <span class="name-text">{{ n.name }}</span>
                     <span v-if="n.maintenance" class="maint-badge">MAINT</span>
                   </div>
@@ -304,6 +384,16 @@ function hideTip() { tooltip.value = null }
       </template>
     </template>
 
+    <!-- NodeDetailDrawer -->
+    <NodeDetailDrawer
+      v-if="drawerOpen && drawerNodeId !== null"
+      :node-id="drawerNodeId"
+      :cluster-id="clusterId"
+      :open="drawerOpen"
+      @close="closeDrawer"
+    />
+
+    <!-- Tooltip -->
     <Teleport to="body">
       <div
         v-if="tooltip"
@@ -322,6 +412,7 @@ function hideTip() { tooltip.value = null }
           <div v-if="tooltip.node.wsrep_local_recv_queue != null" class="tt-row">
             <span>Recv Queue</span><span class="tt-val">{{ tooltip.node.wsrep_local_recv_queue }}</span>
           </div>
+          <div class="tt-hint">Click to open details</div>
         </template>
         <template v-if="tooltip.arb">
           <div class="tt-name">{{ tooltip.arb.name }} <span class="tt-tag">ARB</span></div>
@@ -346,7 +437,46 @@ function hideTip() { tooltip.value = null }
   justify-content:center; font-size:var(--text-sm);
 }
 
-/* Canvas */
+/* ── Header ───────────────────────────────────────────────────────── */
+.pg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.pg-header__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.topo-header-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────── */
 .topo-canvas-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -357,7 +487,8 @@ function hideTip() { tooltip.value = null }
 }
 .topo-svg {
   display: block;
-  max-height: 200px;
+  /* max-height умеренный — SVG масштабируется через viewBox */
+  max-height: 260px;
   height: auto;
   width: auto;
   min-width: 100%;
@@ -367,19 +498,29 @@ function hideTip() { tooltip.value = null }
 .dc-zone-label { fill:var(--color-text-faint); font-size:6.5px; font-weight:700; letter-spacing:.08em; font-family:var(--font-body,sans-serif); }
 
 .topo-badge      { cursor:default; }
+.topo-badge--clickable { cursor: pointer; }
 .badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:.6; transition:fill .18s; }
-.topo-badge:hover .badge-bg { fill:var(--color-surface-dynamic); }
+.topo-badge--clickable:hover .badge-bg { fill:var(--color-surface-dynamic); stroke: var(--color-primary); stroke-width: 1; }
 .badge-bg--arb   { opacity:.8; }
 
-.badge-name  { fill:var(--color-text);       font-size:7px;   font-weight:600; font-family:var(--font-body,sans-serif); }
-.badge-host  { fill:var(--color-text-muted); font-size:5.5px; font-family:var(--font-mono,monospace); }
-.badge-state { font-size:6px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
-.badge-pill  { font-size:5px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
-.badge-arb-ico { fill:var(--color-text-faint); font-size:7px; }
+.badge-name      { fill:var(--color-text);       font-size:7px;   font-weight:600; font-family:var(--font-body,sans-serif); }
+.badge-host      { fill:var(--color-text-muted); font-size:5.5px; font-family:var(--font-mono,monospace); }
+.badge-state     { font-size:6px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
+.badge-pill      { font-size:5px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
+.badge-arb-ico   { fill:var(--color-text-faint); font-size:7px; }
+.badge-open-hint {
+  fill: var(--color-text-faint);
+  font-size: 6px;
+  text-anchor: end;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
+
 .topo-line     { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
 .topo-line--dc { stroke:var(--color-primary); stroke-dasharray:5 3; opacity:.3; }
 
-/* Legend */
+/* ── Legend ──────────────────────────────────────────────────────── */
 .topo-legend {
   display:flex; flex-wrap:wrap; align-items:center;
   gap:var(--space-2) var(--space-5);
@@ -387,13 +528,13 @@ function hideTip() { tooltip.value = null }
   border-radius:var(--radius-md); padding:var(--space-2) var(--space-4);
 }
 .legend-title  { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; color:var(--color-text-faint); font-weight:600; }
-.legend-items  { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); }
+.legend-items  { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); align-items:center; }
 .legend-item   { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); }
+.legend-item--hint { color: var(--color-text-faint); }
 .legend-dot    { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.legend-icon   { font-size:10px; line-height:1; }
 
-/* ============================================================
-   Node / Arbitrator table
-   ============================================================ */
+/* ── Tables ──────────────────────────────────────────────────────── */
 .node-table-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -429,14 +570,9 @@ function hideTip() { tooltip.value = null }
   color: var(--color-text-muted);
 }
 
-.node-table {
-  width: 100%;
-  border-collapse: collapse;
-}
+.node-table { width:100%; border-collapse:collapse; }
 
-.node-table thead tr {
-  background: var(--color-surface-offset);
-}
+.node-table thead tr { background: var(--color-surface-offset); }
 .node-table th {
   padding: var(--space-3) var(--space-6);
   text-align: left;
@@ -449,24 +585,22 @@ function hideTip() { tooltip.value = null }
   border-bottom: 1px solid var(--color-border);
 }
 
-/* rows */
 .node-row {
   border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
   transition: background var(--transition-interactive);
 }
 .node-row:last-child { border-bottom: none; }
 .node-row:hover { background: var(--color-surface-offset); }
+.node-row--clickable { cursor: pointer; }
 
-.node-table td {
-  padding: var(--space-4) var(--space-6);
-  vertical-align: middle;
-}
+.node-table td { padding: var(--space-4) var(--space-6); vertical-align: middle; }
 
-/* cell — name with dot */
-.cell-name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.cell-name { display:flex; align-items:center; gap:var(--space-3); }
+
+/* Pulse animation для OFFLINE нод в таблице */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+  50%       { opacity: 0.3; box-shadow: 0 0 2px currentColor; }
 }
 .status-dot {
   width: 8px;
@@ -475,95 +609,52 @@ function hideTip() { tooltip.value = null }
   flex-shrink: 0;
   transition: box-shadow .3s;
 }
-.name-text {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
+.status-dot--pulse {
+  animation: status-pulse 1.6s ease-in-out infinite;
 }
 
-/* badges */
+.name-text { font-size:var(--text-sm); font-weight:600; color:var(--color-text); }
+
 .maint-badge, .arb-badge {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  border-radius: var(--radius-sm);
-  padding: 1px 5px;
+  font-size: 9px; font-weight: 700; letter-spacing:.06em;
+  border-radius: var(--radius-sm); padding: 1px 5px;
 }
-.maint-badge {
-  background: rgba(249,115,22,.12);
-  color: var(--color-degraded);
-}
-.arb-badge {
-  background: var(--color-surface-dynamic);
-  color: var(--color-text-faint);
-}
+.maint-badge { background:rgba(249,115,22,.12); color:var(--color-degraded); }
+.arb-badge   { background:var(--color-surface-dynamic); color:var(--color-text-faint); }
 
-/* host */
-.cell-mono {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
+.cell-mono  { font-family:var(--font-mono,monospace); font-size:var(--text-xs); color:var(--color-text-muted); }
+.cell-state { font-family:var(--font-mono,monospace); font-size:var(--text-xs); font-weight:700; letter-spacing:.05em; }
+.cell-muted { font-size:var(--text-xs); color:var(--color-text-muted); }
 
-/* state */
-.cell-state {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: .05em;
-}
-
-/* dc */
-.cell-muted {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
-/* mode pill */
 .mode-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: .06em;
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:32px; padding:2px 8px;
+  border-radius:var(--radius-full);
+  font-size:var(--text-xs); font-weight:700; letter-spacing:.06em;
 }
-.mode-rw {
-  background: rgba(74,222,128,.10);
-  color: var(--color-synced);
-  border: 1px solid rgba(74,222,128,.2);
-}
-.mode-ro {
-  background: rgba(234,179,8,.10);
-  color: var(--color-readonly);
-  border: 1px solid rgba(234,179,8,.2);
-}
+.mode-rw { background:rgba(74,222,128,.10); color:var(--color-synced);   border:1px solid rgba(74,222,128,.2); }
+.mode-ro { background:rgba(234,179,8,.10);  color:var(--color-readonly); border:1px solid rgba(234,179,8,.2);  }
 
-/* ssh cell */
-.ssh-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-.ssh-ok   { color: var(--color-synced); }
-.ssh-fail { color: var(--color-offline); }
+.ssh-cell { display:inline-flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); font-weight:600; }
+.ssh-ok   { color:var(--color-synced); }
+.ssh-fail { color:var(--color-offline); }
 
-/* ============================================================
-   Tooltip
-   ============================================================ */
+/* ── Tooltip ─────────────────────────────────────────────────────── */
 .topo-tooltip {
   position:fixed; z-index:9999;
   background:var(--color-surface-2); border:1px solid var(--color-border);
   border-radius:var(--radius-md); padding:var(--space-3) var(--space-4);
   box-shadow:var(--shadow-lg); min-width:180px; pointer-events:none;
 }
-.tt-name { font-size:var(--text-sm); font-weight:700; color:var(--color-text); margin-bottom:var(--space-2); display:flex; align-items:center; gap:var(--space-2); }
-.tt-tag  { font-size:9px; background:var(--color-surface-dynamic); border-radius:var(--radius-sm); padding:1px 5px; color:var(--color-text-muted); font-weight:600; letter-spacing:.06em; }
-.tt-row  { display:flex; justify-content:space-between; gap:var(--space-4); font-size:var(--text-xs); color:var(--color-text-muted); line-height:1.7; }
-.tt-val  { font-family:var(--font-mono,monospace); color:var(--color-text); }
+.tt-name  { font-size:var(--text-sm); font-weight:700; color:var(--color-text); margin-bottom:var(--space-2); display:flex; align-items:center; gap:var(--space-2); }
+.tt-tag   { font-size:9px; background:var(--color-surface-dynamic); border-radius:var(--radius-sm); padding:1px 5px; color:var(--color-text-muted); font-weight:600; letter-spacing:.06em; }
+.tt-row   { display:flex; justify-content:space-between; gap:var(--space-4); font-size:var(--text-xs); color:var(--color-text-muted); line-height:1.7; }
+.tt-val   { font-family:var(--font-mono,monospace); color:var(--color-text); }
+.tt-hint  { margin-top:var(--space-2); font-size:var(--text-xs); color:var(--color-text-faint); text-align:center; border-top:1px solid var(--color-divider); padding-top:var(--space-2); }
+
+.loading-state {
+  display:flex; align-items:center; gap:var(--space-3);
+  color:var(--color-text-muted); padding:var(--space-8);
+  justify-content:center; font-size:var(--text-sm);
+}
 </style>
