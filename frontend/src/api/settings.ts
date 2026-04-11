@@ -28,7 +28,9 @@ export interface ClusterCreate {
 export type ClusterUpdate = Partial<ClusterCreate>
 
 // ── Nodes ──────────────────────────────────────────────────────────────────
-// ТЗ п.2.4: id, name, host, port, ssh_port, ssh_user, cluster_id, dc_id, maintenance, enabled
+// БД (models.py): id, name, host, port, ssh_port, ssh_user, db_user, db_password,
+//                 cluster_id, datacenter_id, maintenance, enabled
+// API (routers/settings.py): возвращает datacenter_id + datacenter_name (JOIN)
 export interface NodeSetting {
     id: number
     name: string
@@ -36,8 +38,11 @@ export interface NodeSetting {
     port: number
     ssh_port: number
     ssh_user: string
+    db_user: string | null
     enabled: boolean
-    dc_id: number | null
+    maintenance: boolean
+    datacenter_id: number | null
+    datacenter_name?: string | null
     cluster_id: number
 }
 // ТЗ п.16.1: cluster_id в теле запроса при создании
@@ -45,15 +50,18 @@ export interface NodeCreate {
     cluster_id: number
     name: string
     host: string
-    port?: number        // default 3306
-    ssh_port?: number    // default 22
-    ssh_user?: string    // default root
+    port?: number           // default 3306
+    ssh_port?: number       // default 22
+    ssh_user?: string       // default root
+    db_user?: string | null
+    db_password?: string | null
     enabled?: boolean
-    dc_id?: number | null
+    datacenter_id?: number | null
 }
 
 // ── Arbitrators ────────────────────────────────────────────────────────────
-// ТЗ п.2.5: id, name, host, ssh_port, ssh_user, cluster_id, dc_id, enabled
+// БД (models.py): id, name, host, ssh_port, ssh_user, cluster_id, datacenter_id, enabled
+// API (routers/settings.py): возвращает datacenter_id + datacenter_name (JOIN)
 export interface ArbitratorSetting {
     id: number
     name: string
@@ -61,7 +69,8 @@ export interface ArbitratorSetting {
     ssh_port: number
     ssh_user: string
     enabled: boolean
-    dc_id: number | null
+    datacenter_id: number | null
+    datacenter_name?: string | null
     cluster_id: number
 }
 export interface ArbitratorCreate {
@@ -71,7 +80,7 @@ export interface ArbitratorCreate {
     ssh_port?: number
     ssh_user?: string
     enabled?: boolean
-    dc_id?: number | null
+    datacenter_id?: number | null
 }
 
 // ── System settings ────────────────────────────────────────────────────────
