@@ -78,7 +78,6 @@ const opRunning = computed(() =>
   opStatus.value != null && ['pending', 'running', 'cancel_requested'].includes(opStatus.value)
 )
 
-// Показываем блок только пока есть активная операция
 const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.value)
 </script>
 
@@ -174,10 +173,12 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
       </div>
     </div>
 
-    <!-- 8. Active operation — появляется только когда есть операция -->
+    <!-- 8. Active operation — появляется только когда есть операция.
+         div.csb-op-wrap — единственный child для <Transition>,
+         содержит divider + item чтобы не плодить лишний DOM-элемент -->
     <Transition name="csb-op-slide">
-      <template v-if="showOp">
-        <div class="csb-divider csb-divider--op" />
+      <div v-if="showOp" class="csb-op-wrap">
+        <div class="csb-divider" />
         <div class="csb-item csb-item--op">
           <span class="csb-label">Operation</span>
           <div class="csb-op" :class="opRunning ? 'csb-op--running' : 'csb-op--done'">
@@ -188,7 +189,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
             </div>
           </div>
         </div>
-      </template>
+      </div>
     </Transition>
 
   </div>
@@ -270,6 +271,12 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
 .csb-maint--active .csb-val { color: var(--color-warning); }
 
 /* ── Active Operation ── */
+
+/* Обёртка — flex-ряд чтобы divider и item лежали в одну линию с остальными элементами бара */
+.csb-op-wrap {
+  display: contents;
+}
+
 .csb-op {
   display: flex;
   align-items: center;
@@ -303,21 +310,14 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
 
 /* ── Slide-in transition ── */
 .csb-op-slide-enter-active {
-  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1), max-width 220ms ease;
-  overflow: hidden;
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .csb-op-slide-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease, max-width 180ms ease;
-  overflow: hidden;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 .csb-op-slide-enter-from,
 .csb-op-slide-leave-to {
   opacity: 0;
-  transform: translateX(8px);
-  max-width: 0;
-}
-.csb-op-slide-enter-to,
-.csb-op-slide-leave-from {
-  max-width: 300px;
+  transform: translateX(10px);
 }
 </style>
