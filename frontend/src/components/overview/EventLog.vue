@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast }   from 'primevue/usetoast'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -60,7 +61,6 @@ function confirmClear(event: MouseEvent) {
   })
 }
 
-// level: uppercase → lowercase для маппинга иконок
 function normLevel(level: string): string {
   return (level ?? 'info').toLowerCase()
 }
@@ -76,22 +76,19 @@ function cfg(level: string) {
   return LEVEL_CFG[normLevel(level)] ?? LEVEL_CFG.info
 }
 
-// Python's datetime.isoformat() produces "2026-04-11T21:56:33.123456+00:00"
-// The regex /[Z+\-]\d*$/ does NOT match "+00:00" (ends with "00", but has ":" before it).
-// Fix: strip the space separator, then normalise any UTC offset (+00:00, -00:00, +0000) → Z,
-// so new Date() always receives a valid ISO 8601 string.
+// Python datetime.isoformat() → "2026-04-11T21:56:33.123456+00:00"
+// SQLite CURRENT_TIMESTAMP    → "2026-04-11 21:56:33" (space, no tz)
 function parseTs(ts: string): Date {
   if (!ts) return new Date(NaN)
 
-  // 1. Replace space separator (SQLite datetime format) with T
+  // 1. Space separator → T
   let s = ts.trim().replace(' ', 'T')
 
-  // 2. Normalise UTC offsets → Z
-  //    Handles: +00:00  -00:00  +0000  -0000  (Python isoformat / SQLite)
+  // 2. Normalise UTC offsets (+00:00 / -00:00 / +0000) → Z
   s = s.replace(/[+-]00:?00$/, 'Z')
 
-  // 3. If still no timezone marker, assume UTC
-  if (!/[Z]$/.test(s)) s += 'Z'
+  // 3. No timezone marker → assume UTC
+  if (!/Z$/i.test(s)) s += 'Z'
 
   return new Date(s)
 }
@@ -116,6 +113,14 @@ function formatTs(ts: string): { date: string; time: string } {
 
   return { date, time }
 }
+
+// Сортируем по полному datetime DESC.
+// Без этого события, пришедшие через WS или смешанные из разных дней,
+// могут оказаться не в хронологическом порядке — потому что API сортирует
+// только initial fetch, а WS вставляет события без гарантии порядка.
+const sortedEvents = computed(() =>
+  [...props.events].sort((a, b) => parseTs(b.ts).getTime() - parseTs(a.ts).getTime())
+)
 </script>
 
 <template>
@@ -160,7 +165,7 @@ function formatTs(ts: string): { date: string; time: string } {
 
     <Timeline
       v-else
-      :value="props.events"
+      :value="sortedEvents"
       class="el-timeline"
     >
       <template #marker="{ item }">
@@ -223,7 +228,6 @@ function formatTs(ts: string): { date: string; time: string } {
   color: var(--color-text-faint);
 }
 .el-clear-btn {
-  /* компенсируем внутренние отступы PrimeVue text-кнопки */
   margin-right: calc(var(--space-2) * -1);
 }
 .el-skeleton {
