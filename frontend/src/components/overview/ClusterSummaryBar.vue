@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useOperationsStore } from '@/stores/operations'
 
 interface Props {
-  totalNodes: number
-  syncedNodes: number
-  clusterStatus: string | null
-  clusterSize: number | null
+  totalNodes:        number
+  syncedNodes:       number
+  clusterStatus:     string | null
+  clusterSize:       number | null
   flowControlPaused: number | null
-  isLoading?: boolean
+  maintenanceNodes:  number          // кол-во нод в maintenance
+  maxRecvQueue:      number | null   // max wsrep_local_recv_queue по всем нодам
+  clusterId:         number
+  isLoading?:        boolean
 }
 
 const props = withDefaults(defineProps<Props>(), { isLoading: false })
 
-// Backend _calc_cluster_status() returns 'healthy' | 'degraded' | 'critical'
-// (see ТЗ п.7.1). Map directly — no wsrep_cluster_status parsing needed here.
+const opsStore = useOperationsStore()
+
+// ── Health ────────────────────────────────────────────────────────────────────
 const healthState = computed(() => {
   const s = props.clusterStatus?.toLowerCase()
   if (s === 'healthy')  return 'healthy'
@@ -31,6 +36,7 @@ const HEALTH_MAP = {
 
 const healthCfg = computed(() => HEALTH_MAP[healthState.value])
 
+// ── Meter ─────────────────────────────────────────────────────────────────────
 const meterValues = computed(() => {
   if (props.totalNodes === 0) return []
   const syncedPct = Math.round((props.syncedNodes / props.totalNodes) * 100)
@@ -38,24 +44,49 @@ const meterValues = computed(() => {
   const result = [
     { label: 'Synced', color: 'var(--color-synced)', value: syncedPct },
   ]
-  if (others > 0) {
-    result.push({ label: 'Other', color: 'var(--color-degraded)', value: others })
-  }
+  if (others > 0) result.push({ label: 'Other', color: 'var(--color-degraded)', value: others })
   return result
 })
 
+// ── Flow control ──────────────────────────────────────────────────────────────
 const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
+
+// ── Recv queue ────────────────────────────────────────────────────────────────
+const recvQueueWarn    = computed(() => (props.maxRecvQueue ?? 0) > 0)
+const recvQueueDisplay = computed(() =>
+  props.maxRecvQueue !== null ? String(props.maxRecvQueue) : '\u2014'
+)
+
+// ── Active operation ──────────────────────────────────────────────────────────
+const activeOp = computed(() => opsStore.activeOperation(props.clusterId))
+
+const OP_LABEL: Record<string, string> = {
+  'recovery-bootstrap': 'Bootstrap',
+  'recovery-rejoin':    'Rejoin',
+  'rolling-restart':    'Rolling restart',
+  'node-action':        'Node action',
+}
+
+const opLabel = computed(() => {
+  const op = activeOp.value
+  if (!op) return null
+  return OP_LABEL[op.type] ?? op.type
+})
+
+const opStatus = computed(() => activeOp.value?.status ?? null)
+
+const opRunning = computed(() =>
+  opStatus.value != null && ['pending', 'running', 'cancel_requested'].includes(opStatus.value)
+)
 </script>
 
 <template>
   <div class="csb anim-fade-in">
 
-    <!-- Cluster health tag -->
+    <!-- 1. Cluster health -->
     <div class="csb-item csb-item--main">
       <span class="csb-label">Cluster</span>
-      <div v-if="props.isLoading">
-        <Skeleton height="1.5rem" width="90px" />
-      </div>
+      <div v-if="props.isLoading"><Skeleton height="1.5rem" width="90px" /></div>
       <Tag
         v-else
         :value="healthCfg.label"
@@ -67,12 +98,10 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
     <div class="csb-divider" />
 
-    <!-- Nodes synced with MeterGroup -->
+    <!-- 2. Synced nodes -->
     <div class="csb-item csb-item--wide">
       <span class="csb-label">Synced</span>
-      <div v-if="props.isLoading">
-        <Skeleton height="1rem" width="120px" />
-      </div>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="120px" /></div>
       <div v-else class="csb-meter-wrap">
         <span class="csb-val">{{ syncedNodes }}<span class="csb-total">/{{ totalNodes }}</span></span>
         <MeterGroup
@@ -85,7 +114,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
     <div class="csb-divider" />
 
-    <!-- Primary component -->
+    <!-- 3. Component -->
     <div class="csb-item">
       <span class="csb-label">Component</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="70px" /></div>
@@ -94,7 +123,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
     <div class="csb-divider" />
 
-    <!-- wsrep cluster size -->
+    <!-- 4. wsrep size -->
     <div class="csb-item">
       <span class="csb-label">wsrep size</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="40px" /></div>
@@ -103,7 +132,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 
     <div class="csb-divider" />
 
-    <!-- Flow control -->
+    <!-- 5. Flow control -->
     <div class="csb-item">
       <span class="csb-label">Flow ctrl</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="60px" /></div>
@@ -115,6 +144,50 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
         class="csb-tag csb-tag--mono"
       />
     </div>
+
+    <div class="csb-divider" />
+
+    <!-- 6. Recv queue (max across nodes) -->
+    <div class="csb-item">
+      <span class="csb-label">Recv queue</span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="50px" /></div>
+      <Tag
+        v-else
+        :value="recvQueueDisplay"
+        :severity="recvQueueWarn ? 'warn' : 'secondary'"
+        :icon="recvQueueWarn ? 'pi pi-exclamation-triangle' : undefined"
+        class="csb-tag csb-tag--mono"
+      />
+    </div>
+
+    <div class="csb-divider" />
+
+    <!-- 7. Maintenance nodes count -->
+    <div class="csb-item">
+      <span class="csb-label">Maint</span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="40px" /></div>
+      <div v-else class="csb-maint" :class="maintenanceNodes > 0 ? 'csb-maint--active' : ''">
+        <i class="pi pi-wrench csb-maint-icon" />
+        <span class="csb-val csb-val--mono">{{ maintenanceNodes }}</span>
+      </div>
+    </div>
+
+    <div class="csb-divider" />
+
+    <!-- 8. Active operation -->
+    <div class="csb-item csb-item--op">
+      <span class="csb-label">Operation</span>
+      <div v-if="props.isLoading"><Skeleton height="1rem" width="100px" /></div>
+      <div v-else-if="activeOp && opLabel" class="csb-op" :class="opRunning ? 'csb-op--running' : 'csb-op--idle'">
+        <i :class="opRunning ? 'pi pi-spin pi-spinner csb-op-icon' : 'pi pi-check-circle csb-op-icon'" />
+        <div class="csb-op-text">
+          <span class="csb-op-name">{{ opLabel }}</span>
+          <span class="csb-op-status">{{ opStatus }}</span>
+        </div>
+      </div>
+      <span v-else class="csb-val csb-val--faint">\u2014</span>
+    </div>
+
   </div>
 </template>
 
@@ -125,7 +198,6 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  /* компактный padding, но с нормальной высотой */
   padding: var(--space-4) var(--space-5);
   gap: var(--space-5);
   overflow-x: auto;
@@ -135,12 +207,12 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
 .csb-item {
   display: flex;
   flex-direction: column;
-  /* ключевой момент: достаточный gap между label и value */
   gap: var(--space-2);
   min-width: max-content;
 }
-.csb-item--main  { min-width: 120px; }
-.csb-item--wide  { min-width: 160px; }
+.csb-item--main { min-width: 120px; }
+.csb-item--wide { min-width: 160px; }
+.csb-item--op   { min-width: 140px; }
 
 .csb-label {
   font-size: var(--text-xs);
@@ -148,7 +220,6 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   letter-spacing: 0.07em;
   color: var(--color-text-faint);
   font-weight: 600;
-  /* небольшой верхний отступ чтобы label не прилипал к краю */
   padding-top: 2px;
 }
 
@@ -158,14 +229,15 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   color: var(--color-text);
   line-height: 1;
 }
-.csb-val--mono { font-family: var(--font-mono); }
+.csb-val--mono  { font-family: var(--font-mono); }
+.csb-val--faint { color: var(--color-text-faint); font-weight: 400; }
 
 .csb-total {
   color: var(--color-text-muted);
   font-weight: 500;
 }
 
-.csb-tag { font-size: var(--text-xs) !important; }
+.csb-tag       { font-size: var(--text-xs) !important; }
 .csb-tag--mono :deep(.p-tag-value) { font-family: var(--font-mono); }
 
 .csb-meter-wrap {
@@ -173,11 +245,7 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   flex-direction: column;
   gap: var(--space-1);
 }
-
-.csb-meter {
-  width: 120px;
-}
-
+.csb-meter { width: 120px; }
 :deep(.p-metergroup-label-list) { display: none; }
 
 .csb-divider {
@@ -187,4 +255,49 @@ const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
   flex-shrink: 0;
   opacity: 0.6;
 }
+
+/* ── Maintenance ── */
+.csb-maint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-faint);
+}
+.csb-maint-icon { font-size: 0.75rem; }
+.csb-maint--active {
+  color: var(--color-warning);
+}
+.csb-maint--active .csb-val { color: var(--color-warning); }
+
+/* ── Active Operation ── */
+.csb-op {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.csb-op-icon { font-size: 0.85rem; flex-shrink: 0; }
+.csb-op-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.csb-op-name {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+.csb-op-status {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.csb-op--running .csb-op-icon   { color: var(--color-primary); }
+.csb-op--running .csb-op-status { color: var(--color-primary); }
+
+.csb-op--idle .csb-op-icon   { color: var(--color-success); }
+.csb-op--idle .csb-op-status { color: var(--color-text-faint); }
 </style>

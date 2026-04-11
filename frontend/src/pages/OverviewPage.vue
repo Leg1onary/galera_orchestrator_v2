@@ -19,17 +19,27 @@ const nodes       = computed(() => data.value?.nodes       ?? [])
 const arbitrators = computed(() => data.value?.arbitrators ?? [])
 const events      = computed(() => logData.value           ?? [])
 
-// fix: wsrep-поля лежат в node.live.*, не в корне NodeStatusItem
 const syncedCount = computed(() =>
   nodes.value.filter((n) =>
     (n.live?.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED'
   ).length
 )
 
-// wsrep_cluster_size и flow_control — из live первой живой ноды
+const maintenanceCount = computed(() =>
+  nodes.value.filter((n) => n.maintenance).length
+)
+
 const firstLive = computed(() =>
   nodes.value.find((n) => n.live?.ssh_ok)?.live ?? null
 )
+
+// max recv_queue по всем живым нодам
+const maxRecvQueue = computed(() => {
+  const values = nodes.value
+    .map((n) => n.live?.wsrep_local_recv_queue ?? null)
+    .filter((v): v is number => v !== null)
+  return values.length ? Math.max(...values) : null
+})
 </script>
 
 <template>
@@ -46,13 +56,15 @@ const firstLive = computed(() =>
         Failed to load cluster data. Check backend connection.
       </Message>
 
-      <!-- fix: wsrep_cluster_size и flow_control_paused берём из live первой живой ноды -->
       <ClusterSummaryBar
         :total-nodes="nodes.length"
         :synced-nodes="syncedCount"
         :cluster-status="data?.status ?? null"
         :cluster-size="firstLive?.wsrep_cluster_size ?? null"
         :flow-control-paused="firstLive?.wsrep_flow_control_paused ?? null"
+        :maintenance-nodes="maintenanceCount"
+        :max-recv-queue="maxRecvQueue"
+        :cluster-id="clusterId!"
         :is-loading="isLoading"
       />
 
