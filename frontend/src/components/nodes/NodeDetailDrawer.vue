@@ -1,5 +1,6 @@
 <!-- src/components/nodes/NodeDetailDrawer.vue -->
 <!-- ТЗ 11.4: Drawer с 3 вкладками — Overview / Logs / InnoDB -->
+<!-- ТЗ 11.2: NodeActionBar — Enable/Disable через PATCH -->
 <template>
   <Drawer
       v-model:visible="visible"
@@ -31,7 +32,32 @@
           </div>
           <div v-else-if="details" class="overview-body">
 
-            <!-- Sparklines (данные из details.live) -->
+            <!-- NodeActionBar — ТЗ 11.2, 11.6: Enable/Disable через PATCH -->
+            <div class="action-bar">
+              <span class="action-bar__label">Node control</span>
+              <div class="action-bar__btns">
+                <button
+                    class="action-btn action-btn--enable"
+                    :disabled="details.enabled || patchLoading"
+                    @click="setEnabled(true)"
+                >
+                  <i class="pi pi-play" />
+                  Enable
+                </button>
+                <button
+                    class="action-btn action-btn--disable"
+                    :disabled="!details.enabled || patchLoading"
+                    @click="setEnabled(false)"
+                >
+                  <i class="pi pi-pause" />
+                  Disable
+                </button>
+                <i v-if="patchLoading" class="pi pi-spin pi-spinner action-bar__spinner" />
+              </div>
+              <span v-if="patchError" class="action-bar__error">{{ patchError }}</span>
+            </div>
+
+            <!-- Sparklines -->
             <div class="sparklines-grid">
               <SparklineCard
                   label="Flow Control"
@@ -48,7 +74,7 @@
               />
             </div>
 
-            <!-- Live stats (все поля через details.live) -->
+            <!-- Live stats -->
             <div class="stats-grid">
               <StatRow label="Cluster status"  :value="details.live?.wsrep_cluster_status ?? '\u2014'" />
               <StatRow label="Cluster size"    :value="details.live?.wsrep_cluster_size ?? '\u2014'" />
@@ -66,7 +92,7 @@
                                                  : '\u2014'" />
             </div>
 
-            <!-- Node config info (статические поля напрямую с details) -->
+            <!-- Node config -->
             <div class="stats-grid mt-section">
               <StatRow label="Host"        :value="`${details.host}:${details.port}`" />
               <StatRow label="SSH port"    :value="details.ssh_port" />
@@ -76,7 +102,7 @@
               <StatRow label="Enabled"     :value="boolLabel(details.enabled)" />
             </div>
 
-            <!-- Last error (из live.error) -->
+            <!-- Last error -->
             <div v-if="details.live?.error" class="error-block">
               <i class="pi pi-exclamation-triangle" />
               {{ details.live.error }}
@@ -124,7 +150,6 @@
             <i class="pi pi-spin pi-spinner" /> Loading…
           </div>
           <div v-else-if="innodbStatus">
-            <!-- latest_deadlock — поле из InnoDbStatus (бэк: latest_deadlock) -->
             <div v-if="innodbStatus.latest_deadlock" class="innodb-deadlock">
               <div class="innodb-deadlock-title">
                 <i class="pi pi-exclamation-circle" /> Last deadlock
@@ -133,7 +158,6 @@
             </div>
             <details>
               <summary class="innodb-summary">Full InnoDB status</summary>
-              <!-- full_status — поле из InnoDbStatus (бэк: full_status) -->
               <pre class="innodb-pre">{{ innodbStatus.full_status }}</pre>
             </details>
           </div>
@@ -174,7 +198,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useToast } from 'primevue/usetoast'
 import Drawer from 'primevue/drawer'
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
@@ -187,14 +212,19 @@ import SparklineCard from './SparklineCard.vue'
 import StatRow from './StatRow.vue'
 import TestConnectionModal from './TestConnectionModal.vue'
 import { nodesApi } from '@/api/nodes'
+import { settingsApi } from '@/api/settings'
 import type { NodeListItem, InnoDbStatus, NodeDetails, NodeLogEntry } from '@/api/nodes'
 import { formatRelative } from '@/utils/time'
+import { extractApiError } from '@/utils/api'
 
 const props = defineProps<{
   node: NodeListItem | null
   clusterId: number
 }>()
 const emit = defineEmits<{ close: [] }>()
+
+const qc    = useQueryClient()
+const toast = useToast()
 
 const visible = computed({
   get: () => props.node !== null,
@@ -205,13 +235,16 @@ const activeTab     = ref('overview')
 const showTestModal = ref(false)
 const innodbStatus  = ref<InnoDbStatus | null>(null)
 const innodbLoading = ref(false)
+const patchLoading  = ref(false)
+const patchError    = ref<string | null>(null)
 
 watch(
     () => props.node?.id,
     () => {
-      activeTab.value    = 'overview'
+      activeTab.value     = 'overview'
       showTestModal.value = false
       innodbStatus.value  = null
+      patchError.value    = null
     },
 )
 
@@ -236,6 +269,24 @@ async function fetchInnodb() {
     innodbStatus.value = await nodesApi.innodbStatus(props.clusterId, props.node.id)
   } finally {
     innodbLoading.value = false
+  }
+}
+
+// ТЗ 11.6 — NodeActionBar: Enable/Disable через PATCH
+async function setEnabled(enabled: boolean) {
+  if (!props.node) return
+  patchLoading.value = true
+  patchError.value   = null
+  try {
+    await settingsApi.updateNode(props.node.id, { enabled })
+    // инвалидируем nodes-list и node-details чтобы таблица обновилась
+    await qc.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'nodes'] })
+    await qc.invalidateQueries({ queryKey: ['cluster', props.clusterId, 'node-details', props.node.id] })
+    toast.add({ severity: 'success', summary: enabled ? 'Node enabled' : 'Node disabled', life: 2500 })
+  } catch (err) {
+    patchError.value = extractApiError(err)
+  } finally {
+    patchLoading.value = false
   }
 }
 
@@ -283,6 +334,77 @@ function recvColor(v: number | null): string {
   flex-direction: column;
   gap: var(--space-5);
 }
+
+/* ── NodeActionBar ── */
+.action-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.action-bar__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+  margin-right: var(--space-1);
+}
+.action-bar__btns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.action-bar__spinner {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.action-bar__error {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  margin-top: calc(-1 * var(--space-1));
+}
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.action-btn .pi { font-size: 0.75rem; }
+.action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.action-btn--enable {
+  background: rgba(74,222,128,0.1);
+  border-color: rgba(74,222,128,0.25);
+  color: #4ade80;
+}
+.action-btn--enable:hover:not(:disabled) {
+  background: rgba(74,222,128,0.18);
+  border-color: rgba(74,222,128,0.4);
+}
+.action-btn--disable {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+  color: var(--color-text-muted);
+}
+.action-btn--disable:hover:not(:disabled) {
+  background: rgba(248,113,113,0.1);
+  border-color: rgba(248,113,113,0.25);
+  color: #f87171;
+}
+
 .sparklines-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

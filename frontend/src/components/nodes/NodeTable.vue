@@ -34,7 +34,7 @@
       </template>
     </Column>
 
-    <!-- Read-only — live.readonly (camelCase поле в NodeLiveData: 'readonly', не 'read_only') -->
+    <!-- Read-only -->
     <Column header="R/O" style="width: 70px">
       <template #body="{ data }">
         <Tag
@@ -55,7 +55,6 @@
             severity="warn"
             class="text-xs"
         />
-        <!-- Drift: maintenance=true в БД но read_only=false в MariaDB -->
         <Tag
             v-else-if="data.live?.maintenance_drift"
             value="DRIFT"
@@ -100,6 +99,15 @@
       <template #body="{ data }">
         <span class="col-muted">
           {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '\u2014' }}
+        </span>
+      </template>
+    </Column>
+
+    <!-- Enabled — ТЗ 11.3 -->
+    <Column field="enabled" header="Enabled" style="width: 90px">
+      <template #body="{ data }">
+        <span :class="['enabled-badge', data.enabled ? 'enabled-badge--on' : 'enabled-badge--off']">
+          {{ data.enabled ? 'Yes' : 'No' }}
         </span>
       </template>
     </Column>
@@ -166,4 +174,14 @@ function recvClass(val: number | null) {
 .col-muted  { color: var(--color-text-muted); font-size: var(--text-sm); }
 .mono-val   { font-family: monospace; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .table-empty { padding: var(--space-12); text-align: center; color: var(--color-text-muted); font-size: var(--text-sm); }
+.enabled-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.enabled-badge--on  { background: rgba(74,222,128,0.1); color: #4ade80; }
+.enabled-badge--off { background: rgba(255,255,255,0.05); color: var(--color-text-faint); }
 </style>
