@@ -26,6 +26,7 @@ import socket
 import shlex
 
 import paramiko
+from paramiko import RSAKey
 
 from config import settings
 
@@ -72,6 +73,9 @@ class SSHClient:
         """
         Open SSH connection using the global key from settings.SSH_KEY_PATH.
 
+        The key is loaded explicitly as RSAKey to prevent Paramiko from
+        attempting DSA signing, which causes a ValueError in cryptography>=41.
+
         Raises:
             SSHError: if the connection cannot be established within 5 seconds,
                       or if authentication fails.
@@ -82,16 +86,25 @@ class SSHClient:
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         try:
+            # Load the key explicitly as RSAKey — prevents Paramiko from probing
+            # other key types (DSA/ECDSA) and hitting the q-length ValueError.
+            private_key = RSAKey.from_private_key_file(str(settings.SSH_KEY_PATH))
+        except (paramiko.SSHException, OSError) as exc:
+            raise SSHError(
+                f"Failed to load SSH key from {settings.SSH_KEY_PATH}: {exc}"
+            ) from exc
+
+        try:
             client.connect(
                 hostname=self.host,
                 port=self.port,
                 username=self.username,
-                key_filename=str(settings.SSH_KEY_PATH),
+                pkey=private_key,
                 timeout=SSH_CONNECT_TIMEOUT_SEC,
                 # Disable password auth — key-only per ТЗ раздел 3.2
                 allow_agent=False,
                 look_for_keys=False,
-                # Disable DSA to prevent ValueError in cryptography>=41
+                # Belt-and-suspenders: also disable DSA at transport level
                 disabled_algorithms=_DISABLED_ALGORITHMS,
             )
         except paramiko.AuthenticationException as exc:
