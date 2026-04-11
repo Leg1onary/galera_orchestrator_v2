@@ -25,11 +25,21 @@
       <span>{{ error.message }}</span>
     </div>
 
+    <!-- Per-node error banners (partial failures) -->
+    <div
+        v-for="nodeErr in nodeErrors"
+        :key="nodeErr.node_id"
+        class="error-alert"
+    >
+      <i class="pi pi-exclamation-circle" />
+      <span><strong>{{ nodeErr.node_name }}</strong>: {{ nodeErr.error }}</span>
+    </div>
+
     <div class="table-wrap">
       <DataTable
           :value="filtered"
           :loading="isLoading"
-          dataKey="id"
+          dataKey="_key"
           size="small"
           :rows="50"
           paginator
@@ -61,13 +71,19 @@
           </div>
         </template>
 
+        <Column field="node_name" header="Node" style="width: 130px" :sortable="true">
+          <template #body="{ data }">
+            <span class="cell-node">{{ data.node_name }}</span>
+          </template>
+        </Column>
+
         <Column field="id" header="ID" style="width: 70px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-id">{{ data.id }}</span>
           </template>
         </Column>
 
-        <Column field="user" header="User" style="width: 140px" :sortable="true">
+        <Column field="user" header="User" style="width: 130px" :sortable="true">
           <template #body="{ data }">
             <div class="cell-user-wrap">
               <span class="user-dot" />
@@ -76,13 +92,13 @@
           </template>
         </Column>
 
-        <Column field="host" header="Host" style="width: 160px">
+        <Column field="host" header="Host" style="width: 150px">
           <template #body="{ data }">
             <span class="cell-mono cell-host">{{ data.host }}</span>
           </template>
         </Column>
 
-        <Column field="db" header="DB" style="width: 120px">
+        <Column field="db" header="DB" style="width: 110px">
           <template #body="{ data }">
             <span v-if="data.db" class="cell-db">
               <i class="pi pi-database" style="font-size: 9px; opacity: 0.7" />
@@ -101,8 +117,8 @@
         <Column field="time" header="Time (s)" style="width: 100px" :sortable="true">
           <template #body="{ data }">
             <span
-              class="cell-time"
-              :class="{ 'cell-time--warn': data.time > SLOW_QUERY_SEC, 'cell-time--ok': data.time <= SLOW_QUERY_SEC }"
+                class="cell-time"
+                :class="{ 'cell-time--warn': data.time > SLOW_QUERY_SEC, 'cell-time--ok': data.time <= SLOW_QUERY_SEC }"
             >{{ data.time }}</span>
           </template>
         </Column>
@@ -126,23 +142,6 @@
           </template>
         </Column>
 
-        <Column header="" style="width: 48px">
-          <template #body="{ data }">
-            <Button
-                v-if="data.command !== 'Daemon'"
-                icon="pi pi-times"
-                text
-                rounded
-                size="small"
-                severity="danger"
-                v-tooltip.left="selectedNodeId ? 'KILL ' + data.id : 'Select a node first'"
-                :disabled="!selectedNodeId"
-                :loading="killing === data.id"
-                @click="handleKill(data)"
-            />
-          </template>
-        </Column>
-
         <template #empty>
           <div class="empty-row">
             <i class="pi pi-inbox" />
@@ -159,33 +158,29 @@ import { ref, computed } from 'vue'
 import { useQuery }      from '@tanstack/vue-query'
 import DataTable    from 'primevue/datatable'
 import Column       from 'primevue/column'
-import Button       from 'primevue/button'
 import Select       from 'primevue/select'
 import InputText    from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
-import { useToast } from 'primevue/usetoast'
-import { useClusterStore }                  from '@/stores/cluster'
-import { diagnosticsApi, type ProcessRow }  from '@/api/diagnostics'
-import PanelToolbar                         from './PanelToolbar.vue'
-import { useDiagAutoRefresh }               from '@/composables/useDiagAutoRefresh'
-import { useNodeOptions }                   from '@/composables/useNodeOptions'
+import { useClusterStore }                              from '@/stores/cluster'
+import { diagnosticsApi, type ProcessListNodeResult }  from '@/api/diagnostics'
+import PanelToolbar                                    from './PanelToolbar.vue'
+import { useDiagAutoRefresh }                          from '@/composables/useDiagAutoRefresh'
+import { useNodeOptions }                              from '@/composables/useNodeOptions'
 
 const SLOW_QUERY_SEC = 10
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
-const toast          = useToast()
 const selectedNodeId = ref<number | undefined>(undefined)
 const search         = ref('')
 const hideSystem     = ref(true)
-const killing        = ref<number | null>(null)
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
   queryKey: computed(() => ['diag-processes', clusterStore.selectedClusterId, selectedNodeId.value]),
-  queryFn: () => diagnosticsApi.getProcessList(clusterStore.selectedClusterId!, selectedNodeId.value),
-  enabled: computed(() => props.active && !!clusterStore.selectedClusterId),
+  queryFn:  () => diagnosticsApi.getProcessList(clusterStore.selectedClusterId!, selectedNodeId.value),
+  enabled:  computed(() => props.active && !!clusterStore.selectedClusterId),
   refetchInterval,
   staleTime: 0,
 })
@@ -194,8 +189,25 @@ const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
+// Partial per-node errors (node responded but with error field)
+const nodeErrors = computed(() =>
+    (data.value ?? []).filter((n: ProcessListNodeResult) => n.error)
+)
+
+// Flatten all processes from all nodes, annotate with node_name for the table
+const allRows = computed(() =>
+    (data.value ?? []).flatMap((n: ProcessListNodeResult) =>
+        n.processes.map((p, idx) => ({
+            ...p,
+            node_id:   n.node_id,
+            node_name: n.node_name,
+            _key:      `${n.node_id}-${p.id}-${idx}`,
+        }))
+    )
+)
+
 const filtered = computed(() => {
-  let rows: ProcessRow[] = data.value ?? []
+  let rows = allRows.value
   if (hideSystem.value) rows = rows.filter((r) => r.command !== 'Daemon' && r.user !== 'system user')
   if (search.value.trim()) {
     const q = search.value.toLowerCase()
@@ -217,48 +229,21 @@ function stateBadgeClass(state: string): string {
   if (s.includes('query') || s.includes('exec')) return 'badge--query'
   return 'badge--default'
 }
-
-async function handleKill(row: ProcessRow) {
-  if (!clusterStore.selectedClusterId || !selectedNodeId.value) return
-  killing.value = row.id
-  try {
-    const res = await diagnosticsApi.killProcess(clusterStore.selectedClusterId, selectedNodeId.value, row.id)
-    toast.add({
-      severity: res.killed ? 'success' : 'warn',
-      summary: res.killed ? `Killed process ${row.id}` : 'Kill failed',
-      detail: res.message,
-      life: 3000,
-    })
-    refetch()
-  } catch (err: any) {
-    toast.add({
-      severity: 'error',
-      summary: 'Error',
-      detail: err?.response?.data?.detail ?? err.message,
-      life: 5000,
-    })
-  } finally {
-    killing.value = null
-  }
-}
 </script>
 
 <style scoped>
-/* ── Layout ──────────────────────────────────────── */
 .diag-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-/* ── Node selector ──────────────────────────────── */
 .node-select {
   width: 160px;
   min-width: 140px;
   flex-shrink: 0;
 }
 
-/* ── Error alert ───────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -272,7 +257,6 @@ async function handleKill(row: ProcessRow) {
 }
 .error-alert .pi { font-size: var(--text-base); flex-shrink: 0; }
 
-/* ── Table wrapper ──────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -280,7 +264,6 @@ async function handleKill(row: ProcessRow) {
   background: var(--color-surface);
 }
 
-/* ── Table header toolbar ─────────────────────────── */
 .table-header {
   display: flex;
   align-items: center;
@@ -290,7 +273,6 @@ async function handleKill(row: ProcessRow) {
   border-bottom: 1px solid var(--color-border-muted);
 }
 
-/* search — flex-grow */
 .search-wrap {
   position: relative;
   display: flex;
@@ -309,43 +291,26 @@ async function handleKill(row: ProcessRow) {
   z-index: 1;
 }
 
-.search-input {
-  width: 100% !important;
-}
+.search-input { width: 100% !important; }
 :deep(.search-input.p-inputtext) {
   padding-left: calc(var(--space-3) + 16px);
 }
 
-/* ── Toggle row ─────────────────────────────────── */
-/*
-  Используем <label> вместо <div> — это разрешает PrimeVue ToggleSwitch
-  пробрасывать клик на label напрямую через <input type=checkbox>
-  Без height/overflow ограничений — PrimeVue рендерит position:relative
-  на рут элементе, что мешало flex align-items.
-*/
 .toggle-row {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
   cursor: pointer;
-  /* НЕТ height, НЕТ overflow — пусть PrimeVue сам расправляется */
 }
 
 .toggle-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  letter-spacing: 0.03em;
   white-space: nowrap;
   user-select: none;
 }
 
-/*
-  Прямой :deep без вложенного селектора — Vue scoped + :deep(X)
-  работает как: [data-v-xxx] .p-toggleswitch
-  Устанавливаем position: static — убираем inline position:relative
-  чтобы flex мог нормально центрировать элемент.
-*/
 :deep(.p-toggleswitch) {
   position: static !important;
   display: inline-flex !important;
@@ -360,7 +325,6 @@ async function handleKill(row: ProcessRow) {
   position: relative;
 }
 
-/* ── Row count badge ─────────────────────────────── */
 .row-count {
   flex-shrink: 0;
   display: inline-flex;
@@ -376,7 +340,6 @@ async function handleKill(row: ProcessRow) {
   padding: 2px var(--space-3);
 }
 
-/* ── DataTable column & cell overrides ──────────────── */
 :deep(.diag-table .p-datatable-table) {
   width: 100%;
   table-layout: fixed;
@@ -405,7 +368,13 @@ async function handleKill(row: ProcessRow) {
   border-bottom: none;
 }
 
-/* ── Cells ───────────────────────────────────────── */
+.cell-node {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
 .cell-id {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
@@ -428,17 +397,8 @@ async function handleKill(row: ProcessRow) {
   opacity: 0.7;
 }
 
-.cell-user {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.cell-host {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-muted);
-}
+.cell-user { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
+.cell-host { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-muted); }
 
 .cell-db {
   display: inline-flex;
@@ -449,18 +409,9 @@ async function handleKill(row: ProcessRow) {
   color: var(--color-primary);
 }
 
-.cell-command {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-}
+.cell-command { font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-dash    { color: var(--color-text-faint); font-size: var(--text-xs); }
 
-.cell-dash {
-  color: var(--color-text-faint);
-  font-size: var(--text-xs);
-}
-
-/* ── Time cell ───────────────────────────────────── */
 .cell-time {
   font-size: var(--text-sm);
   font-family: var(--font-mono);
@@ -473,7 +424,6 @@ async function handleKill(row: ProcessRow) {
   text-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 40%, transparent);
 }
 
-/* ── Query cell ───────────────────────────────────── */
 .cell-query {
   display: block;
   overflow: hidden;
@@ -486,7 +436,6 @@ async function handleKill(row: ProcessRow) {
 }
 :deep(tr:hover) .cell-query { color: var(--color-text); }
 
-/* ── State badge ─────────────────────────────────── */
 .state-badge {
   display: inline-flex;
   align-items: center;
@@ -510,39 +459,17 @@ async function handleKill(row: ProcessRow) {
 
 .badge--default { background: var(--color-surface-3); color: var(--color-text-muted); border-color: var(--color-border); }
 .badge--default .state-dot { background: var(--color-text-faint); }
-
-.badge--faint { background: var(--color-surface-3); color: var(--color-text-faint); border-color: var(--color-border-muted); }
-.badge--faint .state-dot { background: var(--color-text-faint); }
-
-.badge--warn {
-  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
-  color: var(--color-warning);
-  border-color: color-mix(in oklch, var(--color-warning) 28%, transparent);
-}
-.badge--warn .state-dot { background: var(--color-warning); animation: pulse-dot 1.2s ease-in-out infinite; }
-
-.badge--error {
-  background: color-mix(in oklch, var(--color-error) 12%, transparent);
-  color: var(--color-error);
-  border-color: color-mix(in oklch, var(--color-error) 28%, transparent);
-}
-.badge--error .state-dot { background: var(--color-error); animation: pulse-dot 1.2s ease-in-out infinite; }
-
-.badge--primary {
-  background: var(--color-primary-dim);
-  color: var(--color-primary);
-  border-color: var(--color-primary-glow);
-}
+.badge--faint   { background: var(--color-surface-3); color: var(--color-text-faint); border-color: var(--color-border-muted); }
+.badge--faint   .state-dot { background: var(--color-text-faint); }
+.badge--warn    { background: color-mix(in oklch, var(--color-warning) 12%, transparent); color: var(--color-warning); border-color: color-mix(in oklch, var(--color-warning) 28%, transparent); }
+.badge--warn    .state-dot { background: var(--color-warning); animation: pulse-dot 1.2s ease-in-out infinite; }
+.badge--error   { background: color-mix(in oklch, var(--color-error) 12%, transparent); color: var(--color-error); border-color: color-mix(in oklch, var(--color-error) 28%, transparent); }
+.badge--error   .state-dot { background: var(--color-error); animation: pulse-dot 1.2s ease-in-out infinite; }
+.badge--primary { background: var(--color-primary-dim); color: var(--color-primary); border-color: var(--color-primary-glow); }
 .badge--primary .state-dot { background: var(--color-primary); }
+.badge--query   { background: color-mix(in oklch, var(--color-info) 12%, transparent); color: var(--color-info); border-color: color-mix(in oklch, var(--color-info) 28%, transparent); }
+.badge--query   .state-dot { background: var(--color-info); }
 
-.badge--query {
-  background: color-mix(in oklch, var(--color-info) 12%, transparent);
-  color: var(--color-info);
-  border-color: color-mix(in oklch, var(--color-info) 28%, transparent);
-}
-.badge--query .state-dot { background: var(--color-info); }
-
-/* ── Empty state ────────────────────────────────── */
 .empty-row {
   display: flex;
   flex-direction: column;
@@ -555,7 +482,6 @@ async function handleKill(row: ProcessRow) {
 }
 .empty-row .pi { font-size: 1.5rem; opacity: 0.4; }
 
-/* ── Paginator ───────────────────────────────────── */
 :deep(.p-paginator) {
   background: var(--color-surface-2);
   border-top: 1px solid var(--color-border-muted);

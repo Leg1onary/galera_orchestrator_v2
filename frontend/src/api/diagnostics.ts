@@ -57,6 +57,16 @@ export type ArbitratorConnectionResult = {
     latency_ssh_ms: number | null
 }
 
+// ── Galera status ──────────────────────────────────────────────────────────
+// GET /api/clusters/{cluster_id}/diagnostics/galera-status
+export type GaleraStatusNodeResult = {
+    node_id: number
+    node_name: string
+    host: string
+    status: Record<string, string>
+    error: string | null
+}
+
 // ── Process list ───────────────────────────────────────────────────────────
 // GET /api/clusters/{cluster_id}/diagnostics/process-list?node_id=N
 export type ProcessRow = {
@@ -68,6 +78,13 @@ export type ProcessRow = {
     time: number
     state: string | null
     info: string | null
+}
+
+export type ProcessListNodeResult = {
+    node_id: number
+    node_name: string
+    error: string | null
+    processes: ProcessRow[]
 }
 
 // ── Slow query log ─────────────────────────────────────────────────────────
@@ -83,6 +100,14 @@ export type SlowQueryRow = {
     sql_text: string
 }
 
+export type SlowQueryNodeResult = {
+    node_id: number
+    node_name: string
+    slow_log_enabled: boolean | null
+    rows: SlowQueryRow[]
+    error: string | null
+}
+
 // ── Error log ──────────────────────────────────────────────────────────────
 // GET /api/clusters/{cluster_id}/nodes/{node_id}/error-log?lines=N
 export type ErrorLogResult = {
@@ -90,12 +115,7 @@ export type ErrorLogResult = {
     node_name: string
     lines: string[]
     fetched_at: string
-}
-
-// ── Kill process result ────────────────────────────────────────────────────
-export type KillResult = {
-    killed: boolean
-    message: string
+    error: string | null
 }
 
 export const diagnosticsApi = {
@@ -125,14 +145,14 @@ export const diagnosticsApi = {
         api
             .get<ArbitratorLogResult>(
                 `/api/clusters/${clusterId}/arbitrators/${arbitratorId}/log`,
-                { params: { lines } }
+                { params: { lines } },
             )
             .then((r) => r.data),
 
     arbitratorTestConnection: (clusterId: number, arbitratorId: number) =>
         api
             .get<ArbitratorConnectionResult>(
-                `/api/clusters/${clusterId}/arbitrators/${arbitratorId}/test-connection`
+                `/api/clusters/${clusterId}/arbitrators/${arbitratorId}/test-connection`,
             )
             .then((r) => r.data),
 
@@ -141,22 +161,31 @@ export const diagnosticsApi = {
             .get(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
-    // ── Process list ───────────────────────────────────────────────────────
+    // ── Galera status ──────────────────────────────────────────────────────
+    // GET /api/clusters/{cluster_id}/diagnostics/galera-status
+    getGaleraStatus: (clusterId: number) =>
+        api
+            .get<GaleraStatusNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/galera-status`)
+            .then((r) => r.data),
+
+    // ── Process list (read-only) ───────────────────────────────────────────
     // GET /api/clusters/{cluster_id}/diagnostics/process-list
     getProcessList: (clusterId: number, nodeId?: number) =>
         api
-            .get<ProcessRow[]>(`/api/clusters/${clusterId}/diagnostics/process-list`, {
-                params: nodeId !== undefined ? { node_id: nodeId } : {},
-            })
+            .get<ProcessListNodeResult[]>(
+                `/api/clusters/${clusterId}/diagnostics/process-list`,
+                { params: nodeId !== undefined ? { node_id: nodeId } : {} },
+            )
             .then((r) => r.data),
 
     // ── Slow query log ─────────────────────────────────────────────────────
     // GET /api/clusters/{cluster_id}/diagnostics/slow-queries
     getSlowQueries: (clusterId: number, nodeId?: number) =>
         api
-            .get<SlowQueryRow[]>(`/api/clusters/${clusterId}/diagnostics/slow-queries`, {
-                params: nodeId !== undefined ? { node_id: nodeId } : {},
-            })
+            .get<SlowQueryNodeResult[]>(
+                `/api/clusters/${clusterId}/diagnostics/slow-queries`,
+                { params: nodeId !== undefined ? { node_id: nodeId } : {} },
+            )
             .then((r) => r.data),
 
     // ── Error log ──────────────────────────────────────────────────────────
@@ -165,16 +194,7 @@ export const diagnosticsApi = {
         api
             .get<ErrorLogResult>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/error-log`,
-                { params: { lines } }
-            )
-            .then((r) => r.data),
-
-    // ── Kill process ───────────────────────────────────────────────────────
-    // DELETE /api/clusters/{cluster_id}/nodes/{node_id}/processes/{process_id}
-    killProcess: (clusterId: number, nodeId: number, processId: number) =>
-        api
-            .delete<KillResult>(
-                `/api/clusters/${clusterId}/nodes/${nodeId}/processes/${processId}`
+                { params: { lines } },
             )
             .then((r) => r.data),
 }
