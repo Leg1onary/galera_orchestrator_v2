@@ -61,6 +61,7 @@ async def log_event_async(
         cluster_id: Optional[int] = None,
         operation_id: Optional[int] = None,
 ) -> None:
+    """Async wrapper — fire-and-forget, swallows DB errors silently."""
     from database import engine
 
     def _write() -> None:
@@ -68,13 +69,12 @@ async def log_event_async(
             log_event(conn, level=level, source=source, message=message,
                       node_id=node_id, arbitrator_id=arbitrator_id,
                       cluster_id=cluster_id, operation_id=operation_id)
+
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _write)
     except Exception:
         logger.exception("log_event_async failed silently: %s", message)
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _write)
 
 
 def write_event(

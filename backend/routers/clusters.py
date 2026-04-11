@@ -95,11 +95,16 @@ def _fetch_arbitrators(cluster_id: int) -> list[dict]:
 
 
 def _fetch_active_operation(cluster_id: int) -> dict | None:
-    """Возвращает активную операцию кластера (pending/running/cancel_requested)."""
+    """Возвращает активную операцию кластера (pending/running/cancel_requested).
+
+    Включает error_message и details_json чтобы фронт мог показать
+    детали и ошибку прямо из active_operation без доп. запросов.
+    """
     with engine.begin() as conn:
         row = conn.execute(
             text("""
-                 SELECT id, type, status, started_at, target_node_id
+                 SELECT id, type, status, started_at, target_node_id,
+                        error_message, details_json
                  FROM cluster_operations
                  WHERE cluster_id = :cid
                    AND status IN ('pending', 'running', 'cancel_requested')
@@ -128,12 +133,10 @@ def _calc_cluster_status(
     if not enabled_nodes:
         return "degraded"
 
-    # Split-brain check
     for s in node_states.values():
         if s.db_ok and s.wsrep_cluster_status.upper() != "PRIMARY":
             return "critical"
 
-    # Healthy: все enabled-ноды онлайн, видят Primary, в рабочем состоянии
     _LIVE_STATES = {"SYNCED", "DONOR", "JOINER"}
     for node in enabled_nodes:
         s = node_states.get(node["id"])
@@ -153,7 +156,6 @@ def _build_cluster_live_summary(
         cluster_id: int,
         nodes: list[dict],
 ) -> dict[str, Any]:
-    """Компактная live-сводка для GET /api/clusters (list endpoint)."""
     node_states = live_node_states.get(cluster_id, {})
 
     if not node_states:
@@ -191,12 +193,6 @@ async def list_clusters(contour_id: int | None = None) -> list[dict]:
     GET /api/clusters?contour_id=N
 
     ТЗ 9.1
-
-    Response shape (matches ClusterStore.Cluster interface):
-      id, name, contour_id, contour_name,
-      status           — promoted from live.status (top-level для store)
-      active_operation — активная операция или null (для isLocked в AppSidebar)
-      live             — полная live-сводка
     """
     clusters = _fetch_clusters(contour_id)
     result = []
@@ -206,11 +202,8 @@ async def list_clusters(contour_id: int | None = None) -> list[dict]:
         active_op = _fetch_active_operation(cluster["id"])
         result.append({
             **cluster,
-            # Promoted to top-level — AppSidebar reads cluster.status directly
             "status":           live["status"],
-            # Promoted to top-level — opsStore/isLocked reads cluster.active_operation
             "active_operation": active_op,
-            # Full live summary still available for Overview/Topology pages
             "live":             live,
         })
     return result
@@ -234,7 +227,6 @@ async def cluster_status(cluster_id: int) -> dict:
     node_states = live_node_states.get(cluster_id, {})
     arb_states  = live_arbitrator_states.get(cluster_id, {})
 
-    # Nodes с live-полями
     nodes_out = []
     for n in nodes:
         live = node_states.get(n["id"])
@@ -253,7 +245,6 @@ async def cluster_status(cluster_id: int) -> dict:
             "live":        live.to_dict() if live is not None else None,
         })
 
-    # Arbitrators с live-полями
     arbitrators_out = []
     for a in arbitrators:
         live = arb_states.get(a["id"])
@@ -269,7 +260,6 @@ async def cluster_status(cluster_id: int) -> dict:
             "live":     live.to_dict() if live is not None else None,
         })
 
-    # Cluster-level derived fields (ТЗ 9.2 response shape)
     cluster_status_str = _calc_cluster_status(node_states, nodes)
     has_live = bool(node_states)
 
@@ -281,14 +271,12 @@ async def cluster_status(cluster_id: int) -> dict:
         for s in node_states.values()
     )
 
-    # last_update_ts: берём max last_check_ts среди живых нод
     ts_values = [
         s.last_check_ts for s in node_states.values()
         if s.last_check_ts is not None
     ]
     last_update_ts = max(ts_values).isoformat() if ts_values else None
 
-    # wsrep_cluster_size из любой живой ноды
     wsrep_cluster_size = None
     for s in node_states.values():
         if s.db_ok and s.wsrep_cluster_size:
@@ -329,7 +317,6 @@ async def cluster_log(
     GET /api/clusters/{cluster_id}/log
 
     Возвращает event_log по кластеру с опциональными фильтрами.
-    Используется фронтом для вкладки "События" в NodeDetailDrawer.
 
     Query params:
       node_id        — фильтр по ноде
