@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@fontsource/jetbrains-mono": "^5.1.0",
     "@primevue/themes": "^4.2.5",
     "@tanstack/vue-query": "^5.62.0",
     "@vueuse/core": "^11.3.0",
