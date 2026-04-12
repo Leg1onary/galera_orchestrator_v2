@@ -52,8 +52,11 @@ function toggle(e: Event) { popoverRef.value?.toggle(e) }
 
 const ONLINE_STATES = ['SYNCED', 'DONOR', 'JOINER', 'DESYNCED'] as const
 
-// Все live-поля читаем через props.node.live?.* — live является вложенным объектом NodeLiveData
-const stateComment = computed(() => props.node.live?.wsrep_local_state_comment ?? '')
+// Бэкенд возвращает wsrep_local_state_comment как "Synced", "Donor" и т..д. —
+// нормализуем к uppercase перед сравнением, чтобы не зависеть от регистра.
+const stateComment = computed(() =>
+    (props.node.live?.wsrep_local_state_comment ?? '').toUpperCase().split('/')[0].trim()
+)
 const isOnline     = computed(() =>
     ONLINE_STATES.includes(stateComment.value as typeof ONLINE_STATES[number]),
 )
