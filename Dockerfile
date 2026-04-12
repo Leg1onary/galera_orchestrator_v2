@@ -6,7 +6,7 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /frontend
 
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci --silent
+RUN npm ci
 
 COPY frontend/ ./
 RUN npm run build
@@ -21,7 +21,6 @@ FROM python:3.11-slim-bookworm AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    # Uvicorn не показывает access-log в stdout по умолчанию в prod
     UVICORN_ACCESS_LOG=1
 
 # openssh-client нужен paramiko для known_hosts и host-key проверок
@@ -43,17 +42,11 @@ COPY backend/ ./
 # Статика из Stage 1
 COPY --from=frontend-builder /backend/static ./static
 
-# Volume mount-point для SQLite (создаётся заранее, чтобы Docker не делал его root-owned)
+# Volume mount-point для SQLite
 RUN mkdir -p /data && chmod 755 /data
 
 # SSH-ключ монтируется bind-mount'ом read-only — директория должна существовать
 RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
-
-# Создаём непривилегированного пользователя
-# Примечание: SSH-ключ монтируется в /root/.ssh — если менять на non-root,
-# нужно обновить SSH_KEY_PATH и vite.config. Пока остаём root (ТЗ 3.2).
-# RUN useradd -r -u 1001 -g root orchestrator
-# USER orchestrator
 
 EXPOSE 8000
 
