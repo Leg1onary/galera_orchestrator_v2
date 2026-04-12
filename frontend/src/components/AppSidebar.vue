@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore }    from '@/stores/cluster'
 import { useOperationsStore } from '@/stores/operations'
-import { useWsStore }         from '@/stores/ws'
+import { useQueryClient }     from '@tanstack/vue-query'
 
 const props = defineProps<{ collapsed: boolean }>()
 const emit  = defineEmits<{ toggle: [] }>()
@@ -12,9 +12,20 @@ const route        = useRoute()
 const router       = useRouter()
 const clusterStore = useClusterStore()
 const opsStore     = useOperationsStore()
-const wsStore      = useWsStore()
+const qc           = useQueryClient()
 
 const clusterId = computed(() => clusterStore.selectedCluster?.id ?? 0)
+
+// ── Contour switcher ────────────────────────────────────────────────────────
+const CONTOURS = [
+  { id: 1, name: 'TEST', color: 'amber' },
+  { id: 2, name: 'PROD', color: 'green' },
+]
+const selectedContourId = computed(() => clusterStore.selectedContourId)
+function switchContour(id: number) {
+  if (id === selectedContourId.value) return
+  clusterStore.selectContour(id)
+}
 
 // ── Nav items ───────────────────────────────────────────────────────────────
 interface NavItem {
@@ -44,7 +55,6 @@ const groups: { key: string; label: string }[] = [
 
 function isActive(item: NavItem)  { return route.name === item.key }
 function navigate(item: NavItem)  {
-  // guard: locked ops items must not trigger navigation
   if (isItemLocked(item)) return
   if (item.to) router.push(item.to())
 }
@@ -80,21 +90,9 @@ const opLabel = computed(() =>
 
 /*
   showOpBar drives v-show (NOT <Transition>+v-if) on the progress bar.
-
-  Why v-show and not <Transition>+v-if:
-  Vue's <Transition> holds the element in the DOM during the leave-animation.
-  If router.push() fires during that window Vue tries to patch a node the
-  router has already removed → "Cannot read properties of null (reading
-  'parentNode')". v-show never removes the node from the DOM, so the race
-  condition cannot happen. Visual hide/show is handled via CSS opacity.
+  v-show never removes the node → avoids parentNode crash on router.push.
 */
 const showOpBar = computed(() => isLocked.value && !props.collapsed)
-
-// ── Cluster count (footer) ───────────────────────────────────────────────────────
-const clusterCount = computed(() => clusterStore.clustersForContour.length)
-
-// ── WS ───────────────────────────────────────────────────────────────────────
-const wsStatus = computed(() => wsStore.connectionStatus)
 
 // ── Lock check per item ───────────────────────────────────────────────────────
 function isItemLocked(item: NavItem) {
@@ -150,7 +148,7 @@ function isItemLocked(item: NavItem) {
         { 'cluster-pill--collapsed': collapsed },
         { 'cluster-pill--locked': isLocked },
       ]"
-      :title="collapsed ? clusterName ?? '' : undefined"
+      :title="collapsed ? `${clusterName ?? ''} · ${clusterStatus ?? 'unknown'}` : undefined"
     >
       <template v-if="collapsed">
         <span class="cluster-dot" :style="{ background: statusColor, boxShadow: `0 0 7px ${statusColor}99` }" />
@@ -171,8 +169,37 @@ function isItemLocked(item: NavItem) {
       </template>
     </div>
 
+    <!-- ══ CONTOUR SWITCHER ══════════════════════════════════════════════ -->
+    <div
+      v-if="!collapsed"
+      class="contour-switcher"
+      role="group"
+      aria-label="Contour"
+    >
+      <button
+        v-for="c in CONTOURS"
+        :key="c.id"
+        :class="['contour-btn', `contour-btn--${c.color}`, { 'is-active': selectedContourId === c.id }]"
+        @click="switchContour(c.id)"
+        :aria-pressed="selectedContourId === c.id"
+        v-tooltip.right="`Switch to ${c.name} contour`"
+      >
+        {{ c.name }}
+      </button>
+    </div>
+    <!-- collapsed: single dot with tooltip indicating current contour -->
+    <div
+      v-else-if="collapsed && clusterStore.selectedCluster"
+      class="contour-collapsed"
+      v-tooltip.right="`Contour: ${CONTOURS.find(c => c.id === selectedContourId)?.name ?? '?'}`"
+    >
+      <span
+        class="contour-dot"
+        :class="`contour-dot--${CONTOURS.find(c => c.id === selectedContourId)?.color ?? 'amber'}`"
+      />
+    </div>
+
     <!-- ══ OPERATION PROGRESS BAR ═══════════════════════════════════════════ -->
-    <!-- v-show intentional: avoids Transition+v-if parentNode crash on router.push -->
     <div v-show="showOpBar" class="op-progress-wrap">
       <div class="op-progress-label">
         <i class="pi pi-spin pi-spinner" />
@@ -206,7 +233,6 @@ function isItemLocked(item: NavItem) {
           :aria-label="item.label"
           :aria-current="isActive(item) ? 'page' : undefined"
         >
-          <span v-if="isActive(item)" class="nav-glow-sweep" aria-hidden="true" />
           <i :class="'pi ' + item.icon" class="nav-icon" />
           <span class="nav-label" v-show="!collapsed">{{ item.label }}</span>
           <i v-if="isItemLocked(item) && !collapsed" class="pi pi-lock nav-lock-icon" aria-hidden="true" />
@@ -218,22 +244,12 @@ function isItemLocked(item: NavItem) {
     <!-- ══ FOOTER ═════════════════════════════════════════════════════════ -->
     <div class="sidebar-footer" :class="{ 'sidebar-footer--collapsed': collapsed }">
       <template v-if="!collapsed">
-        <div class="footer-ws-row">
-          <span :class="['footer-ws-dot', `footer-ws-dot--${wsStatus}`]" />
-          <span class="footer-ws-label">
-            {{ wsStatus === 'connected' ? 'Live' : wsStatus === 'reconnecting' ? 'Reconnecting' : wsStatus === 'connecting' ? 'Connecting' : 'Offline' }}
-          </span>
-          <span class="footer-cluster-count" v-if="clusterCount > 0">
-            {{ clusterCount }} cluster{{ clusterCount !== 1 ? 's' : '' }}
+        <div class="footer-meta">
+          <span class="footer-cluster-count" v-if="clusterStore.clustersForContour.length > 0">
+            {{ clusterStore.clustersForContour.length }}
+            cluster{{ clusterStore.clustersForContour.length !== 1 ? 's' : '' }}
           </span>
         </div>
-        <div class="footer-brand"><span>Galera Orchestrator</span></div>
-      </template>
-      <template v-else>
-        <span
-          :class="['footer-ws-dot', `footer-ws-dot--${wsStatus}`, 'footer-ws-dot--solo']"
-          v-tooltip.right="`WebSocket: ${wsStatus}`"
-        />
       </template>
     </div>
 
@@ -439,8 +455,71 @@ function isItemLocked(item: NavItem) {
 }
 
 /* ════════════════════════════════════════════════════════
+   CONTOUR SWITCHER
+════════════════════════════════════════════════════════ */
+.contour-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: var(--space-2) var(--space-3) 0;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 2px;
+}
+.contour-btn {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #52525b;
+  transition: all 200ms cubic-bezier(0.16,1,0.3,1);
+  white-space: nowrap;
+  line-height: 1.5;
+  text-align: center;
+}
+.contour-btn--amber:hover:not(.is-active) {
+  color: #fbbf24;
+  background: rgba(251,191,36,0.07);
+}
+.contour-btn--amber.is-active {
+  background: rgba(251,191,36,0.12);
+  border-color: rgba(251,191,36,0.28);
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(251,191,36,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.contour-btn--green:hover:not(.is-active) {
+  color: #4ade80;
+  background: rgba(74,222,128,0.07);
+}
+.contour-btn--green.is-active {
+  background: rgba(74,222,128,0.1);
+  border-color: rgba(74,222,128,0.25);
+  color: #4ade80;
+  box-shadow: 0 0 10px rgba(74,222,128,0.1), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* Collapsed: single dot показывает активный контур */
+.contour-collapsed {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-2) auto 0;
+  cursor: default;
+}
+.contour-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+.contour-dot--amber { background: #fbbf24; box-shadow: 0 0 5px rgba(251,191,36,0.6); }
+.contour-dot--green { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.6); }
+
+/* ════════════════════════════════════════════════════════
    OPERATION PROGRESS BAR
-   v-show intentional — never unmounts, avoids parentNode crash on router.push
 ════════════════════════════════════════════════════════ */
 .op-progress-wrap {
   margin: 6px var(--space-3) 0;
@@ -548,16 +627,9 @@ function isItemLocked(item: NavItem) {
 .nav-item--active { color: #e4e4e7; background: rgba(45,212,191,0.07); font-weight: 550; }
 .nav-item--active:hover { background: rgba(45,212,191,0.1); }
 .nav-item--active .nav-icon { color: #2dd4bf; }
-.nav-item--locked { opacity: 0.45; cursor: not-allowed; }
-.nav-item--locked:hover { background: rgba(251,191,36,0.04); color: #71717a; }
-.nav-item--locked:hover .nav-icon { color: #71717a; transform: none; }
-.nav-glow-sweep {
-  position: absolute;
-  inset: 0;
-  border-radius: 7px;
-  background: linear-gradient(90deg, rgba(45,212,191,0.12) 0%, rgba(45,212,191,0.04) 50%, transparent 100%);
-  pointer-events: none;
-}
+.nav-item--locked { opacity: 0.55; cursor: not-allowed; }
+.nav-item--locked:hover { background: transparent; color: #52525b; }
+.nav-item--locked:hover .nav-icon { color: #52525b; transform: none; }
 .sidebar--collapsed .nav-item { justify-content: center; padding: 8px; }
 .nav-icon {
   font-size: 0.875rem;
@@ -590,23 +662,16 @@ function isItemLocked(item: NavItem) {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid rgba(255,255,255,0.04);
   flex-shrink: 0;
+  min-height: 36px;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
 }
-.sidebar-footer--collapsed { padding: var(--space-3); align-items: center; }
-.footer-ws-row { display: flex; align-items: center; gap: 6px; }
-.footer-ws-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.footer-ws-dot--solo { width: 7px; height: 7px; cursor: default; }
-.footer-ws-dot--connected    { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.65); animation: ws-glow 2.5s ease-in-out infinite; }
-.footer-ws-dot--reconnecting { background: #fbbf24; animation: blink 0.9s ease-in-out infinite; }
-.footer-ws-dot--connecting   { background: #fbbf24; animation: blink 1.2s ease-in-out infinite; }
-.footer-ws-dot--disconnected { background: #3f3f46; }
-@keyframes ws-glow {
-  0%, 100% { box-shadow: 0 0 5px rgba(74,222,128,0.65); }
-  50%       { box-shadow: 0 0 2px rgba(74,222,128,0.2); }
+.sidebar-footer--collapsed { justify-content: center; padding: var(--space-3); }
+.footer-meta { display: flex; align-items: center; width: 100%; }
+.footer-cluster-count {
+  font-size: 0.65rem;
+  color: #3f3f46;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.02em;
 }
-.footer-ws-label { font-size: 0.68rem; color: #52525b; font-family: var(--font-mono, monospace); letter-spacing: 0.02em; }
-.footer-cluster-count { margin-left: auto; font-size: 0.65rem; color: #3f3f46; font-family: var(--font-mono, monospace); letter-spacing: 0.02em; }
-.footer-brand { font-size: 0.6rem; color: #2d2d2d; letter-spacing: 0.04em; white-space: nowrap; }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useOperationsStore } from '@/stores/operations'
 import { useClusterStore }    from '@/stores/cluster'
 
@@ -21,7 +21,27 @@ const isFinished = computed(() =>
   ['success', 'failed', 'cancelled'].includes(activeOp.value.status)
 )
 
-// ── Live local clock ──────────────────────────────────────────────
+// ── Auto-dismiss finished op after 10s ───────────────────────────────────────
+// We keep a local "visible" flag that goes false 10s after op finishes.
+// isRunning resets it back to true when a new op starts.
+const finishedVisible = ref(false)
+let dismissTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(isFinished, (val) => {
+  if (val) {
+    finishedVisible.value = true
+    dismissTimer = setTimeout(() => { finishedVisible.value = false }, 10_000)
+  }
+})
+watch(isRunning, (val) => {
+  if (val) {
+    finishedVisible.value = false
+    if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null }
+  }
+})
+onUnmounted(() => { if (dismissTimer) clearTimeout(dismissTimer) })
+
+// ── Live local clock ──────────────────────────────────────────────────────────
 const nowStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
@@ -32,11 +52,10 @@ function tick() {
   const ss = String(d.getSeconds()).padStart(2, '0')
   nowStr.value = `${hh}:${mm}:${ss}`
 }
-
 onMounted(() => { tick(); clockTimer = setInterval(tick, 1000) })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 
-// ── Op labels ───────────────────────────────────────────────────────────
+// ── Op labels ─────────────────────────────────────────────────────────────────
 const OP_LABELS: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
   'recovery-rejoin':    'Rejoin',
@@ -55,7 +74,7 @@ const STATUS_LABEL: Record<string, string> = {
 const opTypeLabel   = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
 const opStatusLabel = computed(() => STATUS_LABEL[activeOp.value?.status ?? ''] ?? activeOp.value?.status ?? '')
 
-// ── Elapsed timer ────────────────────────────────────────────────────────
+// ── Elapsed timer ─────────────────────────────────────────────────────────────
 const elapsedStr = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -67,7 +86,6 @@ function updateElapsed() {
   const s = sec % 60
   elapsedStr.value = m > 0 ? `${m}m ${s}s` : `${s}s`
 }
-
 onMounted(() => { updateElapsed(); elapsedTimer = setInterval(updateElapsed, 1000) })
 onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 </script>
@@ -75,19 +93,13 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 <template>
   <footer class="app-footer">
 
-    <!-- LEFT -->
-    <div class="footer-left">
-      <svg width="16" height="16" viewBox="0 0 22 22" fill="none" aria-hidden="true" class="footer-logo">
-        <circle cx="11" cy="11" r="10" stroke="#2dd4bf" stroke-width="1.5" opacity="0.3"/>
-        <circle cx="11" cy="11" r="6"  stroke="#2dd4bf" stroke-width="1.5" opacity="0.55"/>
-        <circle cx="11" cy="11" r="2.5" fill="#2dd4bf" opacity="0.8"/>
-      </svg>
-      <span class="footer-brand">Galera Orchestrator</span>
-      <span class="footer-version">v2</span>
-    </div>
+    <!-- LEFT: empty / reserved for future use -->
+    <div class="footer-left" />
 
-    <!-- CENTER -->
+    <!-- CENTER: op status -->
     <div class="footer-center">
+
+      <!-- Running op -->
       <template v-if="isRunning && activeOp">
         <span class="op-dot op-dot--running" />
         <span class="op-type">{{ opTypeLabel }}</span>
@@ -96,22 +108,29 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
         <span v-if="elapsedStr" class="op-elapsed">{{ elapsedStr }}</span>
       </template>
 
-      <template v-else-if="isFinished && activeOp">
-        <span :class="['op-dot', activeOp.status === 'success' ? 'op-dot--success' : 'op-dot--error']" />
-        <span class="op-type">{{ opTypeLabel }}</span>
-        <span class="op-sep">/</span>
-        <span :class="['op-status', activeOp.status === 'success' ? 'op-status--ok' : 'op-status--err']">
-          {{ opStatusLabel }}
-        </span>
+      <!-- Finished op (auto-dismiss in 10s) -->
+      <Transition name="fade-op">
+        <template v-if="isFinished && activeOp && finishedVisible">
+          <div class="finished-row">
+            <span :class="['op-dot', activeOp.status === 'success' ? 'op-dot--success' : 'op-dot--error']" />
+            <span class="op-type">{{ opTypeLabel }}</span>
+            <span class="op-sep">/</span>
+            <span :class="['op-status', activeOp.status === 'success' ? 'op-status--ok' : 'op-status--err']">
+              {{ opStatusLabel }}
+            </span>
+          </div>
+        </template>
+      </Transition>
+
+      <!-- Idle -->
+      <template v-if="!isRunning && !finishedVisible">
+        <span class="idle-dot" />
+        <span class="idle-text">idle</span>
       </template>
 
-      <template v-else>
-        <span class="idle-dot" />
-        <span class="idle-text">system idle</span>
-      </template>
     </div>
 
-    <!-- RIGHT -->
+    <!-- RIGHT: clock -->
     <div class="footer-right">
       <span class="footer-clock">{{ nowStr }}</span>
     </div>
@@ -121,11 +140,11 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
 <style scoped>
 .app-footer {
-  height: 44px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-6);
+  padding: 0 var(--space-5);
   border-top: 1px solid rgba(255,255,255,0.05);
   flex-shrink: 0;
   background: #0a0b0e;
@@ -134,34 +153,7 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 }
 
 /* ── Left ── */
-.footer-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-.footer-logo { opacity: 0.75; flex-shrink: 0; }
-
-.footer-brand {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #52525b;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.footer-version {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #2dd4bf;
-  background: rgba(45,212,191,0.08);
-  border: 1px solid rgba(45,212,191,0.18);
-  border-radius: 4px;
-  padding: 1px 6px;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
-}
+.footer-left { flex-shrink: 0; min-width: 80px; }
 
 /* ── Center ── */
 .footer-center {
@@ -171,6 +163,13 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   flex: 1;
   justify-content: center;
   min-width: 0;
+  position: relative;
+}
+
+.finished-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .op-dot {
@@ -196,14 +195,14 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2); }
 }
 
-.op-type   { font-size: 0.8rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
-.op-sep    { font-size: 0.8rem; color: #3f3f46; }
-.op-status { font-size: 0.8rem; color: #2dd4bf; font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-type   { font-size: 0.78rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-sep    { font-size: 0.78rem; color: #3f3f46; }
+.op-status { font-size: 0.78rem; color: #2dd4bf; font-family: var(--font-mono, monospace); white-space: nowrap; }
 .op-status--ok  { color: #4ade80; }
 .op-status--err { color: #f87171; }
 
 .op-elapsed {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #71717a;
   font-family: var(--font-mono, monospace);
   background: rgba(255,255,255,0.05);
@@ -224,25 +223,31 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   50%       { opacity: 0.9; }
 }
 .idle-text {
-  font-size: 0.8rem;
-  color: #52525b;
-  letter-spacing: 0.04em;
+  font-size: 0.78rem;
+  color: #3f3f46;
+  letter-spacing: 0.06em;
   font-family: var(--font-mono, monospace);
 }
+
+/* Fade transition for finished op dismiss */
+.fade-op-enter-active { transition: opacity 400ms ease; }
+.fade-op-leave-active { transition: opacity 600ms ease; }
+.fade-op-enter-from, .fade-op-leave-to { opacity: 0; }
 
 /* ── Right ── */
 .footer-right {
   display: flex;
   align-items: center;
-  gap: 5px;
   flex-shrink: 0;
+  min-width: 80px;
+  justify-content: flex-end;
 }
 
 .footer-clock {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-family: var(--font-mono, monospace);
   font-weight: 500;
-  color: #71717a;
+  color: #52525b;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   transition: color 300ms ease;
