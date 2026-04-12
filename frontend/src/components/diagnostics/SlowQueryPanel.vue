@@ -20,15 +20,26 @@
       />
     </PanelToolbar>
 
+    <!-- Network / query-level error -->
     <div v-if="error" class="error-alert">
       <i class="pi pi-exclamation-circle" />
       <span>{{ error.message }}</span>
     </div>
 
+    <!-- Per-node SSH/DB errors -->
+    <div
+        v-for="n in errorNodes"
+        :key="'err-' + n.node_id"
+        class="error-alert"
+    >
+      <i class="pi pi-exclamation-circle" />
+      <span><strong>{{ n.node_name }}</strong>: {{ n.error }}</span>
+    </div>
+
     <!-- slow_query_log=OFF banner (per node) -->
     <div
         v-for="n in disabledNodes"
-        :key="n.node_id"
+        :key="'off-' + n.node_id"
         class="info-banner"
     >
       <i class="pi pi-info-circle" />
@@ -44,7 +55,7 @@
           :rows="50"
           paginator
           paginator-template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
-          sort-field="query_time"
+          sort-field="_query_time_sec"
           :sort-order="-1"
           row-hover
           class="diag-table"
@@ -80,13 +91,14 @@
           </template>
         </Column>
 
-        <Column field="query_time" header="Query time" style="width: 110px" :sortable="true">
+        <!-- Sort by numeric seconds field, display original HH:MM:SS string -->
+        <Column field="_query_time_sec" header="Query time" style="width: 110px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-time-warn">{{ data.query_time }}</span>
           </template>
         </Column>
 
-        <Column field="lock_time" header="Lock time" style="width: 110px" :sortable="true">
+        <Column field="_lock_time_sec" header="Lock time" style="width: 110px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-mono cell-dim">{{ data.lock_time }}</span>
           </template>
@@ -94,13 +106,13 @@
 
         <Column field="rows_examined" header="Rows exam." style="width: 100px" :sortable="true">
           <template #body="{ data }">
-            <span class="cell-mono cell-dim">{{ data.rows_examined }}</span>
+            <span class="cell-mono cell-dim">{{ fmtNum(data.rows_examined) }}</span>
           </template>
         </Column>
 
         <Column field="rows_sent" header="Rows sent" style="width: 100px" :sortable="true">
           <template #body="{ data }">
-            <span class="cell-mono cell-dim">{{ data.rows_sent }}</span>
+            <span class="cell-mono cell-dim">{{ fmtNum(data.rows_sent) }}</span>
           </template>
         </Column>
 
@@ -163,21 +175,47 @@ const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
+/**
+ * Convert "HH:MM:SS" to total seconds for correct numeric sorting.
+ * Falls back to 0 if the format is unexpected.
+ */
+function hmsToSec(hms: string | null | undefined): number {
+  if (!hms) return 0
+  const parts = hms.split(':').map(Number)
+  if (parts.length !== 3 || parts.some(isNaN)) return 0
+  return parts[0] * 3600 + parts[1] * 60 + parts[2]
+}
+
+/** Format large numbers with locale-aware thousand separators. */
+function fmtNum(val: number | null | undefined): string {
+  if (val == null) return '—'
+  return Number(val).toLocaleString()
+}
+
 // Nodes where slow_query_log is explicitly OFF
 const disabledNodes = computed(() =>
     (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === false)
 )
 
-// Flatten rows from all nodes, annotate with node_name
+// Nodes that returned an SSH/DB error (slow_log_enabled === null and error present)
+const errorNodes = computed(() =>
+    (data.value ?? []).filter((n: SlowQueryNodeResult) => !!n.error)
+)
+
+// Flatten rows from all nodes that are enabled and error-free, annotate with
+// node_name and pre-computed numeric sort fields.
 const allRows = computed(() =>
     (data.value ?? [])
-        .filter((n: SlowQueryNodeResult) => n.slow_log_enabled !== false)
+        .filter((n: SlowQueryNodeResult) => n.slow_log_enabled !== false && !n.error)
         .flatMap((n: SlowQueryNodeResult, ni: number) =>
             n.rows.map((r, ri) => ({
                 ...r,
-                node_name: n.node_name,
-                node_id:   n.node_id,
-                _key:      `${n.node_id}-${ni}-${ri}`,
+                node_name:       n.node_name,
+                node_id:         n.node_id,
+                _key:            `${n.node_id}-${ni}-${ri}`,
+                // Numeric seconds for correct sort (HH:MM:SS strings sort wrong for values >= 10h)
+                _query_time_sec: hmsToSec(r.query_time),
+                _lock_time_sec:  hmsToSec(r.lock_time),
             }))
         )
 )
