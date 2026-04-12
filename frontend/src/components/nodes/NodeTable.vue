@@ -30,7 +30,7 @@
     <!-- Datacenter -->
     <Column field="datacenter_name" header="DC" :sortable="true" style="width: 100px">
       <template #body="{ data }">
-        <span class="col-muted">{{ data.datacenter_name || '—' }}</span>
+        <span class="col-muted">{{ data.datacenter_name || '\u2014' }}</span>
       </template>
     </Column>
 
@@ -42,7 +42,7 @@
           :value="data.live?.readonly ? 'RO' : 'RW'"
           :severity="data.live?.readonly ? 'warn' : 'success'"
         />
-        <span v-else class="col-muted">—</span>
+        <span v-else class="col-muted">\u2014</span>
       </template>
     </Column>
 
@@ -62,7 +62,7 @@
             class="text-xs"
             v-tooltip.top="'maintenance flag set but node is read-write'"
         />
-        <span v-else class="col-muted">—</span>
+        <span v-else class="col-muted">\u2014</span>
       </template>
     </Column>
 
@@ -75,7 +75,7 @@
         >
           {{ data.live?.wsrep_flow_control_paused != null
             ? (data.live.wsrep_flow_control_paused * 100).toFixed(1) + '%'
-            : '—' }}
+            : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -89,7 +89,7 @@
         >
           {{ data.live?.wsrep_local_recv_queue != null
             ? data.live.wsrep_local_recv_queue
-            : '—' }}
+            : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -98,7 +98,7 @@
     <Column header="Last seen" style="width: 120px">
       <template #body="{ data }">
         <span class="col-muted">
-          {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '—' }}
+          {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -124,7 +124,7 @@
     </template>
 
     <template #loading>
-      <div class="table-empty">Loading nodes…</div>
+      <div class="table-empty">Loading nodes\u2026</div>
     </template>
   </DataTable>
 </template>
@@ -176,6 +176,14 @@ function recvClass(val: number | null) {
 }
 :deep(.p-datatable-tbody > tr > td) {
   padding: var(--space-3) var(--space-4) !important;
+}
+
+/* Кликабельные строки — показываем пойнтер и подсвечиваем строку */
+:deep(.p-datatable-tbody > tr) {
+  cursor: pointer;
+}
+:deep(.p-datatable-tbody > tr:hover > td) {
+  background: var(--color-surface-offset) !important;
 }
 
 .val-danger { color: var(--color-notification); }
