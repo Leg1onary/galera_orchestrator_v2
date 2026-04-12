@@ -14,35 +14,35 @@
     <!-- NODE LIST -->
     <div class="node-list">
       <div
-          v-for="node in safeReachableNodes"
-          :key="node.node_id"
+          v-for="node in availableNodes"
+          :key="node.id"
           class="node-option"
           :class="{
-            'node-option--selected':    store.selectedBootstrapNodeId === node.node_id,
-            'node-option--recommended': node.node_id === store.recommendedNode?.node_id,
+            'node-option--selected':    store.selectedBootstrapNodeId === node.id,
+            'node-option--recommended': node.id === store.recommendedBootstrapNodeId,
           }"
-          @click="store.selectedBootstrapNodeId = node.node_id"
+          @click="store.selectedBootstrapNodeId = node.id"
       >
         <RadioButton
             :model-value="store.selectedBootstrapNodeId"
-            :value="node.node_id"
-            :input-id="`node-${node.node_id}`"
+            :value="node.id"
+            :input-id="`node-${node.id}`"
         />
 
         <div class="node-option-info">
           <div class="node-option-header">
-            <span class="node-option-name">{{ node.node_name }}</span>
+            <span class="node-option-name">{{ node.name }}</span>
             <span class="node-option-host">{{ node.host }}</span>
           </div>
           <div class="node-option-badges">
             <span
               class="node-stb"
-              :class="node.safe_to_bootstrap === 1 ? 'node-stb--safe' : 'node-stb--unsafe'"
+              :class="isNodeConnected(node) ? 'node-stb--connected' : 'node-stb--offline'"
             >
-              {{ node.safe_to_bootstrap === 1 ? 'safe_to_bootstrap' : 'unsafe' }}
+              {{ isNodeConnected(node) ? 'connected' : 'offline' }}
             </span>
             <span
-              v-if="node.node_id === store.recommendedNode?.node_id"
+              v-if="node.id === store.recommendedBootstrapNodeId"
               class="node-recommended"
             >
               <i class="pi pi-star-fill" /> Recommended
@@ -50,26 +50,10 @@
           </div>
         </div>
 
-        <div class="node-option-seqno">
-          <span class="seqno-label">seqno</span>
-          <span class="seqno-value">{{ node.seqno }}</span>
+        <div class="node-option-state">
+          <span class="state-label">state</span>
+          <span class="state-value">{{ node.live?.wsrep_local_state_comment ?? '—' }}</span>
         </div>
-      </div>
-    </div>
-
-    <!-- FORCE OVERRIDE WARNING -->
-    <div v-if="selectedIsUnsafe" class="force-warning">
-      <div class="force-warning-icon"><i class="pi pi-exclamation-triangle" /></div>
-      <div class="force-warning-body">
-        <p class="force-warning-title">This node has <code class="inline-code">safe_to_bootstrap=0</code></p>
-        <p class="force-warning-text">
-          Bootstrapping from an unsafe node may cause data loss if another node
-          has a higher seqno. Only proceed if you understand the risk.
-        </p>
-        <label class="force-checkbox">
-          <Checkbox v-model="store.bootstrapForce" :binary="true" input-id="force-cb" />
-          <span>I understand — force bootstrap anyway</span>
-        </label>
       </div>
     </div>
 
@@ -85,7 +69,7 @@
       <Button
           label="Start bootstrap"
           icon="pi pi-bolt"
-          :disabled="!canProceed"
+          :disabled="!store.selectedBootstrapNodeId"
           :loading="store.bootstrapping"
           @click="handleBootstrap"
       />
@@ -95,34 +79,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import Button from 'primevue/button'
 import RadioButton from 'primevue/radiobutton'
-import Checkbox from 'primevue/checkbox'
 import { useRecoveryStore } from '@/stores/recovery'
+import type { NodeStatusItem } from '@/api/nodes'
 
 const emit = defineEmits<{ back: []; next: [] }>()
 const store = useRecoveryStore()
 
-const safeReachableNodes = computed(() => store.reachableNodes ?? [])
-
-const selectedNode = computed(() =>
-    safeReachableNodes.value.find((n) => n.node_id === store.selectedBootstrapNodeId) ?? null
+// Все ноды из cluster status — bootstrap можно делать с любой
+const availableNodes = computed<NodeStatusItem[]>(() =>
+    (store.clusterStatus?.nodes as NodeStatusItem[] | undefined) ?? []
 )
 
-const selectedIsUnsafe = computed(() =>
-    selectedNode.value !== null &&
-    selectedNode.value.safe_to_bootstrap !== null &&
-    selectedNode.value.safe_to_bootstrap !== 1
-)
-
-const canProceed = computed(() => {
-  if (!store.selectedBootstrapNodeId) return false
-  if (selectedIsUnsafe.value && !store.bootstrapForce) return false
-  return true
-})
-
-watch(() => store.selectedBootstrapNodeId, () => { store.bootstrapForce = false })
+function isNodeConnected(node: NodeStatusItem): boolean {
+    return node.live?.wsrep_connected === 'ON'
+}
 
 async function handleBootstrap() {
   await store.startBootstrap()
@@ -212,15 +185,15 @@ async function handleBootstrap() {
   padding: 2px 8px;
   border-radius: var(--radius-full);
 }
-.node-stb--safe {
+.node-stb--connected {
   background: color-mix(in oklch, var(--color-success) 14%, transparent);
   color: var(--color-success);
   border: 1px solid color-mix(in oklch, var(--color-success) 30%, transparent);
 }
-.node-stb--unsafe {
-  background: color-mix(in oklch, var(--color-warning) 14%, transparent);
-  color: var(--color-warning);
-  border: 1px solid color-mix(in oklch, var(--color-warning) 30%, transparent);
+.node-stb--offline {
+  background: color-mix(in oklch, var(--color-text-faint) 12%, transparent);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
 
 .node-recommended {
@@ -238,65 +211,24 @@ async function handleBootstrap() {
 }
 .node-recommended .pi { font-size: 0.6rem; }
 
-.node-option-seqno {
+.node-option-state {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
   flex-shrink: 0;
 }
-.seqno-label {
+.state-label {
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--color-text-faint);
   font-weight: 600;
 }
-.seqno-value {
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text);
-}
-
-/* FORCE WARNING */
-.force-warning {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  background: color-mix(in oklch, var(--color-warning) 8%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-warning) 30%, transparent);
-  border-radius: var(--radius-md);
-}
-.force-warning-icon {
-  font-size: 1.1rem;
-  color: var(--color-warning);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.force-warning-body { display: flex; flex-direction: column; gap: var(--space-2); }
-.force-warning-title {
+.state-value {
   font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--color-warning);
-  margin: 0;
-}
-.force-warning-text {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  line-height: 1.5;
-  margin: 0;
-}
-.force-checkbox {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  color: var(--color-warning);
-  font-weight: 500;
-  margin-top: var(--space-1);
+  color: var(--color-text);
 }
 
 /* ERROR */
