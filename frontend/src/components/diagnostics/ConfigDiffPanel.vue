@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { diagnosticsApi, type ConfigDiffRow } from '@/api/diagnostics'
+import { diagnosticsApi, type ConfigDiffResponse, type ConfigDiffRow } from '@/api/diagnostics'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
 
-const rows      = ref<ConfigDiffRow[]>([])
+const data      = ref<ConfigDiffResponse | null>(null)
 const loading   = ref(false)
 const error     = ref<string | null>(null)
-const nodeNames = ref<string[]>([])
 const showAll   = ref(false)
 
 async function load() {
@@ -18,9 +17,7 @@ async function load() {
   loading.value = true
   error.value   = null
   try {
-    const data    = await diagnosticsApi.configDiff(id)
-    rows.value    = data
-    nodeNames.value = data.length > 0 ? Object.keys(data[0].values) : []
+    data.value = await diagnosticsApi.configDiff(id)
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
@@ -31,10 +28,19 @@ async function load() {
 watch(() => props.active, (v) => { if (v) load() }, { immediate: true })
 watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 
-const diffCount = computed(() => rows.value.filter(r => r.has_diff).length)
+const nodeNames = computed(() => data.value?.nodes.map((n) => n.node_name) ?? [])
+const rows      = computed(() => data.value?.variables ?? [])
+const diffCount = computed(() => rows.value.filter((r) => r.has_diff).length)
 const displayed = computed(() =>
-  showAll.value ? rows.value : rows.value.filter(r => r.has_diff)
+  showAll.value ? rows.value : rows.value.filter((r) => r.has_diff)
 )
+
+function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null; error: boolean } {
+  const entry = row.values.find((v) => v.node_name === nodeName)
+  if (!entry) return { value: null, error: false }
+  if (entry.fetch_error) return { value: null, error: true }
+  return { value: entry.value, error: false }
+}
 </script>
 
 <template>
@@ -43,8 +49,8 @@ const displayed = computed(() =>
       <div class="panel-title">
         <i class="pi pi-code" />
         <span>Config Diff</span>
-        <span v-if="!loading && rows.length > 0" class="badge-diff">
-          {{ diffCount }} diff{{ diffCount !== 1 ? 's' : '' }}
+        <span v-if="!loading && data" class="badge-diff" :class="{ 'badge-ok': diffCount === 0 }">
+          {{ diffCount === 0 ? 'consistent' : `${diffCount} diff${diffCount !== 1 ? 's' : ''}` }}
         </span>
       </div>
       <div class="header-actions">
@@ -66,10 +72,16 @@ const displayed = computed(() =>
       <div v-for="i in 8" :key="i" class="skeleton-row" />
     </div>
 
-    <template v-else-if="rows.length > 0">
+    <template v-else-if="data">
+      <!-- No diffs and not showing all -->
       <div v-if="diffCount === 0 && !showAll" class="all-ok">
         <i class="pi pi-check-circle" />
         All wsrep variables are consistent across nodes.
+      </div>
+
+      <!-- No variables fetched at all -->
+      <div v-else-if="rows.length === 0" class="empty-hint">
+        <i class="pi pi-info-circle" /> No variables fetched.
       </div>
 
       <div v-else class="table-wrap">
@@ -83,21 +95,39 @@ const displayed = computed(() =>
           <tbody>
             <tr
               v-for="row in displayed"
-              :key="row.variable_name"
+              :key="row.variable"
               :class="{ 'row-diff': row.has_diff }"
             >
-              <td class="var-name">{{ row.variable_name }}</td>
+              <td class="var-name">{{ row.variable }}</td>
               <td
                 v-for="n in nodeNames"
                 :key="n"
                 class="val-cell mono"
-                :class="{ 'val-diff': row.has_diff }"
+                :class="{
+                  'val-diff': row.has_diff,
+                  'val-err': cellValue(row, n).error
+                }"
               >
-                {{ row.values[n] ?? '—' }}
+                <template v-if="cellValue(row, n).error">
+                  <span class="err-mark" title="Fetch error">err</span>
+                </template>
+                <template v-else>
+                  {{ cellValue(row, n).value ?? '—' }}
+                </template>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Node fetch errors summary -->
+      <div
+        v-if="data.nodes.some((n) => !n.fetch_ok)"
+        class="fetch-warn"
+      >
+        <i class="pi pi-exclamation-triangle" />
+        Could not fetch variables from:
+        {{ data.nodes.filter((n) => !n.fetch_ok).map((n) => n.node_name).join(', ') }}
       </div>
     </template>
   </div>
@@ -130,6 +160,10 @@ const displayed = computed(() =>
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+.badge-diff.badge-ok {
+  background: var(--color-success-highlight);
+  color: var(--color-success);
 }
 
 .header-actions {
@@ -188,6 +222,27 @@ const displayed = computed(() =>
   font-size: var(--text-sm);
 }
 
+.empty-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.fetch-warn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-highlight);
+  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  border-radius: var(--radius-md);
+  color: var(--color-warning);
+  font-size: var(--text-xs);
+}
+
 .skeleton-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .skeleton-row {
   height: 36px;
@@ -205,10 +260,12 @@ const displayed = computed(() =>
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
 }
 
 table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-thead { background: var(--color-surface-2); }
+thead { background: var(--color-surface-2); position: sticky; top: 0; z-index: 1; }
 th {
   padding: var(--space-2) var(--space-3);
   text-align: left;
@@ -235,4 +292,11 @@ tr:last-child td { border-bottom: none; }
 .row-diff td { background: oklch(from var(--color-warning) l c h / 0.04); }
 .row-diff:hover td { background: oklch(from var(--color-warning) l c h / 0.07); }
 .val-diff { color: var(--color-warning) !important; font-weight: 500; }
+
+.val-err { color: var(--color-error) !important; }
+.err-mark {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono, monospace);
+  opacity: 0.7;
+}
 </style>
