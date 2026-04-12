@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from database import engine
 from services.ssh_client import SSHClient, SSHError
@@ -42,16 +43,25 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# Seconds between each poll when waiting for SYNCED after restart
+# Default seconds between each poll when waiting for SYNCED after restart
 _RESTART_SYNCED_TIMEOUT_SEC = 300
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
+# ── Public API ─────────────────────────────────────────────────────
 
-async def start_rolling_restart(cluster_id: int, created_by: str) -> int:
+async def start_rolling_restart(
+    cluster_id: int,
+    created_by: str,
+    node_order: Optional[list[int]] = None,
+    wait_timeout_sec: int = _RESTART_SYNCED_TIMEOUT_SEC,
+) -> int:
     """
     Create a 'rolling_restart' operation and launch the async task.
     Returns the new operation id.
+
+    node_order: optional list of node IDs defining restart sequence.
+                Nodes not present in the list are appended at the end.
+    wait_timeout_sec: per-node SYNCED wait timeout in seconds.
     """
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
@@ -62,19 +72,31 @@ async def start_rolling_restart(cluster_id: int, created_by: str) -> int:
         created_by=created_by,
     )
     asyncio.create_task(
-        _run_rolling_restart(cluster_id, op_id),
+        _run_rolling_restart(
+            cluster_id,
+            op_id,
+            node_order=node_order,
+            wait_timeout_sec=wait_timeout_sec,
+        ),
         name=f"rolling-restart-{cluster_id}",
     )
     return op_id
 
 
-# ── Rolling restart task ───────────────────────────────────────────────────────────
+# ── Rolling restart task ────────────────────────────────────────────────────────────────────
 
-async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
+async def _run_rolling_restart(
+    cluster_id: int,
+    op_id: int,
+    node_order: Optional[list[int]] = None,
+    wait_timeout_sec: int = _RESTART_SYNCED_TIMEOUT_SEC,
+) -> None:
     """
     Sequentially restart each enabled node:
       enter-maintenance → restart → wait-synced → exit-maintenance
 
+    node_order: if provided, nodes are reordered accordingly.
+                IDs not present in node_order are appended at the end.
     Cancel: checked before each node. If cancel_requested, finishes
     current node's maintenance exit (to avoid leaving node read-only),
     then stops.
@@ -85,6 +107,14 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
         nodes = await asyncio.to_thread(_load_cluster_nodes, cluster_id)
         if not nodes:
             raise RecoveryError("No enabled nodes found for this cluster")
+
+        # Reorder nodes according to node_order if provided
+        if node_order:
+            order_index = {nid: i for i, nid in enumerate(node_order)}
+            nodes = sorted(
+                nodes,
+                key=lambda n: order_index.get(n["id"], len(node_order)),
+            )
 
         total = len(nodes)
         await _broadcast_progress(
@@ -144,7 +174,7 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
             )
             synced = await _wait_node_synced(
                 node, op_id, cluster_id,
-                timeout_sec=_RESTART_SYNCED_TIMEOUT_SEC,
+                timeout_sec=wait_timeout_sec,
             )
 
             # d. Exit maintenance (always, even if cancel_requested)
@@ -161,7 +191,7 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
                     await _broadcast_finished(cluster_id, op_id, success=False, message="Cancelled during wait")
                     return
                 raise RecoveryError(
-                    f"{node['name']} did not reach SYNCED within {_RESTART_SYNCED_TIMEOUT_SEC}s"
+                    f"{node['name']} did not reach SYNCED within {wait_timeout_sec}s"
                 )
 
             await _broadcast_progress(
@@ -214,7 +244,7 @@ async def _run_rolling_restart(cluster_id: int, op_id: int) -> None:
         await _broadcast_finished(cluster_id, op_id, success=False, message=f"Internal error: {exc}")
 
 
-# ── Node-level SSH/DB helpers ─────────────────────────────────────────────────────────
+# ── Node-level SSH/DB helpers ───────────────────────────────────────────────────────────────────────
 
 def _restart_mariadb(node: dict) -> None:
     """SSH: systemctl restart mariadb."""

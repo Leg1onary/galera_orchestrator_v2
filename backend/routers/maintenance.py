@@ -3,6 +3,7 @@ Maintenance router — Phase 3.
 
 Per ТЗ раздел 14:
   GET  /api/clusters/{cluster_id}/maintenance/status
+  GET  /api/clusters/{cluster_id}/maintenance/nodes
   POST /api/clusters/{cluster_id}/maintenance/rolling-restart
   POST /api/clusters/{cluster_id}/maintenance/cancel
 """
@@ -10,12 +11,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from sqlalchemy import text
 from database import engine
-from services.poller import live_node_states   # уже используется в nodes.py
+from services.poller import live_node_states
 
 from dependencies import require_auth
 from services.event_log import write_event
@@ -35,28 +38,42 @@ router = APIRouter(
 )
 
 
+# ── Request body ───────────────────────────────────────────────────────────────
+
+class RollingRestartBody(BaseModel):
+    node_order: Optional[list[int]] = Field(
+        default=None,
+        description="Ordered list of node IDs to restart. If omitted, uses DB order.",
+    )
+    wait_timeout_sec: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Seconds to wait for each node to reach SYNCED state.",
+    )
+
+
+# ── Endpoints ──────────────────────────────────────────────────────────────────
+
 @router.get("/{cluster_id}/maintenance/status")
 async def maintenance_status(cluster_id: int) -> dict:
     """
     Return the active maintenance operation for this cluster, or null.
     ТЗ 14.1, 9.1
     """
-    # FIX BLOCKER: синхронный вызов → to_thread
     op = await asyncio.to_thread(get_active_operation, cluster_id)
 
-    # Показываем только rolling_restart операции
-    # pending/running/cancel_requested — все считаются active (ТЗ 19.1)
     if op and op["type"] != "rolling_restart":
         op = None
 
     return {"active_operation": op}
+
 
 @router.get("/{cluster_id}/maintenance/nodes")
 async def maintenance_nodes(cluster_id: int) -> list[dict]:
     """
     Ноды кластера с maintenance-полями + live state для Maintenance страницы.
     Возвращает только enabled=True ноды.
-    ТЗ п.14.x
     """
     def _fetch() -> list[dict]:
         with engine.connect() as conn:
@@ -83,7 +100,6 @@ async def maintenance_nodes(cluster_id: int) -> list[dict]:
             "port":        n["port"],
             "maintenance": bool(n["maintenance"]),
             "enabled":     bool(n["enabled"]),
-            # live поля — None если поллер ещё не успел
             "wsrep_local_state_comment": live.wsrep_local_state_comment if live else None,
             "readonly":                  live.readonly                  if live else None,
             "maintenance_drift":         live.maintenance_drift         if live else None,
@@ -93,9 +109,11 @@ async def maintenance_nodes(cluster_id: int) -> list[dict]:
         })
     return result
 
+
 @router.post("/{cluster_id}/maintenance/rolling-restart", status_code=202)
 async def rolling_restart(
         cluster_id: int,
+        body: RollingRestartBody = RollingRestartBody(),
         username: str = Depends(require_auth),
 ) -> dict:
     """
@@ -105,12 +123,14 @@ async def rolling_restart(
     - 202 Accepted: operation created, progress via WS
     ТЗ 14.8, 14.6, 19.1
     """
-    # FIX BLOCKER: синхронный вызов → to_thread
-    # FIX MINOR: start_rolling_restart также делает assert внутри — здесь
-    # делаем явно чтобы вернуть 409 до создания task-а
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
-    op_id = await start_rolling_restart(cluster_id, created_by=username)
+    op_id = await start_rolling_restart(
+        cluster_id,
+        created_by=username,
+        node_order=body.node_order,
+        wait_timeout_sec=body.wait_timeout_sec,
+    )
 
     write_event(
         level="INFO",
@@ -134,16 +154,10 @@ async def maintenance_cancel(
 ) -> dict:
     """
     Request cancellation of the active maintenance operation.
-
-    - 404 if no active operation
-    - Stops after current node's maintenance-exit step
-      (node won't be left read-only per ТЗ 14.9)
     ТЗ 14.1
     """
-    # FIX BLOCKER: синхронный вызов → to_thread
     op = await asyncio.to_thread(request_cancel, cluster_id)
 
-    # FIX MAJOR: добавлены write_event + WS broadcast (по аналогии с recovery_cancel)
     write_event(
         level="INFO",
         source="maintenance",
