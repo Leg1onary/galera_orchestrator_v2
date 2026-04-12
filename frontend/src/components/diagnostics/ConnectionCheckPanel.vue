@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { diagnosticsApi, type ConnectionCheckRow } from '@/api/diagnostics'
+import { diagnosticsApi, type ConnectionCheckRow, type CheckAllResponse } from '@/api/diagnostics'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
 
-const rows    = ref<ConnectionCheckRow[]>([])
+const nodes   = ref<ConnectionCheckRow[]>([])
+const arbs    = ref<ConnectionCheckRow[]>([])
 const loading = ref(false)
 const error   = ref<string | null>(null)
 const lastRun = ref<string | null>(null)
@@ -17,7 +18,9 @@ async function runCheck() {
   loading.value = true
   error.value   = null
   try {
-    rows.value    = await diagnosticsApi.checkAll(id)
+    const res: CheckAllResponse = await diagnosticsApi.checkAll(id)
+    nodes.value   = res.nodes        ?? []
+    arbs.value    = res.arbitrators  ?? []
     lastRun.value = new Date().toLocaleTimeString()
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
@@ -26,10 +29,7 @@ async function runCheck() {
   }
 }
 
-const nodes = computed(() => rows.value.filter(r => r.role === 'Node'))
-const arbs  = computed(() => rows.value.filter(r => r.role === 'Arbitrator'))
-
-function statusIcon(ok: boolean | null) {
+function statusIcon(ok: boolean | null | undefined) {
   if (ok === null || ok === undefined) return { icon: 'pi-minus-circle', cls: 'st-unknown' }
   return ok ? { icon: 'pi-check-circle', cls: 'st-ok' } : { icon: 'pi-times-circle', cls: 'st-err' }
 }
@@ -58,13 +58,13 @@ function fmtLatency(ms: number | null | undefined) {
       <i class="pi pi-exclamation-triangle" /> {{ error }}
     </div>
 
-    <div v-if="rows.length === 0 && !loading && !error" class="empty-hint">
+    <div v-if="nodes.length === 0 && arbs.length === 0 && !loading && !error" class="empty-hint">
       <i class="pi pi-info-circle" />
       Click <b>Run Check</b> to test SSH and DB connectivity for all nodes and arbitrators.
     </div>
 
-    <template v-if="rows.length > 0">
-      <!-- Nodes -->
+    <!-- Nodes -->
+    <template v-if="nodes.length > 0">
       <div class="section-label">Nodes</div>
       <div class="table-wrap">
         <table>
@@ -76,11 +76,13 @@ function fmtLatency(ms: number | null | undefined) {
               <th class="center">DB</th>
               <th class="center">SSH Latency</th>
               <th class="center">DB Latency</th>
+              <th>SSH Error</th>
+              <th>DB Error</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in nodes" :key="row.id">
-              <td class="name-cell">{{ row.name }}</td>
+            <tr v-for="row in nodes" :key="row.node_id">
+              <td class="name-cell">{{ row.node_name }}</td>
               <td class="mono">{{ row.host }}</td>
               <td class="center">
                 <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
@@ -90,43 +92,45 @@ function fmtLatency(ms: number | null | undefined) {
               </td>
               <td class="center mono">{{ fmtLatency(row.ssh_latency_ms) }}</td>
               <td class="center mono">{{ fmtLatency(row.db_latency_ms) }}</td>
+              <td class="error-cell mono">{{ row.ssh_error ?? '—' }}</td>
+              <td class="error-cell mono">{{ row.db_error ?? '—' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
+    </template>
 
-      <!-- Arbitrators (if any) -->
-      <template v-if="arbs.length > 0">
-        <div class="section-label" style="margin-top: var(--space-6)">Arbitrators</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Host</th>
-                <th class="center">SSH</th>
-                <th class="center">garbd</th>
-                <th class="center">SSH Latency</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in arbs" :key="row.id">
-                <td class="name-cell">{{ row.name }}</td>
-                <td class="mono">{{ row.host }}</td>
-                <td class="center">
-                  <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
-                </td>
-                <!-- garbd_running — отдельное поле от бэка, не db_ok -->
-                <td class="center">
-                  <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
-                </td>
-                <!-- бэк возвращает latency_ssh_ms для арбитраторов -->
-                <td class="center mono">{{ fmtLatency(row.latency_ssh_ms) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
+    <!-- Arbitrators -->
+    <template v-if="arbs.length > 0">
+      <div class="section-label" style="margin-top: var(--space-6)">Arbitrators</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Host</th>
+              <th class="center">SSH</th>
+              <th class="center">garbd</th>
+              <th class="center">SSH Latency</th>
+              <th>SSH Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in arbs" :key="row.node_id">
+              <td class="name-cell">{{ row.node_name }}</td>
+              <td class="mono">{{ row.host }}</td>
+              <td class="center">
+                <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
+              </td>
+              <td class="center">
+                <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
+              </td>
+              <td class="center mono">{{ fmtLatency(row.latency_ssh_ms ?? row.ssh_latency_ms) }}</td>
+              <td class="error-cell mono">{{ row.ssh_error ?? '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </template>
   </div>
 </template>
@@ -234,6 +238,7 @@ tr:hover td { background: var(--color-surface-2); }
 .center { text-align: center; }
 .mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
 .name-cell { font-weight: 500; }
+.error-cell { color: var(--color-text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .st-ok      { color: var(--color-success); }
 .st-err     { color: var(--color-error); }

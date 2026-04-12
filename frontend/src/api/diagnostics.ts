@@ -17,15 +17,24 @@ export type VariablesResult = Record<string, KVRow[]>
 
 // ── Check all (connections) ────────────────────────────────────────────────
 export type ConnectionCheckRow = {
-    id: number
-    name: string
+    node_id: number
+    node_name: string
     host: string
-    role: 'Node' | 'Arbitrator'
+    role: 'node' | 'arbitrator'
     ssh_ok: boolean | null
     db_ok: boolean | null
     ssh_latency_ms: number | null
     db_latency_ms: number | null
-    last_check_ts: string | null
+    ssh_error: string | null
+    db_error: string | null
+    // arbitrator-only
+    garbd_running?: boolean | null
+    latency_ssh_ms?: number | null
+}
+
+export type CheckAllResponse = {
+    nodes: ConnectionCheckRow[]
+    arbitrators: ConnectionCheckRow[]
 }
 
 // ── Resources ──────────────────────────────────────────────────────────────
@@ -58,7 +67,6 @@ export type ArbitratorConnectionResult = {
 }
 
 // ── Galera status ──────────────────────────────────────────────────────────
-// GET /api/clusters/{cluster_id}/diagnostics/galera-status
 export type GaleraStatusNodeResult = {
     node_id: number
     node_name: string
@@ -68,7 +76,6 @@ export type GaleraStatusNodeResult = {
 }
 
 // ── Process list ───────────────────────────────────────────────────────────
-// GET /api/clusters/{cluster_id}/diagnostics/process-list?node_id=N
 export type ProcessRow = {
     id: number
     user: string
@@ -88,7 +95,6 @@ export type ProcessListNodeResult = {
 }
 
 // ── Slow query log ─────────────────────────────────────────────────────────
-// GET /api/clusters/{cluster_id}/diagnostics/slow-queries?node_id=N
 export type SlowQueryRow = {
     start_time: string
     user_host: string
@@ -109,7 +115,6 @@ export type SlowQueryNodeResult = {
 }
 
 // ── Error log ──────────────────────────────────────────────────────────────
-// GET /api/clusters/{cluster_id}/nodes/{node_id}/error-log?lines=N
 export type ErrorLogResult = {
     node_id: number
     node_name: string
@@ -119,7 +124,6 @@ export type ErrorLogResult = {
 }
 
 export const diagnosticsApi = {
-    // ── ТЗ endpoints ──────────────────────────────────────────────────────
 
     configDiff: (clusterId: number) =>
         api
@@ -131,9 +135,11 @@ export const diagnosticsApi = {
             .get<VariablesResult>(`/api/clusters/${clusterId}/diagnostics/variables`)
             .then((r) => r.data),
 
-    checkAll: (clusterId: number) =>
+    // POST → returns { nodes: [...], arbitrators: [...] }
+    // We flatten both arrays into one list for the component
+    checkAll: (clusterId: number): Promise<CheckAllResponse> =>
         api
-            .post<ConnectionCheckRow[]>(`/api/clusters/${clusterId}/diagnostics/check-all`)
+            .post<CheckAllResponse>(`/api/clusters/${clusterId}/diagnostics/check-all`)
             .then((r) => r.data),
 
     resources: (clusterId: number) =>
@@ -161,15 +167,11 @@ export const diagnosticsApi = {
             .get(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
-    // ── Galera status ──────────────────────────────────────────────────────
-    // GET /api/clusters/{cluster_id}/diagnostics/galera-status
     getGaleraStatus: (clusterId: number) =>
         api
             .get<GaleraStatusNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/galera-status`)
             .then((r) => r.data),
 
-    // ── Process list (read-only) ───────────────────────────────────────────
-    // GET /api/clusters/{cluster_id}/diagnostics/process-list
     getProcessList: (clusterId: number, nodeId?: number) =>
         api
             .get<ProcessListNodeResult[]>(
@@ -178,8 +180,6 @@ export const diagnosticsApi = {
             )
             .then((r) => r.data),
 
-    // ── Slow query log ─────────────────────────────────────────────────────
-    // GET /api/clusters/{cluster_id}/diagnostics/slow-queries
     getSlowQueries: (clusterId: number, nodeId?: number) =>
         api
             .get<SlowQueryNodeResult[]>(
@@ -188,8 +188,6 @@ export const diagnosticsApi = {
             )
             .then((r) => r.data),
 
-    // ── Error log ──────────────────────────────────────────────────────────
-    // GET /api/clusters/{cluster_id}/nodes/{node_id}/error-log
     getErrorLog: (clusterId: number, nodeId: number, lines = 200) =>
         api
             .get<ErrorLogResult>(
