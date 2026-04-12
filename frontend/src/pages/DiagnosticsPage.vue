@@ -7,6 +7,9 @@ import VariablesPanel        from '@/components/diagnostics/VariablesPanel.vue'
 import SystemResourcesPanel  from '@/components/diagnostics/SystemResourcesPanel.vue'
 import InnodbStatusPanel     from '@/components/diagnostics/InnodbStatusPanel.vue'
 import ArbitratorLogPanel    from '@/components/diagnostics/ArbitratorLogPanel.vue'
+import ProcessListPanel      from '@/components/diagnostics/ProcessListPanel.vue'
+import SlowQueryPanel        from '@/components/diagnostics/SlowQueryPanel.vue'
+import ErrorLogPanel         from '@/components/diagnostics/ErrorLogPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -17,12 +20,15 @@ watch(
 )
 
 const TABS = [
-  { value: 'connections', label: 'Connection Check', icon: 'pi-wifi' },
-  { value: 'config-diff', label: 'Config Diff',      icon: 'pi-code' },
-  { value: 'variables',   label: 'Variables',         icon: 'pi-sliders-h' },
-  { value: 'resources',   label: 'System Resources',  icon: 'pi-server' },
-  { value: 'innodb',      label: 'InnoDB Status',     icon: 'pi-database' },
-  { value: 'arb-log',     label: 'Arbitrator Log',    icon: 'pi-file-edit' },
+  { value: 'connections',  label: 'Connection Check', icon: 'pi-wifi' },
+  { value: 'config-diff',  label: 'Config Diff',      icon: 'pi-code' },
+  { value: 'variables',    label: 'Variables',         icon: 'pi-sliders-h' },
+  { value: 'resources',    label: 'System Resources',  icon: 'pi-server' },
+  { value: 'innodb',       label: 'InnoDB Status',     icon: 'pi-database' },
+  { value: 'arb-log',      label: 'Arbitrator Log',    icon: 'pi-file-edit' },
+  { value: 'process-list', label: 'Process List',      icon: 'pi-list' },
+  { value: 'slow-query',   label: 'Slow Queries',      icon: 'pi-clock' },
+  { value: 'error-log',    label: 'Error Log',         icon: 'pi-exclamation-triangle' },
 ]
 </script>
 
@@ -70,6 +76,15 @@ const TABS = [
         </TabPanel>
         <TabPanel value="arb-log">
           <ArbitratorLogPanel :active="activeTab === 'arb-log'" />
+        </TabPanel>
+        <TabPanel value="process-list">
+          <ProcessListPanel :active="activeTab === 'process-list'" />
+        </TabPanel>
+        <TabPanel value="slow-query">
+          <SlowQueryPanel :active="activeTab === 'slow-query'" />
+        </TabPanel>
+        <TabPanel value="error-log">
+          <ErrorLogPanel :active="activeTab === 'error-log'" />
         </TabPanel>
       </TabPanels>
     </Tabs>
@@ -157,6 +172,7 @@ const TABS = [
   gap: var(--space-1);
   border-bottom: 1px solid var(--color-border);
   padding-bottom: 0;
+  flex-wrap: wrap;
 }
 
 .diag-tab {
