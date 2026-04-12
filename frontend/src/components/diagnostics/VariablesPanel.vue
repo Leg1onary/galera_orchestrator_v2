@@ -36,15 +36,11 @@ async function load() {
   result.value  = {}
   activeNode.value = null
   try {
-    // Fetch node list for the cluster, then load variables per node in parallel
-    const nodesResp = await settingsApi.getNodes(clusterId)
-    const nodes = nodesResp.filter((n: any) => n.enabled !== false)
-    if (nodes.length === 0) {
-      return
-    }
+    const nodes = (await settingsApi.listNodes(clusterId)).filter((n) => n.enabled !== false)
+    if (nodes.length === 0) return
     const settled = await Promise.allSettled(
-      nodes.map((n: any) =>
-        diagnosticsApi.variablesForNode(clusterId, n.id).then((rows) => ({ name: n.name as string, rows }))
+      nodes.map((n) =>
+        diagnosticsApi.variablesForNode(clusterId, n.id).then((rows) => ({ name: n.name, rows }))
       )
     )
     const out: VariablesResult = {}
@@ -53,7 +49,7 @@ async function load() {
       if (s.status === 'fulfilled') {
         out[s.value.name] = s.value.rows
       } else {
-        errors.push(String(s.reason?.response?.data?.detail ?? s.reason?.message ?? s.reason))
+        errors.push(String((s.reason as any)?.response?.data?.detail ?? (s.reason as any)?.message ?? s.reason))
       }
     }
     result.value = out
