@@ -60,10 +60,18 @@
                   class="search-input"
               />
             </div>
-            <label class="toggle-row">
-              <ToggleSwitch v-model="hideSystem" />
+            <!-- ФИКС: <label> заменён на <div>.
+                 <label> без for/id передаёт клик по всей площади
+                 первому интерактивному дочернему элементу (ToggleSwitch).
+                 @click.stop на InputText блокирует всплытие. -->
+            <div class="toggle-row" @click.stop="hideSystem = !hideSystem">
+              <ToggleSwitch
+                  :model-value="hideSystem"
+                  @update:model-value="hideSystem = $event"
+                  @click.stop
+              />
               <span class="toggle-label">Hide system</span>
-            </label>
+            </div>
             <span v-if="filtered.length" class="row-count">
               <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
               {{ filtered.length }}
@@ -301,13 +309,13 @@ function stateBadgeClass(state: string): string {
   gap: var(--space-2);
   flex-shrink: 0;
   cursor: pointer;
+  user-select: none;
 }
 
 .toggle-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   white-space: nowrap;
-  user-select: none;
 }
 
 :deep(.p-toggleswitch) {
@@ -316,6 +324,7 @@ function stateBadgeClass(state: string): string {
   align-items: center;
   flex-shrink: 0;
   vertical-align: middle;
+  pointer-events: none;
 }
 
 :deep(.p-toggleswitch-slider) {
