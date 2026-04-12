@@ -1,0 +1,123 @@
+# ============================================================
+# Galera Orchestrator v2 — CI/CD
+# Собирает Docker-образ и пушит в GitHub Container Registry
+#
+# Триггеры:
+#   push → master         → тег :latest
+#   push → tag v*.*.*     → тег :v1.2.3 + :latest
+#   pull_request → master → только сборка (без пуша), проверка что не сломали
+# ============================================================
+
+name: Build & Publish Docker Image
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches:
+      - master
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write  # нужно для пуша в GHCR
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Docker Buildx (multi-platform builder) ────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 3. Логин в GHCR (только не на PR) ───────────────────
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 4. Генерация тегов и labels ─────────────────────────
+      #
+      #   push → master   → ghcr.io/owner/repo:latest
+      #   push → v1.2.3   → ghcr.io/owner/repo:v1.2.3
+      #                      ghcr.io/owner/repo:1.2.3
+      #                      ghcr.io/owner/repo:1.2
+      #                      ghcr.io/owner/repo:latest
+      #   pull_request    → тег генерируется, но push не происходит
+      # ────────────────────────────────────────────────────────
+      - name: Extract metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # semver-теги при пуше git tag v*.*.*
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # sha-короткий для трейсабилити
+            type=sha,format=short,prefix=sha-
+            # :latest только на master
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+
+      # ── 5. Кэш слоёв (ускоряет повторные сборки) ────────────
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'backend/requirements.txt', 'frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      # ── 6. Build (+ Push если не PR) ────────────────────────
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+      # ── 7. Rotate cache (избегаем бесконечного роста) ───────
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      # ── 8. Summary ──────────────────────────────────────────
+      - name: Job summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "## ✅ Docker image published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`ghcr.io/${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,56 @@
+# ============================================================
+# Galera Orchestrator v2 — deploy via GHCR
+# Используй этот файл если НЕ хочешь собирать образ локально.
+# Образ берётся из GitHub Container Registry (собирается автоматически CI).
+#
+# Использование:
+#   cp .env.example .env && nano .env
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Обновление до последней версии:
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+# ============================================================
+
+services:
+  orchestrator:
+    image: ghcr.io/leg1onary/galera_orchestrator_v2:latest
+    container_name: galera-orchestrator
+    restart: unless-stopped
+
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+
+    volumes:
+      - orchestrator-data:/data
+      - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/root/.ssh/id_rsa:ro
+
+    environment:
+      DATABASE_URL:         ${DATABASE_URL:-sqlite:////data/orchestrator.db}
+      ADMIN_USERNAME:       ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD:       ${ADMIN_PASSWORD:-changeme}
+      JWT_SECRET_KEY:       ${JWT_SECRET_KEY:-change-me-jwt-secret-min-32-chars}
+      FERNET_SECRET_KEY:    ${FERNET_SECRET_KEY:-change-me-fernet-key}
+      SSH_KEY_PATH:         /root/.ssh/id_rsa
+      SSH_CONNECT_TIMEOUT:  ${SSH_CONNECT_TIMEOUT:-5}
+      SSH_COMMAND_TIMEOUT:  ${SSH_COMMAND_TIMEOUT:-10}
+      DB_CONNECT_TIMEOUT:   ${DB_CONNECT_TIMEOUT:-3}
+
+    healthcheck:
+      test: >
+        curl -sf -o /dev/null -w "%{http_code}"
+        http://localhost:8000/api/auth/me | grep -qE "^(200|401)$$"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  orchestrator-data:
+    driver: local
