@@ -189,12 +189,10 @@ const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
-// Partial per-node errors (node responded but with error field)
 const nodeErrors = computed(() =>
     (data.value ?? []).filter((n: ProcessListNodeResult) => n.error)
 )
 
-// Flatten all processes from all nodes, annotate with node_name for the table
 const allRows = computed(() =>
     (data.value ?? []).flatMap((n: ProcessListNodeResult) =>
         n.processes.map((p, idx) => ({
@@ -236,6 +234,7 @@ function stateBadgeClass(state: string): string {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  padding: 15px;
 }
 
 .node-select {

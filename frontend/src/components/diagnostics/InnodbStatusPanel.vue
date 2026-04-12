@@ -100,7 +100,6 @@ watch(nodeOptions, (opts) => {
 }, { immediate: true })
 
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-  // ТЗ п.15.7: GET /api/clusters/{id}/nodes/{id}/innodb-status
   queryKey: computed(() => ['diag-innodb', clusterStore.selectedClusterId, selectedNodeId.value]),
   queryFn: () => nodesApi.innodbStatus(clusterStore.selectedClusterId!, selectedNodeId.value!),
   enabled: computed(() => props.active && !!clusterStore.selectedClusterId && !!selectedNodeId.value),
@@ -123,7 +122,7 @@ async function copyText(text: string) {
 </script>
 
 <style scoped>
-.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); padding: 15px; }
 
 .selector-row {
   display: flex;
