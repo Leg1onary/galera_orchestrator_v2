@@ -4,12 +4,18 @@ import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 
+// ── Типы, соответствующие backend /status → nodes[] / arbitrators[] ──────────
+// BUG FIX #1: NodeStatusItem из backend возвращает плоские dc_id/dc_name,
+// а не вложенный dc: { id, name }. Добавляем оба варианта для совместимости.
 interface NodeLive {
   id: number
   name: string
   host: string
   port: number
-  dc?: { id: number; name: string } | null
+  // Плоские поля от GET /api/clusters/{id}/status (NodeStatusItem)
+  dc_id: number | null
+  dc_name: string | null
+  // Флаги из NodeLiveData (вложены в live, но поднимаем через computed)
   wsrep_local_state_comment: string | null
   wsrep_ready: string | null
   wsrep_flow_control_paused: number | null
@@ -17,17 +23,41 @@ interface NodeLive {
   ssh_ok: boolean
   readonly: boolean
   maintenance: boolean
-  maintenance_drift?: boolean
+  maintenance_drift: boolean
+  // live object (может быть null если поллер ещё не опросил ноду)
+  live: {
+    wsrep_local_state_comment: string | null
+    wsrep_ready: string | null
+    wsrep_flow_control_paused: number | null
+    wsrep_local_recv_queue: number | null
+    ssh_ok: boolean
+    readonly: boolean
+    maintenance_drift: boolean
+    db_ok: boolean
+    ssh_latency_ms: number | null
+    db_latency_ms: number | null
+    error: string | null
+  } | null
 }
+
 interface ArbLive {
   id: number
   name: string
   host: string
-  dc?: { id: number; name: string } | null
-  is_reachable: boolean
-  garbd_running: boolean
-  latency_ssh_ms: number | null
+  // Плоские поля от backend
+  dc_id: number | null
+  dc_name: string | null
+  // BUG FIX #2: LiveArbitratorState.to_dict() возвращает ssh_ok/garbd_running/ssh_latency_ms,
+  // а не is_reachable/latency_ssh_ms — старые поля вызывали OFFLINE у всех арбитраторов
+  live: {
+    ssh_ok: boolean
+    garbd_running: boolean
+    ssh_latency_ms: number | null
+    state: string
+    error: string | null
+  } | null
 }
+
 interface DCGroup {
   dcId: number | null
   dcName: string
@@ -48,8 +78,80 @@ const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
 const { data, isLoading } = useClusterStatus(clusterId)
 
-const nodes       = computed<NodeLive[]>(() => (data.value?.nodes      ?? []) as NodeLive[])
-const arbitrators = computed<ArbLive[]>(() => (data.value?.arbitrators ?? []) as ArbLive[])
+// BUG FIX #1 продолжение: нормализуем плоскую структуру бэкенда в удобный вид
+// Бэкенд: { dc_id, dc_name, live: { ssh_ok, readonly, ... } }
+// Страница работает с нормализованными NodeNorm / ArbNorm
+interface NodeNorm {
+  id: number
+  name: string
+  host: string
+  port: number
+  dc_id: number | null
+  dc_name: string | null
+  maintenance: boolean
+  // live-поля (из live объекта, с fallback на false/null если live=null)
+  ssh_ok: boolean
+  db_ok: boolean
+  wsrep_local_state_comment: string | null
+  wsrep_ready: string | null
+  wsrep_flow_control_paused: number | null
+  wsrep_local_recv_queue: number | null
+  readonly: boolean
+  maintenance_drift: boolean
+  ssh_latency_ms: number | null
+  db_latency_ms: number | null
+  error: string | null
+}
+
+interface ArbNorm {
+  id: number
+  name: string
+  host: string
+  dc_id: number | null
+  dc_name: string | null
+  // BUG FIX #2: правильные поля из LiveArbitratorState.to_dict()
+  ssh_ok: boolean
+  garbd_running: boolean
+  ssh_latency_ms: number | null
+}
+
+const nodes = computed<NodeNorm[]>(() =>
+  (data.value?.nodes ?? []).map((n: NodeLive) => ({
+    id:           n.id,
+    name:         n.name,
+    host:         n.host,
+    port:         n.port,
+    dc_id:        n.dc_id,
+    dc_name:      n.dc_name,
+    maintenance:  n.maintenance,
+    // live-поля с безопасным fallback
+    ssh_ok:                    n.live?.ssh_ok                    ?? false,
+    db_ok:                     n.live?.db_ok                     ?? false,
+    wsrep_local_state_comment: n.live?.wsrep_local_state_comment ?? null,
+    wsrep_ready:               n.live?.wsrep_ready               ?? null,
+    wsrep_flow_control_paused: n.live?.wsrep_flow_control_paused ?? null,
+    wsrep_local_recv_queue:    n.live?.wsrep_local_recv_queue    ?? null,
+    readonly:                  n.live?.readonly                  ?? false,
+    maintenance_drift:         n.live?.maintenance_drift         ?? false,
+    ssh_latency_ms:            n.live?.ssh_latency_ms            ?? null,
+    db_latency_ms:             n.live?.db_latency_ms             ?? null,
+    error:                     n.live?.error                     ?? null,
+  }))
+)
+
+const arbitrators = computed<ArbNorm[]>(() =>
+  (data.value?.arbitrators ?? []).map((a: ArbLive) => ({
+    id:             a.id,
+    name:           a.name,
+    host:           a.host,
+    dc_id:          a.dc_id,
+    dc_name:        a.dc_name,
+    // BUG FIX #2: ssh_ok/garbd_running из live объекта
+    ssh_ok:         a.live?.ssh_ok         ?? false,
+    garbd_running:  a.live?.garbd_running  ?? false,
+    ssh_latency_ms: a.live?.ssh_latency_ms ?? null,
+  }))
+)
 
 // ── NodeDetailDrawer ──────────────────────────────────────────────────────────────────────────────
 const drawerNodeId = ref<number | null>(null)
@@ -69,17 +171,18 @@ const syncedCount = computed(() =>
 )
 
 // ── DC groups ────────────────────────────────────────────────────────────────────────────────────
+// BUG FIX #1 финал: группируем по dc_id (плоское поле), а не n.dc?.id
 const dcGroups = computed<DCGroup[]>(() => {
   const map = new Map<string, DCGroup>()
   for (const n of nodes.value) {
-    const key = n.dc ? String(n.dc.id) : '__none__'
-    if (!map.has(key)) map.set(key, { dcId: n.dc?.id ?? null, dcName: n.dc?.name ?? 'No DC', nodes: [], arbs: [] })
-    map.get(key)!.nodes.push(n)
+    const key = n.dc_id != null ? String(n.dc_id) : '__none__'
+    if (!map.has(key)) map.set(key, { dcId: n.dc_id, dcName: n.dc_name ?? 'No DC', nodes: [], arbs: [] })
+    map.get(key)!.nodes.push(n as unknown as NodeLive)
   }
   for (const a of arbitrators.value) {
-    const key = a.dc ? String(a.dc.id) : '__none__'
-    if (!map.has(key)) map.set(key, { dcId: a.dc?.id ?? null, dcName: a.dc?.name ?? 'No DC', nodes: [], arbs: [] })
-    map.get(key)!.arbs.push(a)
+    const key = a.dc_id != null ? String(a.dc_id) : '__none__'
+    if (!map.has(key)) map.set(key, { dcId: a.dc_id, dcName: a.dc_name ?? 'No DC', nodes: [], arbs: [] })
+    map.get(key)!.arbs.push(a as unknown as ArbLive)
   }
   return Array.from(map.values())
 })
@@ -100,39 +203,58 @@ function arbBadgeY(dc: DCGroup, ai: number) {
   return TOP_OFF + 8 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
 }
 
-function nodeColor(n: NodeLive): string {
-  const s = (n.wsrep_local_state_comment ?? '').toUpperCase()
-  if (!n.ssh_ok || s === 'OFFLINE') return 'var(--color-offline)'
-  if (n.wsrep_ready === 'OFF')      return 'var(--color-degraded)'
-  if (s === 'SYNCED' && n.readonly) return 'var(--color-readonly)'
-  if (s === 'SYNCED')               return 'var(--color-synced)'
+// Получаем нормализованные поля через явный каст (dcGroups хранит NodeLive,
+// но мы пушим туда NodeNorm — TypeScript не знает, используем прямой доступ)
+function nodeSSHOk(n: unknown): boolean     { return (n as NodeNorm).ssh_ok }
+function nodeState(n: unknown): string|null { return (n as NodeNorm).wsrep_local_state_comment }
+function nodeReady(n: unknown): string|null { return (n as NodeNorm).wsrep_ready }
+function nodeRO(n: unknown): boolean        { return (n as NodeNorm).readonly }
+function nodeMaint(n: unknown): boolean     { return (n as NodeNorm).maintenance }
+function nodeDrift(n: unknown): boolean     { return (n as NodeNorm).maintenance_drift }
+function nodeFlowCtrl(n: unknown): number|null { return (n as NodeNorm).wsrep_flow_control_paused }
+function nodeRecvQ(n: unknown): number|null    { return (n as NodeNorm).wsrep_local_recv_queue }
+function nodeDcName(n: unknown): string|null   { return (n as NodeNorm).dc_name }
+
+function arbSSHOk(a: unknown): boolean        { return (a as ArbNorm).ssh_ok }
+function arbGarbd(a: unknown): boolean        { return (a as ArbNorm).garbd_running }
+function arbLatency(a: unknown): number|null  { return (a as ArbNorm).ssh_latency_ms }
+function arbDcName(a: unknown): string|null   { return (a as ArbNorm).dc_name }
+
+function nodeColor(n: unknown): string {
+  const s = (nodeState(n) ?? '').toUpperCase()
+  if (!nodeSSHOk(n) || s === 'OFFLINE') return 'var(--color-offline)'
+  if (nodeReady(n) === 'OFF')           return 'var(--color-degraded)'
+  if (s === 'SYNCED' && nodeRO(n))      return 'var(--color-readonly)'
+  if (s === 'SYNCED')                   return 'var(--color-synced)'
   if (s === 'DONOR' || s === 'JOINER' || s === 'DESYNCED') return 'var(--color-donor)'
   return 'var(--color-text-faint)'
 }
-function arbColor(a: ArbLive): string {
-  if (!a.is_reachable)  return 'var(--color-offline)'
-  if (!a.garbd_running) return 'var(--color-degraded)'
+
+// BUG FIX #2 финал: arbColor использует ssh_ok/garbd_running (не is_reachable)
+function arbColor(a: unknown): string {
+  if (!arbSSHOk(a))   return 'var(--color-offline)'
+  if (!arbGarbd(a))   return 'var(--color-degraded)'
   return 'var(--color-synced)'
 }
-function nodeStatLabel(n: NodeLive): string {
-  const s = (n.wsrep_local_state_comment ?? '').toUpperCase()
-  if (!n.ssh_ok)           return 'OFFLINE'
-  if (n.wsrep_ready === 'OFF') return 'DEGRADED'
+
+function nodeStatLabel(n: unknown): string {
+  const s = (nodeState(n) ?? '').toUpperCase()
+  if (!nodeSSHOk(n))        return 'OFFLINE'
+  if (nodeReady(n) === 'OFF') return 'DEGRADED'
   return s || '—'
 }
-function arbStatLabel(a: ArbLive): string {
-  if (!a.is_reachable)  return 'OFFLINE'
-  if (!a.garbd_running) return 'DEGRADED'
+function arbStatLabel(a: unknown): string {
+  if (!arbSSHOk(a))   return 'OFFLINE'
+  if (!arbGarbd(a))   return 'DEGRADED'
   return 'ONLINE'
 }
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────────────────────────────
-const tooltip = ref<{ node?: NodeLive; arb?: ArbLive; x: number; y: number } | null>(null)
-function showNodeTip(e: MouseEvent, n: NodeLive) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
-function showArbTip(e: MouseEvent, a: ArbLive)   { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
+const tooltip = ref<{ node?: NodeNorm; arb?: ArbNorm; x: number; y: number } | null>(null)
+function showNodeTip(e: MouseEvent, n: NodeNorm) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
+function showArbTip(e: MouseEvent, a: ArbNorm)   { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
 function hideTip() { tooltip.value = null }
 
-// Скрываем tooltip при скролле страницы (фикс: position:fixed не двигается со страницей)
 function onScroll() { tooltip.value = null }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
@@ -157,7 +279,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             </span>
             <span v-if="arbitrators.length" class="stat-chip">
               <span class="stat-dot" style="background:var(--color-text-faint)"/>
-              {{ arbitrators.filter(a => a.is_reachable).length }} / {{ arbitrators.length }} ARB
+              {{ arbitrators.filter(a => a.ssh_ok).length }} / {{ arbitrators.length }} ARB
             </span>
           </div>
         </div>
@@ -191,7 +313,9 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
-              <!-- Full-mesh lines внутри DC: все пары ni < nj -->
+              <!-- Full-mesh lines внутри DC -->
+              <!-- BUG FIX #3: линии были почти невидимы из-за opacity:0.5 + dasharray на тёмном фоне.
+                   Поднимаем opacity до 0.85, увеличиваем stroke-width до 1.4 для intra-DC линий -->
               <g v-if="dc.nodes.length > 1">
                 <template v-for="ni in dc.nodes.length - 1" :key="`lnrow-${ni}`">
                   <template v-for="nj in dc.nodes.length" :key="`ln-${ni}-${nj}`">
@@ -199,60 +323,58 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                       v-if="nj > ni"
                       :x1="badgeX(di, ni - 1) + B_W / 2" :y1="badgeY(ni - 1) + B_H / 2"
                       :x2="badgeX(di, nj - 1) + B_W / 2" :y2="badgeY(nj - 1) + B_H / 2"
-                      class="topo-line"
+                      class="topo-line topo-line--intra"
                     />
                   </template>
                 </template>
               </g>
 
               <g
-                v-for="(node, ni) in dc.nodes" :key="node.id"
+                v-for="(node, ni) in dc.nodes" :key="(node as any).id"
                 :transform="`translate(${badgeX(di, ni)}, ${badgeY(ni)})`"
                 class="topo-badge topo-badge--clickable"
-                @mouseenter="(e) => showNodeTip(e, node)"
+                @mouseenter="(e) => showNodeTip(e, node as unknown as NodeNorm)"
                 @mouseleave="hideTip"
-                @click="openDrawer(node.id)"
+                @click="openDrawer((node as any).id)"
               >
                 <rect x="0" y="0" :width="B_W" :height="B_H" rx="5" class="badge-bg" />
                 <rect x="0" y="0" :width="B_W" height="3" rx="2"
                   :fill="nodeColor(node)"
-                  :filter="node.ssh_ok && node.wsrep_local_state_comment?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
+                  :filter="nodeSSHOk(node) && nodeState(node)?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <!-- Pulse animation для OFFLINE нод -->
-                <circle cx="9" cy="14" r="4" :fill="nodeColor(node)" :filter="!node.ssh_ok ? 'url(#glow-offline)' : undefined">
+                <circle cx="9" cy="14" r="4" :fill="nodeColor(node)" :filter="!nodeSSHOk(node) ? 'url(#glow-offline)' : undefined">
                   <animate
-                    v-if="!node.ssh_ok"
+                    v-if="!nodeSSHOk(node)"
                     attributeName="opacity"
                     values="1;0.2;1"
                     dur="1.6s"
                     repeatCount="indefinite"
                   />
                 </circle>
-                <text x="16" y="18" class="badge-name">{{ node.name }}</text>
-                <text x="4"  y="30" class="badge-host">{{ node.host }}:{{ node.port }}</text>
+                <text x="16" y="18" class="badge-name">{{ (node as any).name }}</text>
+                <text x="4"  y="30" class="badge-host">{{ (node as any).host }}:{{ (node as any).port }}</text>
                 <text x="4"  y="42" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
-                <rect x="4" y="48" width="22" height="10" rx="2" :fill="node.readonly ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
-                <text x="15" y="56" class="badge-pill" :fill="node.readonly ? 'var(--color-readonly)' : 'var(--color-synced)'">{{ node.readonly ? 'RO' : 'RW' }}</text>
-                <rect v-if="node.maintenance" x="29" y="48" width="28" height="10" rx="2" fill="rgba(249,115,22,.15)" />
-                <text v-if="node.maintenance" x="43" y="56" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
-                <circle v-if="node.maintenance_drift" :cx="B_W - 6" :cy="B_H - 6" r="3" fill="var(--color-offline)" />
-                <!-- Click hint icon -->
+                <rect x="4" y="48" width="22" height="10" rx="2" :fill="nodeRO(node) ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
+                <text x="15" y="56" class="badge-pill" :fill="nodeRO(node) ? 'var(--color-readonly)' : 'var(--color-synced)'">{{ nodeRO(node) ? 'RO' : 'RW' }}</text>
+                <rect v-if="nodeMaint(node)" x="29" y="48" width="28" height="10" rx="2" fill="rgba(249,115,22,.15)" />
+                <text v-if="nodeMaint(node)" x="43" y="56" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
+                <circle v-if="nodeDrift(node)" :cx="B_W - 6" :cy="B_H - 6" r="3" fill="var(--color-offline)" />
                 <text :x="B_W - 6" y="10" class="badge-open-hint">⤢</text>
               </g>
 
               <g
-                v-for="(arb, ai) in dc.arbs" :key="`arb-${arb.id}`"
+                v-for="(arb, ai) in dc.arbs" :key="`arb-${(arb as any).id}`"
                 :transform="`translate(${dcX(di) + SIDE}, ${arbBadgeY(dc, ai)})`"
                 class="topo-badge topo-badge--arb"
-                @mouseenter="(e) => showArbTip(e, arb)"
+                @mouseenter="(e) => showArbTip(e, arb as unknown as ArbNorm)"
                 @mouseleave="hideTip"
               >
                 <rect x="0" y="0" :width="B_W" :height="B_ARB_H" rx="5" class="badge-bg badge-bg--arb" />
                 <rect x="0" y="0" :width="B_W" height="2" rx="2" :fill="arbColor(arb)" />
                 <circle cx="9" cy="14" r="3" :fill="arbColor(arb)" />
                 <text x="3" y="26" class="badge-arb-ico">◈</text>
-                <text x="16" y="18" class="badge-name">{{ arb.name }}</text>
-                <text x="16" y="28" class="badge-host">{{ arb.host }}</text>
+                <text x="16" y="18" class="badge-name">{{ (arb as any).name }}</text>
+                <text x="16" y="28" class="badge-host">{{ (arb as any).host }}</text>
                 <text x="4"  y="40" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
               </g>
             </g>
@@ -321,11 +443,15 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <td>
                   <span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span>
                 </td>
-                <td><span class="cell-muted">{{ n.dc?.name ?? '—' }}</span></td>
+                <!-- BUG FIX #1 финал: dc_name (плоское поле), не n.dc?.name -->
+                <td><span class="cell-muted">{{ n.dc_name ?? '—' }}</span></td>
                 <td>
                   <span class="mode-pill" :class="n.readonly ? 'mode-ro' : 'mode-rw'">{{ n.readonly ? 'RO' : 'RW' }}</span>
                 </td>
                 <td>
+                  <!-- BUG FIX #4: SSH FAIL показывался потому что n.ssh_ok было undefined
+                       (брали из верхнего уровня объекта, а не из n.live). Теперь n.ssh_ok
+                       берётся из нормализованного computed nodes, который извлекает из n.live -->
                   <span class="ssh-cell" :class="n.ssh_ok ? 'ssh-ok' : 'ssh-fail'">
                     <i :class="n.ssh_ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
                     {{ n.ssh_ok ? 'OK' : 'FAIL' }}
@@ -363,8 +489,8 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 </td>
                 <td><span class="cell-mono">{{ a.host }}</span></td>
                 <td><span class="cell-state" :style="{ color: arbColor(a) }">{{ arbStatLabel(a) }}</span></td>
-                <td><span class="cell-muted">{{ a.dc?.name ?? '—' }}</span></td>
-                <td><span class="cell-mono">{{ a.latency_ssh_ms != null ? `${a.latency_ssh_ms} ms` : '—' }}</span></td>
+                <td><span class="cell-muted">{{ a.dc_name ?? '—' }}</span></td>
+                <td><span class="cell-mono">{{ a.ssh_latency_ms != null ? `${a.ssh_latency_ms} ms` : '—' }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -392,7 +518,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           <div class="tt-name">{{ tooltip.node.name }}</div>
           <div class="tt-row"><span>Host</span><span class="tt-val">{{ tooltip.node.host }}:{{ tooltip.node.port }}</span></div>
           <div class="tt-row"><span>State</span><span class="tt-val" :style="{ color: nodeColor(tooltip.node) }">{{ nodeStatLabel(tooltip.node) }}</span></div>
-          <div class="tt-row"><span>DC</span><span class="tt-val">{{ tooltip.node.dc?.name ?? '—' }}</span></div>
+          <div class="tt-row"><span>DC</span><span class="tt-val">{{ tooltip.node.dc_name ?? '—' }}</span></div>
           <div class="tt-row"><span>SSH</span><span class="tt-val" :style="{ color: tooltip.node.ssh_ok ? 'var(--color-synced)' : 'var(--color-offline)' }">{{ tooltip.node.ssh_ok ? 'OK' : 'FAIL' }}</span></div>
           <div v-if="tooltip.node.wsrep_flow_control_paused != null" class="tt-row">
             <span>Flow Ctrl</span><span class="tt-val">{{ (tooltip.node.wsrep_flow_control_paused * 100).toFixed(1) }}%</span>
@@ -407,8 +533,8 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           <div class="tt-row"><span>Host</span><span class="tt-val">{{ tooltip.arb.host }}</span></div>
           <div class="tt-row"><span>State</span><span class="tt-val" :style="{ color: arbColor(tooltip.arb) }">{{ arbStatLabel(tooltip.arb) }}</span></div>
           <div class="tt-row"><span>garbd</span><span class="tt-val" :style="{ color: tooltip.arb.garbd_running ? 'var(--color-synced)' : 'var(--color-offline)' }">{{ tooltip.arb.garbd_running ? 'running' : 'stopped' }}</span></div>
-          <div v-if="tooltip.arb.latency_ssh_ms != null" class="tt-row">
-            <span>Latency</span><span class="tt-val">{{ tooltip.arb.latency_ssh_ms }} ms</span>
+          <div v-if="tooltip.arb.ssh_latency_ms != null" class="tt-row">
+            <span>Latency</span><span class="tt-val">{{ tooltip.arb.ssh_latency_ms }} ms</span>
           </div>
         </template>
       </div>
@@ -504,8 +630,12 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
-.topo-line     { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
-.topo-line--dc { stroke:var(--color-primary); stroke-dasharray:5 3; opacity:.3; }
+/* BUG FIX #3: линии были почти невидимы (opacity:0.5, stroke-width:1, тёмный фон).
+   Intra-DC линии: stroke-width 1.4, opacity 0.85, более заметный цвет.
+   Inter-DC линии: уже используют primary color, только opacity чуть выше. */
+.topo-line         { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
+.topo-line--intra  { stroke: var(--color-text-faint); stroke-width: 1.4; stroke-dasharray: 4 2; opacity: 0.85; }
+.topo-line--dc     { stroke:var(--color-primary); stroke-width:1.2; stroke-dasharray:5 3; opacity:.5; }
 
 /* ── Legend ───────────────────────────────────────────────────────────────────── */
 .topo-legend {
@@ -532,6 +662,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .node-table-header {
   display: flex;
   align-items: center;
+
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-border);
@@ -584,7 +715,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 
 .cell-name { display:flex; align-items:center; gap:var(--space-3); }
 
-/* Pulse animation для OFFLINE нод в таблице */
 @keyframes status-pulse {
   0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
   50%       { opacity: 0.3; box-shadow: 0 0 2px currentColor; }
