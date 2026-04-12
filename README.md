@@ -10,7 +10,7 @@
 ╚██████╔╝██║  ██║███████╗███████╗██║  ██║██║  ██║
  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
 
- ██████╗ ██████╗  ██████╗██║  ██║███████╗███████╗████████╗██████╗  █████╗ ████████╗ ██████╗ ██████╗
+ ██████╗ ██████╗  ██████╗██╗  ██╗███████╗███████╗████████╗██████╗  █████╗ ████████╗ ██████╗ ██████╗
 ██╔═══██╗██╔══██╗██╔════╝██║  ██║██╔════╝██╔════╝╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗
 ██║   ██║██████╔╝██║     ███████║█████╗  ███████╗   ██║   ██████╔╝███████║   ██║   ██║   ██║██████╔╝
 ██║   ██║██╔══██╗██║     ██╔══██║██╔══╝  ╚════██║   ██║   ██╔══██╗██╔══██║   ██║   ██║   ██║██╔══██╗
@@ -101,7 +101,7 @@ No agents on nodes. No complex setup. Just a Docker container, your SSH key, and
 
 ---
 
-### 🧨 Option A — One-line installer *(recommended)*
+### 🧩 Option A — One-line installer *(recommended)*
 
 Одна команда на сервере — скрипт сам скачает файлы, спросит пароль и SSH-ключ,
 сгенерирует секреты и запустит контейнер:
@@ -126,11 +126,26 @@ curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/ma
   📁 Dir:     ~/galera-orchestrator
 ```
 
-**Обновление в будущем:**
+---
+
+### 🔄 Обновление
+
 ```bash
-cd ~/galera-orchestrator
-docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
+curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/update.sh | bash
 ```
+
+Или если скрипт уже скачан локально:
+
+```bash
+bash ~/galera-orchestrator/update.sh
+```
+
+Что делает:
+- Напоминает про бэкап БД (и показывает команду)
+- Спрашивает подтверждение
+- Тянет новый образ с GHCR
+- Перезапускает контейнер без downtime данных
+- Обновляет `docker-compose.ghcr.yml` до актуальной версии
 
 ---
 
@@ -180,12 +195,14 @@ All configuration via `.env` file. Sensible defaults for everything except secre
 | `ADMIN_PASSWORD` | `changeme` | **✅ change** | Admin password |
 | `JWT_SECRET_KEY` | `change-me-jwt-secret` | **✅ change** | JWT signing secret (min 32 chars) |
 | `FERNET_SECRET_KEY` | `change-me-fernet-secret` | **✅ change** | Fernet key — encrypts node DB passwords in SQLite |
-| `SSH_KEY_PATH` | `/root/.ssh/id_rsa` | **✅** | Path to SSH private key (bind-mounted `:ro`) |
+| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path to SSH private key (bind-mounted `:ro`) |
 | `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | Не менять — `/data` монтируется как named volume |
 | `HOST_PORT` | `8000` | — | Host port to expose |
 | `SSH_CONNECT_TIMEOUT` | `5` | — | SSH connect timeout, seconds |
 | `SSH_COMMAND_TIMEOUT` | `10` | — | SSH command timeout, seconds |
 | `DB_CONNECT_TIMEOUT` | `3` | — | MariaDB connect timeout, seconds |
+
+> ⚠️ `JWT_SECRET_KEY` и `FERNET_SECRET_KEY` должны быть **разными** значениями.
 
 ---
 
@@ -195,18 +212,25 @@ The orchestrator uses **one global SSH key** for all node/arbitrator connections
 The key is **bind-mounted read-only** into the container — never stored in the database.
 
 ```yaml
-# docker-compose.yml (already set up)
+# docker-compose.ghcr.yml (already configured)
 volumes:
   - ${SSH_KEY_PATH}:/root/.ssh/id_rsa:ro
 ```
 
-✅ Verify access before starting:
+✅ Проверь доступ перед запуском:
 
 ```bash
 ssh -i ~/.ssh/id_rsa -p 22 root@<node-host> "hostname && mysql -e 'SELECT 1'"
 ```
 
-> The key must be **passwordless**. Generate a new one: `ssh-keygen -t ed25519 -N "" -f ~/.ssh/galera_key`
+Если ключа нет — создай:
+
+```bash
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/galera_key
+ssh-copy-id -i ~/.ssh/galera_key.pub user@node-host
+```
+
+> Ключ должен быть **без passphrase**.
 
 ---
 
@@ -433,7 +457,8 @@ galera_orchestrator_v2/
 ├── 🐳 Dockerfile                Multi-stage: Node (build) → Python (runtime)
 ├── 🐳 docker-compose.yml        Build from source
 ├── 🐳 docker-compose.ghcr.yml   Pull from GHCR (no source needed)
-├── 🐊 install.sh                One-line installer
+├── 🚀 install.sh                One-line installer
+├── 🔄 update.sh                 One-line updater
 ├── 📝 .env.example
 ├── 🚫 .gitignore
 └── 📚 README.md
@@ -443,7 +468,7 @@ galera_orchestrator_v2/
 
 ## 💾 Data Persistence & Backup
 
-SQLite lives at `/data/orchestrator.db` inside the container, backed by the `orchestrator-data` named Docker volume. **Data survives container restarts and image upgrades.**
+SQLite живёт в `/data/orchestrator.db` внутри контейнера, за которым стоит named Docker volume `orchestrator-data`. **Данные переживают перезапуск контейнера и обновления образа.**
 
 ### Backup
 
@@ -467,14 +492,17 @@ docker run --rm \
 docker compose up -d
 ```
 
-### Upgrade (data preserved)
+### Upgrade
 
 ```bash
-# Option A (installer)
+# Рекомендуемый способ — через update.sh
+bash ~/galera-orchestrator/update.sh
+
+# Или вручную (Option A/B)
 cd ~/galera-orchestrator
 docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
 
-# Option C (from source)
+# Option C (из исходников)
 git pull && docker compose build --no-cache && docker compose up -d
 ```
 
@@ -555,7 +583,7 @@ pytest tests/e2e/ -v -k "TestRecovery"
 | 🔐 **Node DB passwords** | Encrypted at rest with Fernet — changing `FERNET_SECRET_KEY` invalidates all stored passwords |
 | 💻 **SSH key** | Mounted `:ro` — container cannot modify or exfiltrate it |
 | 🍪 **JWT in browser** | Lives only in `httpOnly` cookie — inaccessible to JavaScript, XSS-safe |
-| 🔇 **Dual secrets** | `JWT_SECRET_KEY` and `FERNET_SECRET_KEY` **must** be different values |
+| 🔇 **Dual secrets** | `JWT_SECRET_KEY` и `FERNET_SECRET_KEY` **must** be different values |
 | ⚠️ **No mock mode** | All SSH / SQL operations are **real** — use a test cluster for experiments |
 | 🌐 **CORS** | In production, SPA and API are on the same origin — CORS middleware active in dev only |
 
