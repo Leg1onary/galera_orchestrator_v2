@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    start_poller()          # FIX MAJOR: await если stop_poller/start_poller async
+    start_poller()   # sync — schedules asyncio.create_task internally
     logger.info("Galera Orchestrator v2 started")
     yield
-    stop_poller()           # FIX MAJOR: await если stop_poller async
+    stop_poller()    # sync — cancels the task
     logger.info("Galera Orchestrator v2 stopped")
 
 
@@ -48,7 +48,6 @@ app = FastAPI(
 # ── CORS (dev only) ──────────────────────────────────────────────────────────
 # В prod SPA и API на одном origin — CORS не нужен.
 # В dev Vite на :5173 делает запросы к FastAPI на :8000.
-# FIX MINOR: добавлен CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -87,7 +86,7 @@ if STATIC_DIR.is_dir():
 _SPA_EXCLUDED_PREFIXES = (
     "/api/",
     "/ws/",
-    "/assets/",    # FIX MINOR: StaticFiles обрабатывает это сам, но явная защита не лишняя
+    "/assets/",
     "/docs",
     "/redoc",
     "/openapi.json",
