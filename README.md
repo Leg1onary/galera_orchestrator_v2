@@ -10,7 +10,7 @@
 ╚██████╔╝██║  ██║███████╗███████╗██║  ██║██║  ██║
  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
 
- ██████╗ ██████╗  ██████╗██╗  ██╗███████╗███████╗████████╗██████╗  █████╗ ████████╗ ██████╗ ██████╗
+ ██████╗ ██████╗  ██████╗██║  ██║███████╗███████╗████████╗██████╗  █████╗ ████████╗ ██████╗ ██████╗
 ██╔═══██╗██╔══██╗██╔════╝██║  ██║██╔════╝██╔════╝╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗
 ██║   ██║██████╔╝██║     ███████║█████╗  ███████╗   ██║   ██████╔╝███████║   ██║   ██║   ██║██████╔╝
 ██║   ██║██╔══██╗██║     ██╔══██║██╔══╝  ╚════██║   ██║   ██╔══██╗██╔══██║   ██║   ██║   ██║██╔══██╗
@@ -99,55 +99,74 @@ No agents on nodes. No complex setup. Just a Docker container, your SSH key, and
 | 🐳 Docker Compose | v2 plugin |
 | 🔑 SSH private key | RSA / Ed25519, passwordless, access to all Galera nodes |
 
-### 1. Clone & configure
+---
+
+### 🧨 Option A — One-line installer *(recommended)*
+
+Одна команда на сервере — скрипт сам скачает файлы, спросит пароль и SSH-ключ,
+сгенерирует секреты и запустит контейнер:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/install.sh | bash
+```
+
+Что происходит внутри:
+1. Проверяет наличие Docker и Docker Compose
+2. Создаёт папку `~/galera-orchestrator`
+3. Скачивает `docker-compose.ghcr.yml`
+4. Интерактивно спрашивает: логин, пароль, путь к SSH-ключу, порт
+5. **Автоматически генерирует** `JWT_SECRET_KEY` и `FERNET_SECRET_KEY`
+6. Пишет `.env` с `chmod 600`
+7. Тянет образ с GHCR и запускает
+
+После запуска скрипт покажет:
+```
+  🌍 Panel:   http://<server-ip>:8000
+  👤 Login:   admin
+  📁 Dir:     ~/galera-orchestrator
+```
+
+**Обновление в будущем:**
+```bash
+cd ~/galera-orchestrator
+docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
+### 🐳 Option B — Docker Compose вручную *(без git, только Docker)*
+
+```bash
+# 1. Скачать два файла
+curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/docker-compose.ghcr.yml -o docker-compose.ghcr.yml
+curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/.env.example -o .env
+
+# 2. Заполнить .env
+nano .env
+
+# 3. Запустить (образ скачается автоматически с GHCR)
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+---
+
+### 🛠️ Option C — Собрать из исходников *(для разработки)*
 
 ```bash
 git clone https://github.com/Leg1onary/galera_orchestrator_v2.git
 cd galera_orchestrator_v2
-cp .env.example .env
-```
-
-Open `.env` and **change all three secrets before first start**:
-
-```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-strong-password        # ← change this
-
-# Generate: openssl rand -hex 32
-JWT_SECRET_KEY=<random-32+-chars>           # ← change this
-
-# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-FERNET_SECRET_KEY=<fernet-key>             # ← change this
-
-SSH_KEY_HOST_PATH=/root/.ssh/id_rsa        # path to your SSH key on the host
-```
-
-> ⚠️ `JWT_SECRET_KEY` and `FERNET_SECRET_KEY` must be **different** values.
-
-### 2. Start
-
-```bash
+cp .env.example .env && nano .env
 docker compose up -d
 ```
 
-| | |
-|---|---|
-| 🌍 **Panel** | http://localhost:8000 |
-| 👤 **Login** | `admin` / password from `.env` |
-| 📖 **API Docs** | http://localhost:8000/docs |
+---
 
-### 3. Add your first cluster
+### После запуска — добавить первый кластер
 
-1. Go to **Settings → Clusters** → create cluster
-2. **Settings → Datacenters** → create datacenter(s)
-3. **Settings → Nodes** → add nodes (host, SSH port, DB credentials)
-4. Select cluster in the top bar → watch **Overview** come alive 🎉
-
-### 4. Stop (data preserved)
-
-```bash
-docker compose down
-```
+1. Открой **Settings → Clusters** → создай кластер
+2. **Settings → Datacenters** → создай датацентр(ы)
+3. **Settings → Nodes** → добавь узлы (host, SSH-порт, DB-credentials)
+4. Выбери кластер в топбаре → наблюдай как **Overview** оживает 🎉
 
 ---
 
@@ -161,8 +180,8 @@ All configuration via `.env` file. Sensible defaults for everything except secre
 | `ADMIN_PASSWORD` | `changeme` | **✅ change** | Admin password |
 | `JWT_SECRET_KEY` | `change-me-jwt-secret` | **✅ change** | JWT signing secret (min 32 chars) |
 | `FERNET_SECRET_KEY` | `change-me-fernet-secret` | **✅ change** | Fernet key — encrypts node DB passwords in SQLite |
-| `SSH_KEY_HOST_PATH` | `/root/.ssh/id_rsa` | **✅** | Host path to SSH private key (bind-mounted `:ro`) |
-| `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | SQLite path inside container |
+| `SSH_KEY_PATH` | `/root/.ssh/id_rsa` | **✅** | Path to SSH private key (bind-mounted `:ro`) |
+| `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | Не менять — `/data` монтируется как named volume |
 | `HOST_PORT` | `8000` | — | Host port to expose |
 | `SSH_CONNECT_TIMEOUT` | `5` | — | SSH connect timeout, seconds |
 | `SSH_COMMAND_TIMEOUT` | `10` | — | SSH command timeout, seconds |
@@ -178,7 +197,7 @@ The key is **bind-mounted read-only** into the container — never stored in the
 ```yaml
 # docker-compose.yml (already set up)
 volumes:
-  - ${SSH_KEY_HOST_PATH}:/root/.ssh/id_rsa:ro
+  - ${SSH_KEY_PATH}:/root/.ssh/id_rsa:ro
 ```
 
 ✅ Verify access before starting:
@@ -187,13 +206,7 @@ volumes:
 ssh -i ~/.ssh/id_rsa -p 22 root@<node-host> "hostname && mysql -e 'SELECT 1'"
 ```
 
-Using a non-standard path? Just set it in `.env`:
-
-```env
-SSH_KEY_HOST_PATH=/home/ops/.ssh/galera_ed25519
-```
-
-> The key must be **passwordless**. `ssh-keygen -t ed25519 -N ""` creates one in seconds.
+> The key must be **passwordless**. Generate a new one: `ssh-keygen -t ed25519 -N "" -f ~/.ssh/galera_key`
 
 ---
 
@@ -418,7 +431,9 @@ galera_orchestrator_v2/
 │       └── test_critical_paths.py   Full E2E coverage (no real Galera needed)
 │
 ├── 🐳 Dockerfile                Multi-stage: Node (build) → Python (runtime)
-├── 🐳 docker-compose.yml
+├── 🐳 docker-compose.yml        Build from source
+├── 🐳 docker-compose.ghcr.yml   Pull from GHCR (no source needed)
+├── 🐊 install.sh                One-line installer
 ├── 📝 .env.example
 ├── 🚫 .gitignore
 └── 📚 README.md
@@ -455,9 +470,12 @@ docker compose up -d
 ### Upgrade (data preserved)
 
 ```bash
-git pull
-docker compose build --no-cache
-docker compose up -d   # volume untouched, container recreated
+# Option A (installer)
+cd ~/galera-orchestrator
+docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
+
+# Option C (from source)
+git pull && docker compose build --no-cache && docker compose up -d
 ```
 
 ---
