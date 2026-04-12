@@ -21,6 +21,8 @@ type StatusKey =
     | 'not-ready'
     | 'offline'
 
+// Бэкенд возвращает wsrep_local_state_comment как "Synced", "Donor", "Joiner", "Desynced" —
+// нормализуем к uppercase перед поиском, чтобы не зависеть от регистра.
 const STATE_MAP: Record<string, StatusKey> = {
   SYNCED:   'synced',
   DONOR:    'transitioning',
@@ -41,7 +43,9 @@ const status = computed((): StatusKey => {
   // wsrep_ready = OFF → not-ready (orange)
   if (live.wsrep_ready === 'OFF') return 'not-ready'
 
-  const stateKey = STATE_MAP[live.wsrep_local_state_comment]
+  // Нормализация: "Synced" → "SYNCED", "Donor/STD" → "DONOR"
+  const stateRaw = live.wsrep_local_state_comment.toUpperCase().split('/')[0].trim()
+  const stateKey = STATE_MAP[stateRaw]
   if (!stateKey) return 'offline'
 
   // SYNCED + readonly → synced-ro (yellow)
