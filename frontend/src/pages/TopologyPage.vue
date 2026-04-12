@@ -51,7 +51,7 @@ const { data, isLoading } = useClusterStatus(clusterId)
 const nodes       = computed<NodeLive[]>(() => (data.value?.nodes      ?? []) as NodeLive[])
 const arbitrators = computed<ArbLive[]>(() => (data.value?.arbitrators ?? []) as ArbLive[])
 
-// ── NodeDetailDrawer ─────────────────────────────────────────────────────────
+// ── NodeDetailDrawer ──────────────────────────────────────────────────────────────────────────────
 const drawerNodeId = ref<number | null>(null)
 const drawerOpen   = ref(false)
 function openDrawer(nodeId: number) {
@@ -63,12 +63,12 @@ function closeDrawer() {
   drawerNodeId.value = null
 }
 
-// ── Header stats ─────────────────────────────────────────────────────────────
+// ── Header stats ────────────────────────────────────────────────────────────────────────────────
 const syncedCount = computed(() =>
   nodes.value.filter(n => n.ssh_ok && (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED').length
 )
 
-// ── DC groups ────────────────────────────────────────────────────────────────
+// ── DC groups ────────────────────────────────────────────────────────────────────────────────────
 const dcGroups = computed<DCGroup[]>(() => {
   const map = new Map<string, DCGroup>()
   for (const n of nodes.value) {
@@ -126,7 +126,7 @@ function arbStatLabel(a: ArbLive): string {
   return 'ONLINE'
 }
 
-// ── Tooltip ──────────────────────────────────────────────────────────────────
+// ── Tooltip ──────────────────────────────────────────────────────────────────────────────────────────
 const tooltip = ref<{ node?: NodeLive; arb?: ArbLive; x: number; y: number } | null>(null)
 function showNodeTip(e: MouseEvent, n: NodeLive) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
 function showArbTip(e: MouseEvent, a: ArbLive)   { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
@@ -191,21 +191,9 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
-              <!-- Full-mesh lines внутри DC (фикс: было n→n+1, теперь все пары) -->
+              <!-- Full-mesh lines внутри DC: все пары ni < nj -->
               <g v-if="dc.nodes.length > 1">
-                <line
-                  v-for="(_, ni) in dc.nodes" :key="`lna-${ni}`"
-                  v-for="(_, nj) in dc.nodes.slice(ni + 1)" :key="`lnb-${ni}-${nj}`"
-                  :x1="badgeX(di, ni) + B_W / 2" :y1="badgeY(ni) + B_H / 2"
-                  :x2="badgeX(di, ni + 1 + dc.nodes.slice(ni + 1).indexOf(_)) + B_W / 2"
-                  :y2="badgeY(ni + 1 + dc.nodes.slice(ni + 1).indexOf(_)) + B_H / 2"
-                  class="topo-line"
-                />
-              </g>
-
-              <!-- Simplified: sequential lines (stable approach) -->
-              <g v-if="dc.nodes.length > 1">
-                <template v-for="ni in dc.nodes.length - 1" :key="`ln-${ni}`">
+                <template v-for="ni in dc.nodes.length - 1" :key="`lnrow-${ni}`">
                   <template v-for="nj in dc.nodes.length" :key="`ln-${ni}-${nj}`">
                     <line
                       v-if="nj > ni"
@@ -437,7 +425,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   justify-content:center; font-size:var(--text-sm);
 }
 
-/* ── Header ───────────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────────────── */
 .pg-header {
   display: flex;
   align-items: center;
@@ -476,7 +464,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   flex-shrink: 0;
 }
 
-/* ── Canvas ──────────────────────────────────────────────────────── */
+/* ── Canvas ───────────────────────────────────────────────────────────────────── */
 .topo-canvas-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -487,7 +475,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-svg {
   display: block;
-  /* max-height умеренный — SVG масштабируется через viewBox */
   max-height: 260px;
   height: auto;
   width: auto;
@@ -520,7 +507,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .topo-line     { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
 .topo-line--dc { stroke:var(--color-primary); stroke-dasharray:5 3; opacity:.3; }
 
-/* ── Legend ──────────────────────────────────────────────────────── */
+/* ── Legend ───────────────────────────────────────────────────────────────────── */
 .topo-legend {
   display:flex; flex-wrap:wrap; align-items:center;
   gap:var(--space-2) var(--space-5);
@@ -534,7 +521,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .legend-dot    { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
 .legend-icon   { font-size:10px; line-height:1; }
 
-/* ── Tables ──────────────────────────────────────────────────────── */
+/* ── Tables ───────────────────────────────────────────────────────────────────── */
 .node-table-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -639,7 +626,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .ssh-ok   { color:var(--color-synced); }
 .ssh-fail { color:var(--color-offline); }
 
-/* ── Tooltip ─────────────────────────────────────────────────────── */
+/* ── Tooltip ───────────────────────────────────────────────────────────────────── */
 .topo-tooltip {
   position:fixed; z-index:9999;
   background:var(--color-surface-2); border:1px solid var(--color-border);
