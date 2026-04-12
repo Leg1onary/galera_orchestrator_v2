@@ -107,6 +107,8 @@ export type ArbitratorLogResult = {
     arbitrator_name: string
     lines: string[]
     fetched_at: string
+    /** SSH or execution error from backend; null on success */
+    error: string | null
 }
 
 // ── Arbitrator test connection ─────────────────────────────────────────────
