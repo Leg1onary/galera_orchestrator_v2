@@ -40,6 +40,14 @@ import StepPanels from 'primevue/steppanels'
 import Step from 'primevue/step'
 import StepPanel from 'primevue/steppanel'
 
+// ── Fonts (bundled, no external requests) ────────────────────────────────────
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
+import '@fontsource/jetbrains-mono/400.css'
+import '@fontsource/jetbrains-mono/500.css'
+
 import 'primeicons/primeicons.css'
 import './assets/main.css'
 import App from './App.vue'
