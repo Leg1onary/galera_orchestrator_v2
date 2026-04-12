@@ -208,7 +208,7 @@ const TABS = [
 }
 
 :deep(.diag-panels) {
-  padding: var(--space-5) 0 0;
+  padding: var(--space-5) var(--space-1) 0;
   background: transparent;
 }
 </style>
