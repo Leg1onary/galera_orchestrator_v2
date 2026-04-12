@@ -5,38 +5,38 @@
     <div class="step-header">
       <h2 class="step-title">Step 1 — Scan nodes</h2>
       <p class="step-desc">
-        The orchestrator will connect to each node via SSH and read
-        <code class="inline-code">grastate.dat</code> to determine which node is safe to bootstrap.
+        The orchestrator will read cluster status and node states
+        to determine which node is safe to bootstrap.
       </p>
     </div>
 
     <!-- IDLE -->
-    <div v-if="!store.scanResult && !store.scanning" class="state-idle">
+    <div v-if="!store.clusterStatus && !store.statusLoading" class="state-idle">
       <div class="state-idle-icon">
         <i class="pi pi-search" />
       </div>
       <p class="state-idle-hint">No scan performed yet.</p>
-      <Button label="Start scan" icon="pi pi-play" class="idle-btn" @click="store.scan()" />
+      <Button label="Start scan" icon="pi pi-play" class="idle-btn" @click="store.loadStatus()" />
     </div>
 
-    <!-- SCANNING -->
-    <div v-else-if="store.scanning" class="state-scanning">
+    <!-- LOADING -->
+    <div v-else-if="store.statusLoading" class="state-scanning">
       <ProgressSpinner style="width: 36px; height: 36px" />
-      <p class="state-scanning-hint">Connecting to nodes via SSH…</p>
+      <p class="state-scanning-hint">Reading cluster status…</p>
     </div>
 
-    <!-- SSH/SCAN ERROR -->
-    <div v-else-if="store.scanError" class="state-error">
+    <!-- ERROR -->
+    <div v-else-if="store.statusError" class="state-error">
       <div class="state-error-icon"><i class="pi pi-times-circle" /></div>
-      <p class="state-error-msg">{{ store.scanError }}</p>
-      <Button label="Retry" icon="pi pi-refresh" size="small" outlined @click="store.scan()" />
+      <p class="state-error-msg">{{ store.statusError }}</p>
+      <Button label="Retry" icon="pi pi-refresh" size="small" outlined @click="store.loadStatus()" />
     </div>
 
     <!-- RESULTS -->
-    <template v-else-if="store.scanResult">
+    <template v-else-if="store.clusterStatus">
 
       <!-- Cluster healthy banner -->
-      <div v-if="store.scanResult.cluster_is_healthy" class="result-banner result-banner--success">
+      <div v-if="clusterIsHealthy" class="result-banner result-banner--success">
         <i class="pi pi-check-circle" />
         <div>
           <strong>Cluster appears healthy</strong>
@@ -44,27 +44,18 @@
         </div>
       </div>
 
-      <!-- Split-brain banner -->
-      <div v-else-if="store.scanResult.is_split_brain" class="result-banner result-banner--error">
-        <i class="pi pi-exclamation-circle" />
-        <div>
-          <strong>Split-brain detected</strong>
-          <p>Multiple Primary Components found. Manual intervention required — do not bootstrap automatically.</p>
-        </div>
-      </div>
-
       <!-- NODE TABLE -->
       <div class="scan-table-wrap">
         <DataTable
-            :value="store.scanResult.nodes"
-            dataKey="node_id"
+            :value="store.clusterStatus.nodes"
+            dataKey="id"
             size="small"
             class="scan-table"
         >
-          <Column field="node_name" header="Node" :sortable="true">
+          <Column field="name" header="Node" :sortable="true">
             <template #body="{ data }">
               <div class="cell-node">
-                <span class="cell-node-name">{{ data.node_name }}</span>
+                <span class="cell-node-name">{{ data.name }}</span>
                 <span class="cell-node-host">{{ data.host }}</span>
               </div>
             </template>
@@ -72,44 +63,43 @@
 
           <Column header="SSH" style="width: 72px">
             <template #body="{ data }">
-              <span class="ssh-badge" :class="data.reachable ? 'ssh-badge--ok' : 'ssh-badge--fail'">
-                <i :class="data.reachable ? 'pi pi-check' : 'pi pi-times'" />
-                {{ data.reachable ? 'OK' : 'FAIL' }}
+              <span class="ssh-badge" :class="data.live?.ssh_ok ? 'ssh-badge--ok' : 'ssh-badge--fail'">
+                <i :class="data.live?.ssh_ok ? 'pi pi-check' : 'pi pi-times'" />
+                {{ data.live?.ssh_ok ? 'OK' : 'FAIL' }}
               </span>
             </template>
           </Column>
 
-          <Column header="seqno" style="width: 100px">
+          <Column header="DB" style="width: 72px">
             <template #body="{ data }">
-              <span v-if="!data.reachable" class="cell-muted">—</span>
-              <span v-else-if="data.seqno === -1" class="cell-running">node running</span>
-              <span v-else class="cell-mono">{{ data.seqno }}</span>
-            </template>
-          </Column>
-
-          <Column header="safe_to_bootstrap" style="width: 150px">
-            <template #body="{ data }">
-              <span v-if="!data.reachable" class="cell-muted">—</span>
-              <span
-                v-else
-                class="stb-badge"
-                :class="data.safe_to_bootstrap === 1 ? 'stb-badge--yes' : 'stb-badge--no'"
-              >
-                {{ data.safe_to_bootstrap === 1 ? 'YES' : 'NO' }}
+              <span class="ssh-badge" :class="data.live?.db_ok ? 'ssh-badge--ok' : 'ssh-badge--fail'">
+                <i :class="data.live?.db_ok ? 'pi pi-check' : 'pi pi-times'" />
+                {{ data.live?.db_ok ? 'OK' : 'FAIL' }}
               </span>
             </template>
           </Column>
 
-          <Column header="UUID" style="width: 160px">
+          <Column header="State" style="width: 140px">
             <template #body="{ data }">
-              <span v-if="data.uuid" class="cell-uuid">{{ data.uuid.slice(0, 8) }}…</span>
-              <span v-else class="cell-muted">—</span>
+              <span v-if="!data.live" class="cell-muted">—</span>
+              <span v-else class="cell-state" :class="stateClass(data.live.wsrep_local_state_comment)">
+                {{ data.live.wsrep_local_state_comment ?? 'unknown' }}
+              </span>
+            </template>
+          </Column>
+
+          <Column header="Connected" style="width: 110px">
+            <template #body="{ data }">
+              <span v-if="!data.live" class="cell-muted">—</span>
+              <span v-else class="stb-badge" :class="data.live.wsrep_connected === 'ON' ? 'stb-badge--yes' : 'stb-badge--no'">
+                {{ data.live.wsrep_connected === 'ON' ? 'YES' : 'NO' }}
+              </span>
             </template>
           </Column>
 
           <Column header="Error">
             <template #body="{ data }">
-              <span v-if="data.error" class="cell-error">{{ data.error }}</span>
+              <span v-if="data.live?.error" class="cell-error">{{ data.live.error }}</span>
               <span v-else class="cell-muted">—</span>
             </template>
           </Column>
@@ -118,12 +108,12 @@
 
       <!-- ACTIONS -->
       <div class="step-actions">
-        <Button label="Re-scan" icon="pi pi-refresh" outlined size="small" @click="store.scan()" />
+        <Button label="Re-scan" icon="pi pi-refresh" outlined size="small" @click="store.loadStatus()" />
         <Button
             label="Next: Select bootstrap node"
             icon="pi pi-arrow-right"
             iconPos="right"
-            :disabled="store.scanResult.cluster_is_healthy || store.scanResult.is_split_brain || !hasReachableNodes"
+            :disabled="clusterIsHealthy || !hasOfflineNodes"
             @click="emit('next')"
         />
       </div>
@@ -137,17 +127,28 @@ import { computed } from 'vue'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import { useRecoveryStore } from '@/stores/recovery'
-import StatusBadge from '@/components/shared/StatusBadge.vue'
 
 const emit = defineEmits<{ next: [] }>()
 const store = useRecoveryStore()
 
-const hasReachableNodes = computed(() =>
-    (store.scanResult?.nodes ?? []).some((n) => n.reachable)
+const clusterIsHealthy = computed(
+    () => store.clusterStatus?.cluster_status === 'healthy'
 )
+
+const hasOfflineNodes = computed(() =>
+    (store.clusterStatus?.nodes ?? []).some(
+        (n: any) => !n.live?.wsrep_connected || n.live?.wsrep_connected !== 'ON'
+    )
+)
+
+function stateClass(state: string | null): string {
+    if (!state) return 'cell-state--unknown'
+    if (state === 'Synced') return 'cell-state--synced'
+    if (state === 'Joined') return 'cell-state--joined'
+    return 'cell-state--other'
+}
 </script>
 
 <style scoped>
@@ -167,15 +168,6 @@ const hasReachableNodes = computed(() =>
   letter-spacing: -0.02em;
 }
 .step-desc   { font-size: var(--text-sm); color: var(--color-text-muted); line-height: 1.5; }
-.inline-code {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  background: var(--color-surface-offset);
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  color: var(--color-primary);
-}
 
 /* IDLE STATE */
 .state-idle {
@@ -203,8 +195,6 @@ const hasReachableNodes = computed(() =>
   font-size: var(--text-base);
   color: var(--color-text-muted);
 }
-
-/* Bigger idle button */
 .state-idle :deep(.idle-btn.p-button) {
   padding: var(--space-3) var(--space-8);
   font-size: var(--text-base);
@@ -265,11 +255,6 @@ const hasReachableNodes = computed(() =>
   border-color: color-mix(in oklch, var(--color-success) 30%, transparent);
   color: var(--color-success);
 }
-.result-banner--error {
-  background: color-mix(in oklch, var(--color-error) 10%, transparent);
-  border-color: color-mix(in oklch, var(--color-error) 30%, transparent);
-  color: var(--color-error);
-}
 
 /* TABLE */
 .scan-table-wrap {
@@ -283,10 +268,13 @@ const hasReachableNodes = computed(() =>
 .cell-node-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
 .cell-node-host { font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
 .cell-muted     { color: var(--color-text-faint); font-size: var(--text-xs); }
-.cell-mono      { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.cell-running   { font-size: var(--text-xs); color: var(--color-gold); font-style: italic; }
-.cell-uuid      { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
 .cell-error     { font-size: var(--text-xs); color: var(--color-error); }
+
+.cell-state { font-size: var(--text-xs); font-weight: 600; }
+.cell-state--synced  { color: var(--color-success); }
+.cell-state--joined  { color: var(--color-primary); }
+.cell-state--other   { color: var(--color-warning); }
+.cell-state--unknown { color: var(--color-text-faint); }
 
 /* SSH badge */
 .ssh-badge {
@@ -310,7 +298,7 @@ const hasReachableNodes = computed(() =>
   border: 1px solid color-mix(in oklch, var(--color-error) 30%, transparent);
 }
 
-/* safe_to_bootstrap badge */
+/* wsrep_connected badge */
 .stb-badge {
   display: inline-block;
   font-size: 0.68rem;

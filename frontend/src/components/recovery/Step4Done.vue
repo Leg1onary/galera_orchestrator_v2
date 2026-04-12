@@ -18,7 +18,7 @@
           <span class="done-stat-icon done-stat-icon--success"><i class="pi pi-server" /></span>
           <div>
             <span class="done-stat-label">Bootstrap node</span>
-            <span class="done-stat-value">{{ store.bootstrapNodeName ?? '—' }}</span>
+            <span class="done-stat-value">{{ bootstrapNodeName }}</span>
           </div>
         </div>
         <div class="done-stat">
@@ -65,15 +65,25 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import Button from 'primevue/button'
 import { useRecoveryStore } from '@/stores/recovery'
 
-const emit = defineEmits<{ 'go-overview': []; 'restart': [] }>()
+const emit = defineEmits<{ 'go-overview': [] }>()
 const store = useRecoveryStore()
 
+// Resolve bootstrap node name from clusterStatus by selectedBootstrapNodeId
+const bootstrapNodeName = computed(() => {
+    if (!store.selectedBootstrapNodeId || !store.clusterStatus?.nodes) return '—'
+    const node = (store.clusterStatus.nodes as any[]).find(
+        (n: any) => n.id === store.selectedBootstrapNodeId
+    )
+    return node?.name ?? '—'
+})
+
 function handleRestart() {
-  store.reset()
-  emit('restart')
+    store.reset()
+    // store.reset() sets step.value = 1, no need for extra emit
 }
 </script>
 
