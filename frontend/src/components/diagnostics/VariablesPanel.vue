@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { diagnosticsApi, type KVRow, type VariablesResult } from '@/api/diagnostics'
-import { settingsApi } from '@/api/settings'
+import { diagnosticsApi, type KVRow } from '@/api/diagnostics'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
 
-const result     = ref<VariablesResult>({})
+type NodeData = { node_name: string; variables: KVRow[]; error: string | null }
+
+const nodes      = ref<NodeData[]>([])
 const loading    = ref(false)
 const error      = ref<string | null>(null)
 const search     = ref('')
 const activeNode = ref<string | null>(null)
 
-const nodeNames = computed(() => Object.keys(result.value))
+const nodeNames = computed(() => nodes.value.map((n) => n.node_name))
 
 watch(nodeNames, (names) => {
   if (names.length > 0 && !activeNode.value) {
@@ -23,39 +24,34 @@ watch(nodeNames, (names) => {
 
 const currentRows = computed<KVRow[]>(() => {
   if (!activeNode.value) return []
-  const rows = result.value[activeNode.value] ?? []
+  const node = nodes.value.find((n) => n.node_name === activeNode.value)
+  if (!node) return []
+  const rows = node.variables
   const q = search.value.toLowerCase().trim()
-  return q ? rows.filter(r => r.variable_name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q)) : rows
+  return q
+    ? rows.filter((r) => r.variable_name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q))
+    : rows
+})
+
+const activeNodeError = computed(() => {
+  if (!activeNode.value) return null
+  return nodes.value.find((n) => n.node_name === activeNode.value)?.error ?? null
 })
 
 async function load() {
   const clusterId = clusterStore.selectedClusterId
   if (!clusterId) return
-  loading.value = true
-  error.value   = null
-  result.value  = {}
+  loading.value    = true
+  error.value      = null
+  nodes.value      = []
   activeNode.value = null
   try {
-    const nodes = (await settingsApi.listNodes(clusterId)).filter((n) => n.enabled !== false)
-    if (nodes.length === 0) return
-    const settled = await Promise.allSettled(
-      nodes.map((n) =>
-        diagnosticsApi.variablesForNode(clusterId, n.id).then((rows) => ({ name: n.name, rows }))
-      )
-    )
-    const out: VariablesResult = {}
-    const errors: string[] = []
-    for (const s of settled) {
-      if (s.status === 'fulfilled') {
-        out[s.value.name] = s.value.rows
-      } else {
-        errors.push(String((s.reason as any)?.response?.data?.detail ?? (s.reason as any)?.message ?? s.reason))
-      }
-    }
-    result.value = out
-    if (errors.length > 0 && Object.keys(out).length === 0) {
-      error.value = errors[0]
-    }
+    const raw = await diagnosticsApi.variablesAll(clusterId)
+    nodes.value = raw.map((n) => ({
+      node_name: n.node_name,
+      variables: (n.variables ?? []).map((v) => ({ variable_name: v.name, value: v.value })),
+      error:     n.error ?? null,
+    }))
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
@@ -110,11 +106,16 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
       </button>
     </div>
 
+    <!-- Per-node fetch error -->
+    <div v-if="activeNodeError" class="alert-warn">
+      <i class="pi pi-exclamation-triangle" /> {{ activeNodeError }}
+    </div>
+
     <div v-if="loading" class="skeleton-wrap">
       <div v-for="i in 12" :key="i" class="skeleton-row" />
     </div>
 
-    <div v-else-if="currentRows.length === 0 && !error" class="empty-hint">
+    <div v-else-if="currentRows.length === 0 && !error && !activeNodeError" class="empty-hint">
       <i class="pi pi-info-circle" />
       {{ search ? 'No variables match the filter.' : 'No data available.' }}
     </div>
@@ -219,6 +220,18 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   border: 1px solid oklch(from var(--color-error) l c h / 0.25);
   border-radius: var(--radius-md);
   color: var(--color-error);
+  font-size: var(--text-sm);
+}
+
+.alert-warn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-highlight);
+  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  border-radius: var(--radius-md);
+  color: var(--color-warning);
   font-size: var(--text-sm);
 }
 

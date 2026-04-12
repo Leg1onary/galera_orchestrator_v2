@@ -1,8 +1,6 @@
 import { api } from '@/api/client'
 
 // ── Config diff ────────────────────────────────────────────────────────────
-// Backend: GET /diagnostics/config-diff
-// Response: { variables: [{variable, values: [{node_id,node_name,value,fetch_error}], has_diff}], nodes: [...], diff_found }
 export type ConfigDiffValueEntry = {
     node_id: number
     node_name: string
@@ -23,8 +21,8 @@ export type ConfigDiffResponse = {
 }
 
 // ── Variables ──────────────────────────────────────────────────────────────
-// Backend: GET /diagnostics/variables?node_id=N
-// Response: { node_id, node_name, host, total, variables: [{name, value}] }
+// Backend: GET /diagnostics/variables?node_id=N  (single node)
+//          GET /diagnostics/variables/all        (all enabled nodes — used by VariablesPanel)
 export type KVRow = {
     variable_name: string
     value: string
@@ -39,6 +37,7 @@ interface RawVariablesResult {
     host: string
     total: number
     variables: { name: string; value: string }[]
+    error?: string | null
 }
 
 // ── Check all (connections) ────────────────────────────────────────────────
@@ -53,7 +52,6 @@ export type ConnectionCheckRow = {
     db_latency_ms: number | null
     ssh_error: string | null
     db_error: string | null
-    // arbitrator-only
     garbd_running?: boolean | null
     latency_ssh_ms?: number | null
 }
@@ -64,8 +62,6 @@ export type CheckAllResponse = {
 }
 
 // ── Resources ──────────────────────────────────────────────────────────────
-// Backend: POST /diagnostics/resources
-// Response: { nodes: [{node_id, node_name, host, cpu_load:{load1,load5,load15}, ram:{total_bytes,used_bytes,free_bytes,available_bytes}, disk:{total_bytes,used_bytes,available_bytes,use_percent}, uptime_since, error}] }
 export type NodeResourceRow = {
     node_id: number
     node_name: string
@@ -184,14 +180,21 @@ export const diagnosticsApi = {
             .get<ConfigDiffResponse>(`/api/clusters/${clusterId}/diagnostics/config-diff`)
             .then((r) => r.data),
 
-    // variables: backend requires ?node_id=N and returns single-node result.
-    // This helper fetches for one node; VariablesPanel orchestrates multi-node loading.
+    // Single node — used when you need variables for a specific node_id
     variablesForNode: (clusterId: number, nodeId: number, wsrepOnly = false): Promise<KVRow[]> =>
         api
             .get<RawVariablesResult>(`/api/clusters/${clusterId}/diagnostics/variables`, {
                 params: { node_id: nodeId, wsrep_only: wsrepOnly },
             })
             .then((r) => r.data.variables.map((v) => ({ variable_name: v.name, value: v.value }))),
+
+    // All enabled nodes — used by VariablesPanel to avoid per-node requests from frontend
+    variablesAll: (clusterId: number, wsrepOnly = false): Promise<RawVariablesResult[]> =>
+        api
+            .get<RawVariablesResult[]>(`/api/clusters/${clusterId}/diagnostics/variables/all`, {
+                params: { wsrep_only: wsrepOnly },
+            })
+            .then((r) => r.data),
 
     checkAll: (clusterId: number): Promise<CheckAllResponse> =>
         api

@@ -5,6 +5,7 @@
 #   POST /api/clusters/{cluster_id}/diagnostics/check-all
 #   GET  /api/clusters/{cluster_id}/diagnostics/config-diff
 #   GET  /api/clusters/{cluster_id}/diagnostics/variables
+#   GET  /api/clusters/{cluster_id}/diagnostics/variables/all   ← новый
 #   POST /api/clusters/{cluster_id}/diagnostics/resources
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/test-connection
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/log
@@ -114,7 +115,6 @@ def _get_node_for_cluster(node_id: int, cluster_id: int) -> dict | None:
 # ── SSH / DB probe helpers — called inside asyncio.to_thread() ────────────────
 
 def _probe_node_ssh(node: dict) -> dict:
-    """SSH connectivity + latency for one node."""
     t0 = time.monotonic()
     try:
         with SSHClient(
@@ -132,7 +132,6 @@ def _probe_node_ssh(node: dict) -> dict:
 
 
 def _probe_node_db(node: dict) -> dict:
-    """DB connectivity + latency for one node."""
     if not node.get("db_user") or not node.get("db_password"):
         return {"db_ok": None, "db_latency_ms": None, "db_error": "No credentials"}
     t0 = time.monotonic()
@@ -153,7 +152,6 @@ def _probe_node_db(node: dict) -> dict:
 
 
 def _probe_arbitrator(arb: dict) -> dict:
-    """SSH + garbd process check for one arbitrator."""
     t0 = time.monotonic()
     try:
         with SSHClient(
@@ -189,7 +187,6 @@ def _probe_arbitrator(arb: dict) -> dict:
 
 
 def _fetch_wsrep_variables(node: dict) -> dict[str, str] | None:
-    """SHOW GLOBAL VARIABLES WHERE Variable_name LIKE 'wsrep%' for one node."""
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
@@ -208,7 +205,6 @@ def _fetch_wsrep_variables(node: dict) -> dict[str, str] | None:
 
 
 def _fetch_all_variables(node: dict) -> list[dict] | None:
-    """SHOW GLOBAL VARIABLES for one node."""
     if not node.get("db_user") or not node.get("db_password"):
         return None
     try:
@@ -225,7 +221,6 @@ def _fetch_all_variables(node: dict) -> list[dict] | None:
 
 
 def _fetch_resources(node: dict) -> dict:
-    """SSH resource probes: CPU load, RAM, disk, uptime. Per ТЗ 15.6."""
     result: dict[str, Any] = {
         "node_id":      node["id"],
         "node_name":    node["name"],
@@ -242,7 +237,6 @@ def _fetch_resources(node: dict) -> dict:
                 port=int(node.get("ssh_port") or 22),
                 username=node.get("ssh_user") or "root",
         ) as client:
-            # CPU — /proc/loadavg: "0.52 0.58 0.59 1/432 12345"
             stdout, _ = client.execute("cat /proc/loadavg")
             parts = stdout.strip().split()
             if len(parts) >= 3:
@@ -252,7 +246,6 @@ def _fetch_resources(node: dict) -> dict:
                     "load15": float(parts[2]),
                 }
 
-            # RAM — free -b
             stdout, _ = client.execute("free -b")
             for line in stdout.splitlines():
                 if line.startswith("Mem:"):
@@ -265,7 +258,6 @@ def _fetch_resources(node: dict) -> dict:
                     }
                     break
 
-            # Disk — df -B1 /
             stdout, _ = client.execute("df -B1 /")
             lines = [
                 l for l in stdout.splitlines()
@@ -280,7 +272,6 @@ def _fetch_resources(node: dict) -> dict:
                     "use_percent":     cols[4].rstrip("%"),
                 }
 
-            # Uptime since
             stdout, _ = client.execute("uptime -s")
             result["uptime_since"] = stdout.strip() or None
 
@@ -293,7 +284,6 @@ def _fetch_resources(node: dict) -> dict:
 
 
 def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
-    """journalctl -u garbd -n N with fallback to tail. Per ТЗ 15.8."""
     try:
         with SSHClient(
                 host=arb["host"],
@@ -305,7 +295,6 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             )
             log_lines = stdout.strip().splitlines() if stdout.strip() else []
 
-            # Fallback: tail от стандартных путей (ТЗ 15.8)
             if not log_lines:
                 stdout, _ = client.execute(
                     f"tail -n {lines} /var/log/garbd.log 2>/dev/null || "
@@ -342,7 +331,6 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
 
 @router.post("/diagnostics/check-all")
 async def check_all(cluster_id: int) -> dict:
-    """ТЗ 15.3: параллельные SSH+DB проверки всех нод и арбитраторов."""
     _assert_cluster_exists(cluster_id)
 
     nodes        = _get_enabled_nodes(cluster_id)
@@ -416,7 +404,6 @@ async def check_all(cluster_id: int) -> dict:
 
 @router.get("/diagnostics/config-diff")
 async def config_diff(cluster_id: int) -> dict:
-    """ТЗ 15.4: SHOW GLOBAL VARIABLES LIKE 'wsrep%', diff по enabled нодам."""
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
@@ -475,7 +462,6 @@ async def variables(
         search: str | None = Query(None,  description="Filter by variable name substring"),
         wsrep_only: bool   = Query(False, description="Return only wsrep_* variables"),
 ) -> dict:
-    """ТЗ 15.5: SHOW GLOBAL VARIABLES с фильтрацией."""
     _assert_cluster_exists(cluster_id)
 
     node = _get_node_for_cluster(node_id, cluster_id)
@@ -507,11 +493,55 @@ async def variables(
     }
 
 
+# ── GET /diagnostics/variables/all ───────────────────────────────────────────
+# Fetches SHOW GLOBAL VARIABLES for all enabled nodes in parallel.
+# Used by VariablesPanel — avoids N separate requests with node_id from frontend.
+
+@router.get("/diagnostics/variables/all")
+async def variables_all(
+        cluster_id: int,
+        wsrep_only: bool = Query(False, description="Return only wsrep_* variables"),
+) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return []
+
+    tasks = [asyncio.to_thread(_fetch_all_variables, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception) or result is None:
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "total":     0,
+                "variables": [],
+                "error":     str(result) if isinstance(result, Exception) else "No credentials or connection failed",
+            })
+        else:
+            rows = result
+            if wsrep_only:
+                rows = [r for r in rows if r["Variable_name"].startswith("wsrep")]
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "total":     len(rows),
+                "variables": [{"name": r["Variable_name"], "value": r["Value"]} for r in rows],
+                "error":     None,
+            })
+
+    return output
+
+
 # ── POST /diagnostics/resources ──────────────────────────────────────────────
 
 @router.post("/diagnostics/resources")
 async def resources(cluster_id: int) -> dict:
-    """ТЗ 15.6: SSH-ресурсы (CPU, RAM, Disk, Uptime) по всем enabled нодам."""
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
@@ -556,7 +586,6 @@ async def resources(cluster_id: int) -> dict:
 # ── GET /diagnostics/galera-status ───────────────────────────────────────────
 
 def _fetch_galera_status(node: dict) -> dict:
-    """SHOW GLOBAL STATUS LIKE 'wsrep%' for one node."""
     if not node.get("db_user") or not node.get("db_password"):
         return {
             "node_id":   node["id"],
@@ -600,10 +629,6 @@ def _fetch_galera_status(node: dict) -> dict:
 
 @router.get("/diagnostics/galera-status")
 async def galera_status(cluster_id: int) -> list[dict]:
-    """
-    SHOW GLOBAL STATUS LIKE 'wsrep%' across all enabled nodes in parallel.
-    Returns per-node status dict for GaleraStatusPanel.
-    """
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
@@ -632,7 +657,6 @@ async def galera_status(cluster_id: int) -> list[dict]:
 # ── GET /diagnostics/process-list ────────────────────────────────────────────
 
 def _fetch_process_list(node: dict) -> list[dict]:
-    """SHOW FULL PROCESSLIST for one node."""
     if not node.get("db_user") or not node.get("db_password"):
         raise DBError("No DB credentials configured")
     with DBClient(
@@ -662,11 +686,6 @@ async def process_list(
         cluster_id: int,
         node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
 ) -> list[dict]:
-    """
-    SHOW FULL PROCESSLIST across enabled nodes (or a single node if node_id given).
-    Each row is annotated with node_id and node_name.
-    Kill action is intentionally NOT exposed — read-only endpoint.
-    """
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
@@ -687,7 +706,6 @@ async def process_list(
     output = []
     for node, result in zip(nodes, results):
         if isinstance(result, Exception):
-            # Return an error sentinel row per node so the frontend can surface it
             output.append({
                 "node_id":   node["id"],
                 "node_name": node["name"],
@@ -708,10 +726,6 @@ async def process_list(
 # ── GET /diagnostics/slow-queries ────────────────────────────────────────────
 
 def _fetch_slow_queries(node: dict) -> dict:
-    """
-    SELECT from mysql.slow_log.
-    Returns graceful result if slow_query_log is OFF or table is missing.
-    """
     if not node.get("db_user") or not node.get("db_password"):
         return {
             "node_id":          node["id"],
@@ -727,7 +741,6 @@ def _fetch_slow_queries(node: dict) -> dict:
                 user=node["db_user"],
                 encrypted_password=node["db_password"],
         ) as client:
-            # Check if slow_query_log is ON
             var_rows = client.query(
                 "SHOW GLOBAL VARIABLES LIKE 'slow_query_log'"
             )
@@ -791,11 +804,6 @@ async def slow_queries(
         cluster_id: int,
         node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
 ) -> list[dict]:
-    """
-    Fetch slow query log rows from mysql.slow_log.
-    Gracefully handles slow_query_log=OFF case — returns slow_log_enabled=false
-    instead of an error, so the frontend can show a meaningful message.
-    """
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
 
@@ -832,10 +840,6 @@ async def slow_queries(
 # ── GET /nodes/{node_id}/error-log ───────────────────────────────────────────
 
 def _fetch_error_log(node: dict, lines: int) -> dict:
-    """
-    journalctl -u mariadb -n N --no-pager
-    Fallback: common MariaDB/MySQL log file locations.
-    """
     try:
         with SSHClient(
                 host=node["host"],
@@ -847,7 +851,6 @@ def _fetch_error_log(node: dict, lines: int) -> dict:
             )
             log_lines = stdout.strip().splitlines() if stdout.strip() else []
 
-            # Fallback chain: common MariaDB / MySQL error log paths
             if not log_lines:
                 stdout, _ = client.execute(
                     f"tail -n {lines} /var/log/mysql/error.log 2>/dev/null || "
@@ -888,10 +891,6 @@ async def error_log(
         node_id: int,
         lines: int = Query(default=200, ge=10, le=1000, description="Number of log lines"),
 ) -> dict:
-    """
-    Fetch MariaDB error log via SSH.
-    Uses journalctl -u mariadb with fallback to common log file paths.
-    """
     _assert_cluster_exists(cluster_id)
     node = _get_node_for_cluster(node_id, cluster_id)
     if not node:
@@ -919,7 +918,6 @@ async def error_log(
 
 @router.get("/arbitrators/{arb_id}/test-connection")
 async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
-    """ТЗ 15.3, 15.9: SSH + garbd process check для одного арбитратора."""
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
 
@@ -956,7 +954,6 @@ async def arbitrator_log(
         arb_id: int,
         lines: int = Query(default=50, ge=1, le=500, description="Number of log lines"),
 ) -> dict:
-    """ТЗ 15.8: journalctl -u garbd -n N / fallback tail."""
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
 
