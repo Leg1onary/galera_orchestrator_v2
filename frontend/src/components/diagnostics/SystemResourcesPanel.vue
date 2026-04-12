@@ -204,7 +204,12 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 </template>
 
 <style scoped>
-.panel { display: flex; flex-direction: column; gap: var(--space-5); }
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: 15px;
+}
 
 /* ── Header ── */
 .panel-header {
