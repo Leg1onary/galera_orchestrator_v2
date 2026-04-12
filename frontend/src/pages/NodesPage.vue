@@ -10,7 +10,7 @@ import EntityFormModal, { type FormField } from '@/components/settings/EntityFor
 import { settingsApi } from '@/api/settings'
 import { useQuery } from '@tanstack/vue-query'
 import { extractApiError } from '@/utils/api'
-import type { NodeListItem } from '@/api/nodes'
+import type { NodeListItem, NodeStatusItem } from '@/api/nodes'
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
@@ -18,7 +18,27 @@ const qc           = useQueryClient()
 const toast        = useToast()
 
 const { data, isLoading, refetch } = useClusterStatus(clusterId)
-const nodes = computed(() => data.value?.nodes ?? [])
+
+// NodeStatusItem (из /status) использует dc_id/dc_name и не имеет cluster_id.
+// NodeTable/NodeDetailDrawer ожидают NodeListItem (datacenter_id/datacenter_name, cluster_id, live | null).
+// Делаем маппинг здесь, чтобы не трогать дочерние компоненты.
+const nodes = computed<NodeListItem[]>(() =>
+  (data.value?.nodes ?? []).map((n: NodeStatusItem) => ({
+    id:               n.id,
+    name:             n.name,
+    host:             n.host,
+    port:             n.port,
+    ssh_port:         n.ssh_port,
+    ssh_user:         n.ssh_user,
+    db_user:          n.db_user,
+    enabled:          n.enabled,
+    maintenance:      n.maintenance,
+    datacenter_id:    n.dc_id,
+    datacenter_name:  n.dc_name,
+    cluster_id:       clusterId.value,
+    live:             n.live ?? null,
+  }))
+)
 
 const selectedNode = ref<NodeListItem | null>(null)
 
