@@ -41,11 +41,26 @@ function fmtBytes(b: number | null): string {
   return (b / 1024).toFixed(0) + ' KB'
 }
 
-function barCls(p: number | null, warnAt: number, critAt: number): string {
-  if (p === null) return 'bar-unknown'
-  if (p >= critAt) return 'bar-crit'
-  if (p >= warnAt) return 'bar-warn'
-  return 'bar-ok'
+type Level = 'ok' | 'warn' | 'crit' | 'unknown'
+
+function level(p: number | null, warnAt: number, critAt: number): Level {
+  if (p === null) return 'unknown'
+  if (p >= critAt) return 'crit'
+  if (p >= warnAt) return 'warn'
+  return 'ok'
+}
+
+function cardStatusLevel(row: NodeResourceRow): Level {
+  if (row.error) return 'crit'
+  const levels: Level[] = [
+    level(row.cpu_percent, 80, 95),
+    level(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95),
+    level(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90),
+  ]
+  if (levels.includes('crit'))    return 'crit'
+  if (levels.includes('warn'))    return 'warn'
+  if (levels.every(l => l === 'unknown')) return 'unknown'
+  return 'ok'
 }
 </script>
 
@@ -67,8 +82,15 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
       <i class="pi pi-exclamation-triangle" /> {{ error }}
     </div>
 
-    <div v-if="loading && rows.length === 0" class="skeleton-grid">
-      <div v-for="i in 3" :key="i" class="skeleton-card" />
+    <!-- Skeleton -->
+    <div v-if="loading && rows.length === 0" class="cards-grid">
+      <div v-for="i in 3" :key="i" class="skeleton-card">
+        <div class="sk-head" />
+        <div class="sk-bar" />
+        <div class="sk-bar" />
+        <div class="sk-bar" />
+        <div class="sk-footer" />
+      </div>
     </div>
 
     <div v-else-if="rows.length === 0 && !error" class="empty-hint">
@@ -76,25 +98,46 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
     </div>
 
     <div v-else class="cards-grid">
-      <div v-for="row in rows" :key="row.node_id" class="res-card" :class="{ 'has-error': !!row.error }">
+      <div
+        v-for="row in rows"
+        :key="row.node_id"
+        class="res-card"
+        :class="`status-${cardStatusLevel(row)}`"
+      >
+        <!-- Card header -->
         <div class="card-head">
-          <span class="node-name">{{ row.node_name }}</span>
-          <span v-if="row.error" class="err-badge">SSH error</span>
+          <div class="node-info">
+            <span :class="['status-dot', `dot-${cardStatusLevel(row)}`]" />
+            <span class="node-name">{{ row.node_name }}</span>
+          </div>
+          <span v-if="row.error" class="badge badge-err">SSH error</span>
+          <span v-else-if="cardStatusLevel(row) === 'crit'" class="badge badge-err">Critical</span>
+          <span v-else-if="cardStatusLevel(row) === 'warn'" class="badge badge-warn">Warning</span>
+          <span v-else class="badge badge-ok">Healthy</span>
         </div>
 
-        <div v-if="row.error" class="node-err">{{ row.error }}</div>
+        <div v-if="row.error" class="node-err">
+          <i class="pi pi-exclamation-circle" /> {{ row.error }}
+        </div>
 
         <template v-else>
+          <div class="divider" />
+
           <!-- CPU -->
           <div class="metric">
-            <div class="metric-label">
-              <span>CPU</span>
-              <span class="metric-val" :class="barCls(row.cpu_percent, 80, 95)">{{ row.cpu_percent !== null ? row.cpu_percent + '%' : '—' }}</span>
+            <div class="metric-top">
+              <div class="metric-name">
+                <i class="pi pi-microchip metric-icon" />
+                <span>CPU</span>
+              </div>
+              <span class="metric-pct" :class="`pct-${level(row.cpu_percent, 80, 95)}`">
+                {{ row.cpu_percent !== null ? row.cpu_percent + '%' : '—' }}
+              </span>
             </div>
             <div class="bar-track">
               <div
                 class="bar-fill"
-                :class="barCls(row.cpu_percent, 80, 95)"
+                :class="`fill-${level(row.cpu_percent, 80, 95)}`"
                 :style="{ width: (row.cpu_percent ?? 0) + '%' }"
               />
             </div>
@@ -102,16 +145,20 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
 
           <!-- RAM -->
           <div class="metric">
-            <div class="metric-label">
-              <span>RAM</span>
-              <span class="metric-val" :class="barCls(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)">
-                {{ fmtBytes(row.ram_used_bytes) }} / {{ fmtBytes(row.ram_total_bytes) }}
+            <div class="metric-top">
+              <div class="metric-name">
+                <i class="pi pi-database metric-icon" />
+                <span>RAM</span>
+              </div>
+              <span class="metric-pct" :class="`pct-${level(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)}`">
+                {{ fmtBytes(row.ram_used_bytes) }}
+                <span class="pct-total">/ {{ fmtBytes(row.ram_total_bytes) }}</span>
               </span>
             </div>
             <div class="bar-track">
               <div
                 class="bar-fill"
-                :class="barCls(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)"
+                :class="`fill-${level(pct(row.ram_used_bytes, row.ram_total_bytes), 85, 95)}`"
                 :style="{ width: (pct(row.ram_used_bytes, row.ram_total_bytes) ?? 0) + '%' }"
               />
             </div>
@@ -119,30 +166,35 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
 
           <!-- Disk -->
           <div class="metric">
-            <div class="metric-label">
-              <span>Disk</span>
-              <span class="metric-val" :class="barCls(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)">
-                {{ fmtBytes(row.disk_used_bytes) }} / {{ fmtBytes(row.disk_total_bytes) }}
+            <div class="metric-top">
+              <div class="metric-name">
+                <i class="pi pi-hdd metric-icon" />
+                <span>Disk</span>
+              </div>
+              <span class="metric-pct" :class="`pct-${level(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)}`">
+                {{ fmtBytes(row.disk_used_bytes) }}
+                <span class="pct-total">/ {{ fmtBytes(row.disk_total_bytes) }}</span>
               </span>
             </div>
             <div class="bar-track">
               <div
                 class="bar-fill"
-                :class="barCls(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)"
+                :class="`fill-${level(pct(row.disk_used_bytes, row.disk_total_bytes), 80, 90)}`"
                 :style="{ width: (pct(row.disk_used_bytes, row.disk_total_bytes) ?? 0) + '%' }"
               />
             </div>
           </div>
 
-          <!-- Load / Uptime -->
-          <div class="meta-row">
-            <div class="meta-item">
-              <span class="meta-label">Load avg (1m)</span>
-              <span class="meta-val mono">{{ row.load_avg_1 !== null ? row.load_avg_1.toFixed(2) : '—' }}</span>
+          <!-- Footer stats -->
+          <div class="card-footer">
+            <div class="stat">
+              <span class="stat-label">Load avg (1m)</span>
+              <span class="stat-val mono">{{ row.load_avg_1 !== null ? row.load_avg_1.toFixed(2) : '—' }}</span>
             </div>
-            <div class="meta-item">
-              <span class="meta-label">Up since</span>
-              <span class="meta-val mono">{{ row.uptime_since ?? '—' }}</span>
+            <div class="stat-divider" />
+            <div class="stat">
+              <span class="stat-label">Up since</span>
+              <span class="stat-val mono">{{ row.uptime_since ?? '—' }}</span>
             </div>
           </div>
         </template>
@@ -152,15 +204,15 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
 </template>
 
 <style scoped>
-.panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.panel { display: flex; flex-direction: column; gap: var(--space-5); }
 
+/* ── Header ── */
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
 }
-
 .panel-title {
   display: flex;
   align-items: center;
@@ -169,14 +221,12 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
   font-weight: 600;
   color: var(--color-text);
 }
-
 .last-run {
   font-weight: 400;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   margin-left: var(--space-2);
 }
-
 .btn-run {
   display: flex;
   align-items: center;
@@ -194,10 +244,9 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
 .btn-run:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
 .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ── Alerts ── */
 .alert-err {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-highlight);
   border: 1px solid oklch(from var(--color-error) l c h / 0.25);
@@ -205,118 +254,195 @@ function barCls(p: number | null, warnAt: number, critAt: number): string {
   color: var(--color-error);
   font-size: var(--text-sm);
 }
-
 .empty-hint {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
 
-.skeleton-grid {
+/* ── Grid ── */
+.cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-6);
 }
+
+/* ── Skeleton ── */
 .skeleton-card {
-  height: 200px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
-
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-4);
+.sk-head, .sk-bar, .sk-footer {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
+.sk-head   { height: 20px; width: 60%; }
+.sk-bar    { height: 36px; }
+.sk-footer { height: 48px; margin-top: var(--space-2); }
 
+/* ── Card ── */
 .res-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
+  transition: box-shadow var(--transition-interactive), border-color var(--transition-interactive);
 }
-.res-card.has-error { border-color: oklch(from var(--color-error) l c h / 0.3); }
+.res-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.res-card.status-warn  { border-color: oklch(from var(--color-warning) l c h / 0.35); }
+.res-card.status-crit  { border-color: oklch(from var(--color-error)   l c h / 0.35); }
 
+/* ── Card head ── */
 .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
-
+.node-info { display: flex; align-items: center; gap: var(--space-2); }
 .node-name { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
 
-.err-badge {
+/* Status dot */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.dot-ok      { background: var(--color-success); box-shadow: 0 0 0 2px oklch(from var(--color-success) l c h / 0.2); }
+.dot-warn    { background: var(--color-warning); box-shadow: 0 0 0 2px oklch(from var(--color-warning) l c h / 0.2); }
+.dot-crit    { background: var(--color-error);   box-shadow: 0 0 0 2px oklch(from var(--color-error)   l c h / 0.2); }
+.dot-unknown { background: var(--color-text-faint); }
+
+/* Badges */
+.badge {
   padding: 2px var(--space-2);
-  background: var(--color-error-highlight);
-  color: var(--color-error);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
+.badge-ok   { background: var(--color-success-highlight); color: var(--color-success); }
+.badge-warn { background: var(--color-warning-highlight); color: var(--color-warning); }
+.badge-err  { background: var(--color-error-highlight);   color: var(--color-error); }
 
+/* Error state */
 .node-err {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--color-error);
   font-family: var(--font-mono, monospace);
   word-break: break-all;
+  background: var(--color-error-highlight);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
 }
 
-.metric { display: flex; flex-direction: column; gap: var(--space-1); }
+.divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0 calc(-1 * var(--space-2));
+}
 
-.metric-label {
+/* ── Metric row ── */
+.metric { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.metric-top {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+}
+
+.metric-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--text-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--color-text-muted);
 }
+.metric-icon { font-size: 0.7rem; opacity: 0.7; }
 
-.metric-val { font-weight: 500; }
-.metric-val.bar-ok   { color: var(--color-success); }
-.metric-val.bar-warn { color: var(--color-warning); }
-.metric-val.bar-crit { color: var(--color-error); }
-.metric-val.bar-unknown { color: var(--color-text-faint); }
+.metric-pct {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pct-total {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  margin-left: 2px;
+}
+.pct-ok      { color: var(--color-success); }
+.pct-warn    { color: var(--color-warning); }
+.pct-crit    { color: var(--color-error); }
+.pct-unknown { color: var(--color-text-faint); }
 
+/* Bar */
 .bar-track {
-  height: 4px;
-  background: var(--color-surface-offset);
+  height: 6px;
+  background: var(--color-surface-offset-2);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
-
 .bar-fill {
   height: 100%;
   border-radius: var(--radius-full);
-  transition: width 0.4s ease;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 2px;
 }
-.bar-fill.bar-ok      { background: var(--color-success); }
-.bar-fill.bar-warn    { background: var(--color-warning); }
-.bar-fill.bar-crit    { background: var(--color-error); }
-.bar-fill.bar-unknown { background: var(--color-text-faint); }
+.fill-ok      { background: linear-gradient(90deg, var(--color-success), oklch(from var(--color-success) calc(l + 0.08) c h)); }
+.fill-warn    { background: linear-gradient(90deg, var(--color-warning), oklch(from var(--color-warning) calc(l + 0.08) c h)); }
+.fill-crit    { background: linear-gradient(90deg, var(--color-error),   oklch(from var(--color-error)   calc(l + 0.08) c h)); }
+.fill-unknown { background: var(--color-text-faint); }
 
-.meta-row {
+/* ── Footer ── */
+.card-footer {
   display: flex;
+  align-items: center;
   gap: var(--space-4);
-  margin-top: var(--space-1);
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-border);
 }
-
-.meta-item { display: flex; flex-direction: column; gap: 2px; }
-.meta-label { font-size: var(--text-xs); color: var(--color-text-muted); }
-.meta-val { font-size: var(--text-xs); color: var(--color-text); }
-.mono { font-family: var(--font-mono, monospace); }
+.stat { display: flex; flex-direction: column; gap: 3px; }
+.stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat-val {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+.stat-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+.mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs) !important; }
 </style>
