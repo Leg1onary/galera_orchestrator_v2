@@ -104,7 +104,7 @@ watch(() => store.nodeOrder, (val) => {
 const { stop } = useSortable(sortableEl, localOrder, {
   handle: '.drag-handle',
   animation: 150,
-  onUpdate: () => store.setNodeOrder([...localOrder.value]),
+  onUpdate: () => { store.nodeOrder = [...localOrder.value] },
 })
 onUnmounted(() => stop())
 

@@ -26,6 +26,7 @@ import Dialog from 'primevue/dialog'
 import Drawer from 'primevue/drawer'
 import Toast from 'primevue/toast'
 import ConfirmDialog from 'primevue/confirmdialog'
+import ConfirmPopup from 'primevue/confirmpopup'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Badge from 'primevue/badge'
 import Timeline from 'primevue/timeline'
@@ -320,6 +321,7 @@ app.component('Dialog', Dialog)
 app.component('Drawer', Drawer)
 app.component('Toast', Toast)
 app.component('ConfirmDialog', ConfirmDialog)
+app.component('ConfirmPopup', ConfirmPopup)
 app.component('ToggleSwitch', ToggleSwitch)
 app.component('Badge', Badge)
 app.component('Timeline', Timeline)
