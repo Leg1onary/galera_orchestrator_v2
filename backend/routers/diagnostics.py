@@ -307,6 +307,7 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             "arbitrator_name": arb["name"],
             "host":            arb["host"],
             "lines":           log_lines,
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
             "error":           None,
         }
     except SSHError as exc:
@@ -315,6 +316,7 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             "arbitrator_name": arb["name"],
             "host":            arb["host"],
             "lines":           [],
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
             "error":           str(exc),
         }
     except Exception as exc:
@@ -323,6 +325,7 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             "arbitrator_name": arb["name"],
             "host":            arb["host"],
             "lines":           [],
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
             "error":           str(exc),
         }
 
