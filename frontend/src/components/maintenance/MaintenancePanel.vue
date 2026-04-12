@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import NodeMaintenanceTable from './NodeMaintenanceTable.vue'
 import RollingRestartWizard from './RollingRestartWizard.vue'
@@ -14,8 +14,9 @@ import RollingRestartWizard from './RollingRestartWizard.vue'
 const props = defineProps<{ clusterId: number }>()
 const store = useMaintenanceStore()
 
-onMounted(() => store.loadNodes())
-watch(() => props.clusterId, () => store.loadNodes())
+onMounted(() => store.init(props.clusterId))
+watch(() => props.clusterId, (id) => store.init(id))
+onUnmounted(() => store.destroy())
 </script>
 
 <style scoped>
