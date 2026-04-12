@@ -2,14 +2,15 @@
 import { ref, computed, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type KVRow, type VariablesResult } from '@/api/diagnostics'
+import { settingsApi } from '@/api/settings'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
 
-const result    = ref<VariablesResult>({})
-const loading   = ref(false)
-const error     = ref<string | null>(null)
-const search    = ref('')
+const result     = ref<VariablesResult>({})
+const loading    = ref(false)
+const error      = ref<string | null>(null)
+const search     = ref('')
 const activeNode = ref<string | null>(null)
 
 const nodeNames = computed(() => Object.keys(result.value))
@@ -24,16 +25,41 @@ const currentRows = computed<KVRow[]>(() => {
   if (!activeNode.value) return []
   const rows = result.value[activeNode.value] ?? []
   const q = search.value.toLowerCase().trim()
-  return q ? rows.filter(r => r.variable_name.includes(q) || r.value.toLowerCase().includes(q)) : rows
+  return q ? rows.filter(r => r.variable_name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q)) : rows
 })
 
 async function load() {
-  const id = clusterStore.selectedClusterId
-  if (!id) return
+  const clusterId = clusterStore.selectedClusterId
+  if (!clusterId) return
   loading.value = true
   error.value   = null
+  result.value  = {}
+  activeNode.value = null
   try {
-    result.value = await diagnosticsApi.variables(id)
+    // Fetch node list for the cluster, then load variables per node in parallel
+    const nodesResp = await settingsApi.getNodes(clusterId)
+    const nodes = nodesResp.filter((n: any) => n.enabled !== false)
+    if (nodes.length === 0) {
+      return
+    }
+    const settled = await Promise.allSettled(
+      nodes.map((n: any) =>
+        diagnosticsApi.variablesForNode(clusterId, n.id).then((rows) => ({ name: n.name as string, rows }))
+      )
+    )
+    const out: VariablesResult = {}
+    const errors: string[] = []
+    for (const s of settled) {
+      if (s.status === 'fulfilled') {
+        out[s.value.name] = s.value.rows
+      } else {
+        errors.push(String(s.reason?.response?.data?.detail ?? s.reason?.message ?? s.reason))
+      }
+    }
+    result.value = out
+    if (errors.length > 0 && Object.keys(out).length === 0) {
+      error.value = errors[0]
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
