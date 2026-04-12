@@ -21,8 +21,6 @@ type StatusKey =
     | 'not-ready'
     | 'offline'
 
-// Бэкенд возвращает wsrep_local_state_comment как "Synced", "Donor", "Joiner", "Desynced" —
-// нормализуем к uppercase перед поиском, чтобы не зависеть от регистра.
 const STATE_MAP: Record<string, StatusKey> = {
   SYNCED:   'synced',
   DONOR:    'transitioning',
@@ -31,14 +29,18 @@ const STATE_MAP: Record<string, StatusKey> = {
 }
 
 const status = computed((): StatusKey => {
-  const n = props.node
+  const n    = props.node
   const live = n.live
 
   // Нет live-данных → offline
-  if (!live || !live.last_check_ts || !live.wsrep_local_state_comment) return 'offline'
+  if (!live) return 'offline'
 
   // ssh/db недоступны → offline
+  // FIX: убрали проверку last_check_ts (null из /status вызывала ложный offline)
   if (!live.ssh_ok || !live.db_ok) return 'offline'
+
+  // wsrep_local_state_comment отсутствует → offline
+  if (!live.wsrep_local_state_comment) return 'offline'
 
   // wsrep_ready = OFF → not-ready (orange)
   if (live.wsrep_ready === 'OFF') return 'not-ready'
