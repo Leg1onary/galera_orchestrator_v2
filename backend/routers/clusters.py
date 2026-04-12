@@ -1,11 +1,12 @@
 """
 Clusters router
 
-GET    /api/clusters                     — список кластеров с live-сводкой
-GET    /api/clusters?contour_id=N        — фильтр по контуру
-GET    /api/clusters/{cluster_id}/status — полный live-статус кластера
-GET    /api/clusters/{cluster_id}/log    — event_log кластера (с фильтрами)
-DELETE /api/clusters/{cluster_id}/log    — очистить event_log кластера
+GET    /api/clusters                          — список кластеров с live-сводкой
+GET    /api/clusters?contour_id=N             — фильтр по контуру
+GET    /api/clusters/{cluster_id}/status      — полный live-статус кластера
+GET    /api/clusters/{cluster_id}/arbitrators — список арбитраторов кластера
+GET    /api/clusters/{cluster_id}/log         — event_log кластера (с фильтрами)
+DELETE /api/clusters/{cluster_id}/log         — очистить event_log кластера
 
 ТЗ разделы 6.1, 7, 9.1, 9.2
 """
@@ -299,6 +300,34 @@ async def cluster_status(cluster_id: int) -> dict:
         "arbitrators":        arbitrators_out,
         "active_operation":   active_operation,
     }
+
+
+@router.get("/{cluster_id}/arbitrators", dependencies=[Depends(require_auth)])
+async def list_cluster_arbitrators(cluster_id: int) -> list[dict]:
+    """
+    GET /api/clusters/{cluster_id}/arbitrators
+
+    Возвращает список арбитраторов кластера (id, name, enabled).
+    Используется ArbitratorLogPanel для построения селектора.
+    Возвращает [] если арбитраторов нет — никогда не даёт 404.
+    """
+    cluster = _fetch_cluster_by_id(cluster_id)
+    if cluster is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cluster {cluster_id} not found",
+        )
+
+    arbitrators = _fetch_arbitrators(cluster_id)
+    return [
+        {
+            "id":      a["id"],
+            "name":    a["name"],
+            "host":    a["host"],
+            "enabled": bool(a["enabled"]),
+        }
+        for a in arbitrators
+    ]
 
 
 @router.get("/{cluster_id}/log", dependencies=[Depends(require_auth)])
