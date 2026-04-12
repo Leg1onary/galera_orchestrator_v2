@@ -26,7 +26,7 @@ const clusterIsHealthy = computed(
 )
 
 const STEPS = [
-  { value: 1, label: 'Scan nodes',  icon: 'pi pi-search',  desc: 'Read grastate.dat via SSH' },
+  { value: 1, label: 'Scan nodes',  icon: 'pi pi-search',  desc: 'Read cluster status via SSH' },
   { value: 2, label: 'Bootstrap',   icon: 'pi pi-bolt',    desc: 'Start the bootstrap node' },
   { value: 3, label: 'Rejoin',      icon: 'pi pi-sync',    desc: 'Bring remaining nodes back' },
   { value: 4, label: 'Done',        icon: 'pi pi-check',   desc: 'Cluster restored' },
@@ -42,8 +42,51 @@ onUnmounted(() => store.destroy())
 
     <!-- PAGE HEAD -->
     <div class="rp-head">
-      <div class="section-title">Recovery Wizard</div>
-      <p class="rp-desc">Use this wizard when all nodes are down and the cluster cannot start automatically.</p>
+      <div class="section-title">Recovery</div>
+      <p class="rp-desc">Step-by-step wizard to restore a Galera cluster when all nodes are down.</p>
+    </div>
+
+    <!-- Info banner -->
+    <div class="info-banner">
+      <div class="info-card">
+        <div class="info-card-header">
+          <i class="pi pi-database" />
+          <span>What is Recovery?</span>
+        </div>
+        <p>
+          Recovery is used when the <strong>entire cluster is down</strong> and cannot
+          restart automatically. This happens after simultaneous crashes, power loss,
+          or a split-brain scenario that left all nodes in a non-primary state.
+        </p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-header">
+          <i class="pi pi-list-check" />
+          <span>How the wizard works</span>
+        </div>
+        <p>
+          <strong>Step 1</strong> scans all nodes via SSH and reads
+          <code>grastate.dat</code> to find the node with the highest
+          <code>seqno</code>. <strong>Step 2</strong> bootstraps that node
+          as a new primary component. <strong>Step 3</strong> rejoins the
+          remaining nodes one by one.
+        </p>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-header">
+          <i class="pi pi-exclamation-triangle" />
+          <span>Safety notes</span>
+        </div>
+        <p>
+          Never bootstrap a node with <code>safe_to_bootstrap: 0</code> unless
+          you are certain it has the most recent data — this risks
+          <strong>data loss</strong>. If the wizard is interrupted after
+          bootstrap, rejoin the remaining nodes manually via
+          <em>systemctl start mariadb</em>.
+        </p>
+      </div>
     </div>
 
     <!-- Guard: no cluster -->
@@ -104,13 +147,12 @@ onUnmounted(() => store.destroy())
 
 <style scoped>
 /* ═══════════════════════════════════════
-   PAGE ROOT — full width
+   PAGE ROOT
 ═══════════════════════════════════════ */
 .recovery-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  /* no max-width — занимаем всё доступное пространство */
   width: 100%;
   height: 100%;
 }
@@ -118,6 +160,72 @@ onUnmounted(() => store.destroy())
 .rp-head { display: flex; flex-direction: column; gap: var(--space-1); }
 .rp-desc { font-size: var(--text-sm); color: var(--color-text-muted); }
 
+/* ── Info banner (shared pattern with MaintenancePage) ─────────── */
+.info-banner {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .info-banner { grid-template-columns: 1fr; }
+}
+
+.info-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.info-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.info-card-header .pi {
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+/* Safety card — иконка предупреждения в amber */
+.info-card:last-child .info-card-header .pi {
+  color: var(--color-warning);
+}
+
+.info-card p {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.info-card p strong { color: var(--color-text); font-weight: 600; }
+
+.info-card p code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75em;
+  background: var(--color-surface-offset);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--color-primary);
+}
+
+.info-card p em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* ── Guards ─────────────────────────────────────────────────────── */
 .rp-empty {
   display: flex;
   align-items: center;
@@ -136,7 +244,6 @@ onUnmounted(() => store.destroy())
 ═══════════════════════════════════════ */
 .rp-wizard {
   display: grid;
-  /* sidebar фиксированная ширина, контент растягивается */
   grid-template-columns: 220px 1fr;
   gap: var(--space-6);
   flex: 1;
@@ -155,14 +262,12 @@ onUnmounted(() => store.destroy())
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   align-self: start;
-  /* прилипает к верху при скролле контента */
   position: sticky;
   top: var(--space-4);
 }
 
 .rp-step-item {
   display: grid;
-  /* indicator | connector | meta */
   grid-template-areas:
     "ind  meta"
     "conn meta";
@@ -172,7 +277,6 @@ onUnmounted(() => store.destroy())
   padding: 0;
 }
 
-/* Коннектор — вертикальная линия между шагами */
 .rp-step-connector {
   grid-area: conn;
   width: 2px;
@@ -182,11 +286,8 @@ onUnmounted(() => store.destroy())
   border-radius: 1px;
   transition: background 300ms ease;
 }
-.rp-step--done .rp-step-connector {
-  background: var(--color-primary);
-}
+.rp-step--done .rp-step-connector { background: var(--color-primary); }
 
-/* Indicator circle */
 .rp-step-indicator {
   grid-area: ind;
   width: 28px;
@@ -220,7 +321,6 @@ onUnmounted(() => store.destroy())
 .rp-step-check { display: flex; align-items: center; justify-content: center; }
 .rp-step-check .pi { font-size: 0.7rem; }
 
-/* Meta */
 .rp-step-meta {
   grid-area: meta;
   display: flex;
@@ -230,9 +330,7 @@ onUnmounted(() => store.destroy())
   padding-top: 4px;
 }
 
-.rp-step-item:last-child .rp-step-meta {
-  padding-bottom: 0;
-}
+.rp-step-item:last-child .rp-step-meta { padding-bottom: 0; }
 
 .rp-step-label {
   font-size: var(--text-sm);
@@ -241,8 +339,8 @@ onUnmounted(() => store.destroy())
   transition: color 200ms ease;
   line-height: 1.2;
 }
-.rp-step--active .rp-step-label  { color: var(--color-text); }
-.rp-step--done   .rp-step-label  { color: var(--color-primary); }
+.rp-step--active .rp-step-label { color: var(--color-text); }
+.rp-step--done   .rp-step-label { color: var(--color-primary); }
 
 .rp-step-subdesc {
   font-size: 0.68rem;

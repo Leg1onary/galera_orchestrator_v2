@@ -109,13 +109,26 @@
       <!-- ACTIONS -->
       <div class="step-actions">
         <Button label="Re-scan" icon="pi pi-refresh" outlined size="small" @click="store.loadStatus()" />
-        <Button
+
+        <!--
+          Кнопка Next задизейблена когда:
+            1. clusterIsHealthy — все ноды Synced, recovery не нужен
+            2. !hasOfflineNodes  — нет ни одной ноды с wsrep_connected != ON
+          Так как disabled=true поглощает pointer-events, оборачиваем в span
+          чтобы v-tooltip отрабатывал при наведении на задизейбленную кнопку.
+        -->
+        <span
+          v-tooltip.top="nextButtonTooltip"
+          :class="{ 'next-btn-wrapper': isNextDisabled }"
+        >
+          <Button
             label="Next: Select bootstrap node"
             icon="pi pi-arrow-right"
             iconPos="right"
-            :disabled="clusterIsHealthy || !hasOfflineNodes"
+            :disabled="isNextDisabled"
             @click="emit('next')"
-        />
+          />
+        </span>
       </div>
     </template>
 
@@ -134,20 +147,33 @@ const emit = defineEmits<{ next: [] }>()
 const store = useRecoveryStore()
 
 const clusterIsHealthy = computed(
-    () => store.clusterStatus?.cluster_status === 'healthy'
+  () => store.clusterStatus?.cluster_status === 'healthy'
 )
 
 const hasOfflineNodes = computed(() =>
-    (store.clusterStatus?.nodes ?? []).some(
-        (n: any) => !n.live?.wsrep_connected || n.live?.wsrep_connected !== 'ON'
-    )
+  (store.clusterStatus?.nodes ?? []).some(
+    (n: any) => !n.live?.wsrep_connected || n.live?.wsrep_connected !== 'ON'
+  )
 )
 
+/** true когда кнопка Next должна быть задизейблена */
+const isNextDisabled = computed(() => clusterIsHealthy.value || !hasOfflineNodes.value)
+
+/** Текст тултипа — объясняет конкретную причину блокировки */
+const nextButtonTooltip = computed(() => {
+  if (!isNextDisabled.value) return undefined
+  if (clusterIsHealthy.value)
+    return 'All nodes are Synced — the cluster is healthy. Recovery is not needed.'
+  if (!hasOfflineNodes.value)
+    return 'All nodes show wsrep_connected = ON. No offline nodes detected — recovery is not required.'
+  return undefined
+})
+
 function stateClass(state: string | null): string {
-    if (!state) return 'cell-state--unknown'
-    if (state === 'Synced') return 'cell-state--synced'
-    if (state === 'Joined') return 'cell-state--joined'
-    return 'cell-state--other'
+  if (!state) return 'cell-state--unknown'
+  if (state === 'Synced') return 'cell-state--synced'
+  if (state === 'Joined') return 'cell-state--joined'
+  return 'cell-state--other'
 }
 </script>
 
@@ -326,5 +352,18 @@ function stateClass(state: string | null): string {
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
   margin-top: auto;
+}
+
+/*
+  Обёртка для задизейбленной кнопки Next.
+  pointer-events: none на самой кнопке — восстанавливаем на span,
+  чтобы v-tooltip мог сработать при наведении.
+*/
+.next-btn-wrapper {
+  display: inline-flex;
+  cursor: not-allowed;
+}
+.next-btn-wrapper :deep(.p-button:disabled) {
+  pointer-events: none;  /* клик всё равно не проходит */
 }
 </style>
