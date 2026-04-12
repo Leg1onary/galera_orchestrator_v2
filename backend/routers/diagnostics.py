@@ -5,7 +5,7 @@
 #   POST /api/clusters/{cluster_id}/diagnostics/check-all
 #   GET  /api/clusters/{cluster_id}/diagnostics/config-diff
 #   GET  /api/clusters/{cluster_id}/diagnostics/variables
-#   GET  /api/clusters/{cluster_id}/diagnostics/variables/all   ← новый
+#   GET  /api/clusters/{cluster_id}/diagnostics/variables/all
 #   POST /api/clusters/{cluster_id}/diagnostics/resources
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/test-connection
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/log
@@ -42,7 +42,7 @@ router = APIRouter(
 )
 
 
-# ── Internal DB helpers ───────────────────────────────────────────────────────
+# ── Internal DB helpers ─────────────────────────────────────────────────────────────
 
 def _assert_cluster_exists(cluster_id: int) -> dict:
     with engine.connect() as conn:
@@ -112,7 +112,7 @@ def _get_node_for_cluster(node_id: int, cluster_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-# ── SSH / DB probe helpers — called inside asyncio.to_thread() ────────────────
+# ── SSH / DB probe helpers ───────────────────────────────────────────────────────────
 
 def _probe_node_ssh(node: dict) -> dict:
     t0 = time.monotonic()
@@ -293,14 +293,14 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             stdout, _ = client.execute(
                 f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null"
             )
-            log_lines = stdout.strip().splitlines() if stdout.strip() else []
+            log_lines = _filter_journalctl_noise(stdout)
 
             if not log_lines:
                 stdout, _ = client.execute(
                     f"tail -n {lines} /var/log/garbd.log 2>/dev/null || "
                     f"tail -n {lines} /var/log/garbd/garbd.log 2>/dev/null || echo ''"
                 )
-                log_lines = stdout.strip().splitlines() if stdout.strip() else []
+                log_lines = [l for l in stdout.strip().splitlines() if l.strip()]
 
         return {
             "arbitrator_id":   arb["id"],
@@ -327,7 +327,113 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
         }
 
 
-# ── POST /diagnostics/check-all ──────────────────────────────────────────────
+# ── Error log helpers ────────────────────────────────────────────────────────────────
+
+# Journalctl выводит служебные строки вроде "-- No entries --" или
+# "-- Logs begin at Mon 2026-04-13..." — фильтруем их.
+_JOURNALCTL_NOISE_PREFIXES = (
+    "-- No entries --",
+    "-- Logs begin",
+    "-- Journal begins",
+    "-- Boot ",
+    "-- Reboot ",
+)
+
+
+def _filter_journalctl_noise(raw: str) -> list[str]:
+    """Strip empty lines and journalctl meta-lines, return real log lines."""
+    result = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if any(stripped.startswith(p) for p in _JOURNALCTL_NOISE_PREFIXES):
+            continue
+        result.append(line)
+    return result
+
+
+# Пробуем кандидатов по очереди, возвращаем первый непустой результат.
+# Каждый кандидат работает через отдельный execute() — нет бага с пустым
+# файлом в || цепочке (файл есть, но пустой → exit 0 → цепочка останавливается).
+_ERROR_LOG_CANDIDATES = [
+    # systemd (Debian/Ubuntu/RHEL при systemd-based установке)
+    ("journalctl", "journalctl -u mariadb -n {lines} --no-pager 2>/dev/null"),
+    # Debian/Ubuntu классика
+    ("file",        "tail -n {lines} /var/log/mysql/error.log 2>/dev/null"),
+    # RHEL/CentOS/Rocky
+    ("file",        "tail -n {lines} /var/log/mariadb/mariadb.log 2>/dev/null"),
+    # альтернатива RHEL
+    ("file",        "tail -n {lines} /var/log/mysqld.log 2>/dev/null"),
+    # datadir fallback: ищем через find — не glob, чтобы shell раскрыл glob
+    ("file",        "find /var/lib/mysql -maxdepth 1 -name '*.err' 2>/dev/null | head -1 | xargs -r tail -n {lines}"),
+]
+
+
+def _fetch_error_log(node: dict, lines: int) -> dict:
+    """
+    Читаем error log через SSH.
+
+    Пробуем кандидатов в порядке приоритета:
+      1. journalctl -u mariadb   (фильтруем шум)
+      2. /var/log/mysql/error.log
+      3. /var/log/mariadb/mariadb.log
+      4. /var/log/mysqld.log
+      5. find /var/lib/mysql -name '*.err' | xargs tail
+    Возвращаем первый непустой результат.
+    """
+    try:
+        with SSHClient(
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
+        ) as client:
+            log_lines: list[str] = []
+            source_used: str = "none"
+
+            for kind, cmd_tpl in _ERROR_LOG_CANDIDATES:
+                cmd = cmd_tpl.format(lines=lines)
+                stdout, _ = client.execute(cmd)
+
+                if kind == "journalctl":
+                    candidate = _filter_journalctl_noise(stdout)
+                else:
+                    candidate = [l for l in stdout.splitlines() if l.strip()]
+
+                if candidate:
+                    log_lines = candidate
+                    source_used = cmd_tpl.split()[0] if kind == "journalctl" else cmd_tpl
+                    break
+
+        return {
+            "node_id":     node["id"],
+            "node_name":   node["name"],
+            "lines":       log_lines,
+            "source":      source_used,
+            "fetched_at":  datetime.now(timezone.utc).isoformat(),
+            "error":       None,
+        }
+    except SSHError as exc:
+        return {
+            "node_id":    node["id"],
+            "node_name":  node["name"],
+            "lines":      [],
+            "source":     "none",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "error":      str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":    node["id"],
+            "node_name":  node["name"],
+            "lines":      [],
+            "source":     "none",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "error":      str(exc),
+        }
+
+
+# ── POST /diagnostics/check-all ──────────────────────────────────────────────────────────────
 
 @router.post("/diagnostics/check-all")
 async def check_all(cluster_id: int) -> dict:
@@ -400,7 +506,7 @@ async def check_all(cluster_id: int) -> dict:
     return {"nodes": node_checks, "arbitrators": arb_checks}
 
 
-# ── GET /diagnostics/config-diff ─────────────────────────────────────────────
+# ── GET /diagnostics/config-diff ──────────────────────────────────────────────────────────────
 
 @router.get("/diagnostics/config-diff")
 async def config_diff(cluster_id: int) -> dict:
@@ -453,7 +559,7 @@ async def config_diff(cluster_id: int) -> dict:
     }
 
 
-# ── GET /diagnostics/variables ────────────────────────────────────────────────
+# ── GET /diagnostics/variables ───────────────────────────────────────────────────────────────
 
 @router.get("/diagnostics/variables")
 async def variables(
@@ -493,9 +599,7 @@ async def variables(
     }
 
 
-# ── GET /diagnostics/variables/all ───────────────────────────────────────────
-# Fetches SHOW GLOBAL VARIABLES for all enabled nodes in parallel.
-# Used by VariablesPanel — avoids N separate requests with node_id from frontend.
+# ── GET /diagnostics/variables/all ─────────────────────────────────────────────────────────────
 
 @router.get("/diagnostics/variables/all")
 async def variables_all(
@@ -538,7 +642,7 @@ async def variables_all(
     return output
 
 
-# ── POST /diagnostics/resources ──────────────────────────────────────────────
+# ── POST /diagnostics/resources ──────────────────────────────────────────────────────────────
 
 @router.post("/diagnostics/resources")
 async def resources(cluster_id: int) -> dict:
@@ -583,7 +687,7 @@ async def resources(cluster_id: int) -> dict:
     return {"nodes": node_resources}
 
 
-# ── GET /diagnostics/galera-status ───────────────────────────────────────────
+# ── GET /diagnostics/galera-status ────────────────────────────────────────────────────────────
 
 def _fetch_galera_status(node: dict) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -654,7 +758,7 @@ async def galera_status(cluster_id: int) -> list[dict]:
     return output
 
 
-# ── GET /diagnostics/process-list ────────────────────────────────────────────
+# ── GET /diagnostics/process-list ────────────────────────────────────────────────────────────
 
 def _fetch_process_list(node: dict) -> list[dict]:
     if not node.get("db_user") or not node.get("db_password"):
@@ -723,7 +827,7 @@ async def process_list(
     return output
 
 
-# ── GET /diagnostics/slow-queries ────────────────────────────────────────────
+# ── GET /diagnostics/slow-queries ────────────────────────────────────────────────────────────
 
 def _fetch_slow_queries(node: dict) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -837,53 +941,7 @@ async def slow_queries(
     return output
 
 
-# ── GET /nodes/{node_id}/error-log ───────────────────────────────────────────
-
-def _fetch_error_log(node: dict, lines: int) -> dict:
-    try:
-        with SSHClient(
-                host=node["host"],
-                port=int(node.get("ssh_port") or 22),
-                username=node.get("ssh_user") or "root",
-        ) as client:
-            stdout, _ = client.execute(
-                f"journalctl -u mariadb -n {lines} --no-pager 2>/dev/null"
-            )
-            log_lines = stdout.strip().splitlines() if stdout.strip() else []
-
-            if not log_lines:
-                stdout, _ = client.execute(
-                    f"tail -n {lines} /var/log/mysql/error.log 2>/dev/null || "
-                    f"tail -n {lines} /var/log/mariadb/mariadb.log 2>/dev/null || "
-                    f"tail -n {lines} /var/log/mysqld.log 2>/dev/null || "
-                    f"tail -n {lines} /var/lib/mysql/*.err 2>/dev/null || echo ''"
-                )
-                log_lines = stdout.strip().splitlines() if stdout.strip() else []
-
-        return {
-            "node_id":    node["id"],
-            "node_name":  node["name"],
-            "lines":      log_lines,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "error":      None,
-        }
-    except SSHError as exc:
-        return {
-            "node_id":    node["id"],
-            "node_name":  node["name"],
-            "lines":      [],
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "error":      str(exc),
-        }
-    except Exception as exc:
-        return {
-            "node_id":    node["id"],
-            "node_name":  node["name"],
-            "lines":      [],
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "error":      str(exc),
-        }
-
+# ── GET /nodes/{node_id}/error-log ────────────────────────────────────────────────────────────
 
 @router.get("/nodes/{node_id}/error-log")
 async def error_log(
@@ -914,7 +972,7 @@ async def error_log(
     return result
 
 
-# ── GET /arbitrators/{arb_id}/test-connection ─────────────────────────────────
+# ── GET /arbitrators/{arb_id}/test-connection ──────────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/test-connection")
 async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
@@ -946,7 +1004,7 @@ async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
     }
 
 
-# ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────
+# ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/log")
 async def arbitrator_log(
