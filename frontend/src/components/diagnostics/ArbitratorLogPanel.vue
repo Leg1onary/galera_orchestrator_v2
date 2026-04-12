@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { api } from '@/api/client'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ArbitratorLogResult } from '@/api/diagnostics'
 
@@ -25,8 +24,15 @@ async function loadArbitrators() {
   if (!id) return
   loadingArbs.value = true
   try {
-    const r = await api.get(`/api/clusters/${id}/arbitrators`)
-    arbitrators.value = (r.data as any[]).filter((a: any) => a.enabled)
+    const r = await diagnosticsApi.checkAll(id)
+    // Берём только арбитраторов из ответа check-all, или делаем отдельный запрос
+    // Используем тот же API что и раньше, но с типизацией
+    const raw = await import('@/api/client').then(({ api }) =>
+      api.get<Array<{ id: number; name: string; enabled: boolean }>>(
+        `/api/clusters/${id}/arbitrators`,
+      )
+    )
+    arbitrators.value = raw.data.filter((a) => a.enabled)
     if (arbitrators.value.length > 0 && selectedId.value === null) {
       selectedId.value = arbitrators.value[0].id
     }
@@ -40,11 +46,19 @@ async function loadArbitrators() {
 async function fetchLog() {
   const clusterId = clusterStore.selectedClusterId
   const arbId     = selectedId.value
-  if (!clusterId || !arbId) return
+  // guard: skip if another request is already in flight
+  if (!clusterId || !arbId || loading.value) return
   loading.value = true
   error.value   = null
   try {
-    logResult.value = await diagnosticsApi.arbitratorLog(clusterId, arbId, lines.value)
+    const result = await diagnosticsApi.arbitratorLog(clusterId, arbId, lines.value)
+    // Surface backend-level SSH/execution error as UI error
+    if (result.error) {
+      error.value    = result.error
+      logResult.value = null
+    } else {
+      logResult.value = result
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
@@ -69,13 +83,15 @@ watch(
     if (!props.active) return
     selectedId.value = null
     logResult.value  = null
+    error.value      = null
     await loadArbitrators()
     if (selectedId.value) fetchLog()
   }
 )
 
+// guard: не шлём запрос если уже грузится
 watch([selectedId, lines], () => {
-  if (props.active && selectedId.value) fetchLog()
+  if (props.active && selectedId.value && !loading.value) fetchLog()
 })
 
 const logLines = computed(() => logResult.value?.lines ?? [])
