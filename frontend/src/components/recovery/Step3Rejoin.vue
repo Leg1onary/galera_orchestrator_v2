@@ -39,21 +39,21 @@
     <div class="node-rejoin-list">
       <div
           v-for="node in store.nodesNeedingRejoin"
-          :key="node.node_id"
+          :key="node.id"
           class="node-rejoin-row"
-          :class="`node-rejoin-row--${nodeStatus(node.node_id)}`"
+          :class="`node-rejoin-row--${globalNodeStatus}`"
       >
         <div class="node-rejoin-indicator">
-          <ProgressSpinner v-if="nodeStatus(node.node_id) === 'running'" style="width: 16px; height: 16px" />
-          <i v-else-if="nodeStatus(node.node_id) === 'success'" class="pi pi-check" />
-          <i v-else-if="nodeStatus(node.node_id) === 'failed'"  class="pi pi-times" />
+          <ProgressSpinner v-if="globalNodeStatus === 'running'" style="width: 16px; height: 16px" />
+          <i v-else-if="globalNodeStatus === 'success'" class="pi pi-check" />
+          <i v-else-if="globalNodeStatus === 'failed'"  class="pi pi-times" />
           <i v-else class="pi pi-circle" />
         </div>
         <div class="node-rejoin-info">
-          <span class="node-rejoin-name">{{ node.node_name }}</span>
+          <span class="node-rejoin-name">{{ node.name }}</span>
           <span class="node-rejoin-host">{{ node.host }}</span>
         </div>
-        <span class="node-rejoin-status-label">{{ nodeStatusLabel(node.node_id) }}</span>
+        <span class="node-rejoin-status-label">{{ globalNodeStatusLabel }}</span>
       </div>
     </div>
 
@@ -107,23 +107,20 @@ const stateLabel = computed(() => ({
   cancelled:        'Cancelled by user',
 }[store.operationState ?? 'pending'] ?? ''))
 
-function nodeStatus(nodeId: number): 'running' | 'success' | 'failed' | 'pending' {
-  const perNode = store.nodeRejoinStatus?.[nodeId]
-  if (perNode) return perNode
-  if (store.operationState === 'running')  return 'running'
+// WS события ОЗ не шлют per-node прогресс — все ноды отображают глобальное состояние операции
+const globalNodeStatus = computed((): 'running' | 'success' | 'failed' | 'pending' => {
+  if (store.operationState === 'running' || store.operationState === 'cancel_requested') return 'running'
   if (store.operationState === 'success')  return 'success'
   if (store.operationState === 'failed')   return 'failed'
   return 'pending'
-}
+})
 
-function nodeStatusLabel(nodeId: number): string {
-  return {
-    running: 'Rejoining…',
-    success: 'Joined',
-    failed:  'Failed',
-    pending: 'Waiting',
-  }[nodeStatus(nodeId)] ?? ''
-}
+const globalNodeStatusLabel = computed(() => ({
+  running: 'Rejoining…',
+  success: 'Joined',
+  failed:  'Failed',
+  pending: 'Waiting',
+}[globalNodeStatus.value]))
 </script>
 
 <style scoped>

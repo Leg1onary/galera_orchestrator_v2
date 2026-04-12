@@ -74,12 +74,12 @@ export const useRecoveryStore = defineStore('recovery', () => {
         // Polling-fallback: восстанавливаем прогресс если зашли во время активной операции
         try {
             const status = await recoveryApi.getStatus(cId)
-            // [MAJOR FIX] правильный маппинг из RecoveryStatus
+            // [BUG FIX] op.state — правильное поле (было op.status)
             const op = status.active_operation
-            if (op && ['pending', 'running', 'cancel_requested'].includes(op.status)) {
-                operationId.value = op.id
-                operationState.value = op.status as RecoveryOperationState
-                progressPct.value = 0
+            if (op && ['pending', 'running', 'cancel_requested'].includes(op.state)) {
+                operationId.value = op.operation_id
+                operationState.value = op.state as RecoveryOperationState
+                progressPct.value = op.progress_pct ?? 0
                 step.value = 3
             }
         } catch {
