@@ -3,19 +3,16 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
+import type { NodeListItem } from '@/api/nodes'
 
 // ── Типы, соответствующие backend /status → nodes[] / arbitrators[] ──────────
-// BUG FIX #1: NodeStatusItem из backend возвращает плоские dc_id/dc_name,
-// а не вложенный dc: { id, name }. Добавляем оба варианта для совместимости.
 interface NodeLive {
   id: number
   name: string
   host: string
   port: number
-  // Плоские поля от GET /api/clusters/{id}/status (NodeStatusItem)
   dc_id: number | null
   dc_name: string | null
-  // Флаги из NodeLiveData (вложены в live, но поднимаем через computed)
   wsrep_local_state_comment: string | null
   wsrep_ready: string | null
   wsrep_flow_control_paused: number | null
@@ -24,7 +21,6 @@ interface NodeLive {
   readonly: boolean
   maintenance: boolean
   maintenance_drift: boolean
-  // live object (может быть null если поллер ещё не опросил ноду)
   live: {
     wsrep_local_state_comment: string | null
     wsrep_ready: string | null
@@ -44,11 +40,8 @@ interface ArbLive {
   id: number
   name: string
   host: string
-  // Плоские поля от backend
   dc_id: number | null
   dc_name: string | null
-  // BUG FIX #2: LiveArbitratorState.to_dict() возвращает ssh_ok/garbd_running/ssh_latency_ms,
-  // а не is_reachable/latency_ssh_ms — старые поля вызывали OFFLINE у всех арбитраторов
   live: {
     ssh_ok: boolean
     garbd_running: boolean
@@ -78,9 +71,6 @@ const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
 const { data, isLoading } = useClusterStatus(clusterId)
 
-// BUG FIX #1 продолжение: нормализуем плоскую структуру бэкенда в удобный вид
-// Бэкенд: { dc_id, dc_name, live: { ssh_ok, readonly, ... } }
-// Страница работает с нормализованными NodeNorm / ArbNorm
 interface NodeNorm {
   id: number
   name: string
@@ -89,7 +79,6 @@ interface NodeNorm {
   dc_id: number | null
   dc_name: string | null
   maintenance: boolean
-  // live-поля (из live объекта, с fallback на false/null если live=null)
   ssh_ok: boolean
   db_ok: boolean
   wsrep_local_state_comment: string | null
@@ -109,7 +98,6 @@ interface ArbNorm {
   host: string
   dc_id: number | null
   dc_name: string | null
-  // BUG FIX #2: правильные поля из LiveArbitratorState.to_dict()
   ssh_ok: boolean
   garbd_running: boolean
   ssh_latency_ms: number | null
@@ -124,7 +112,6 @@ const nodes = computed<NodeNorm[]>(() =>
     dc_id:        n.dc_id,
     dc_name:      n.dc_name,
     maintenance:  n.maintenance,
-    // live-поля с безопасным fallback
     ssh_ok:                    n.live?.ssh_ok                    ?? false,
     db_ok:                     n.live?.db_ok                     ?? false,
     wsrep_local_state_comment: n.live?.wsrep_local_state_comment ?? null,
@@ -146,32 +133,70 @@ const arbitrators = computed<ArbNorm[]>(() =>
     host:           a.host,
     dc_id:          a.dc_id,
     dc_name:        a.dc_name,
-    // BUG FIX #2: ssh_ok/garbd_running из live объекта
     ssh_ok:         a.live?.ssh_ok         ?? false,
     garbd_running:  a.live?.garbd_running  ?? false,
     ssh_latency_ms: a.live?.ssh_latency_ms ?? null,
   }))
 )
 
-// ── NodeDetailDrawer ──────────────────────────────────────────────────────────────────────────────
-const drawerNodeId = ref<number | null>(null)
-const drawerOpen   = ref(false)
-function openDrawer(nodeId: number) {
-  drawerNodeId.value = nodeId
-  drawerOpen.value   = true
-}
-function closeDrawer() {
-  drawerOpen.value   = false
-  drawerNodeId.value = null
+// ── NodeDetailDrawer ──────────────────────────────────────────────────────────
+// FIX: NodeDetailDrawer ожидает node: NodeListItem | null, а не node-id: number.
+// Строим NodeListItem из NodeNorm (поля из /status) + дефолты для полей которых нет в /status
+// (ssh_port, ssh_user, db_user, enabled, cluster_id, datacenter_id).
+// Дровер сам перезапросит полные данные через nodesApi.details(clusterId, node.id).
+const drawerNode = ref<NodeListItem | null>(null)
+
+function nodeNormToListItem(n: NodeNorm): NodeListItem {
+  return {
+    id:             n.id,
+    name:           n.name,
+    host:           n.host,
+    port:           n.port,
+    ssh_port:       22,
+    ssh_user:       '',
+    db_user:        '',
+    enabled:        true,
+    maintenance:    n.maintenance,
+    datacenter_id:  n.dc_id,
+    datacenter_name: n.dc_name,
+    cluster_id:     clusterId.value,
+    live: n.ssh_ok || n.db_ok ? {
+      wsrep_cluster_status:      null,
+      wsrep_cluster_size:        null,
+      wsrep_connected:           null,
+      wsrep_ready:               n.wsrep_ready,
+      wsrep_local_state_comment: n.wsrep_local_state_comment,
+      wsrep_local_recv_queue:    n.wsrep_local_recv_queue,
+      wsrep_local_send_queue:    null,
+      wsrep_flow_control_paused: n.wsrep_flow_control_paused,
+      readonly:                  n.readonly,
+      maintenance_drift:         n.maintenance_drift,
+      ssh_ok:                    n.ssh_ok,
+      db_ok:                     n.db_ok,
+      ssh_latency_ms:            n.ssh_latency_ms,
+      db_latency_ms:             n.db_latency_ms,
+      error:                     n.error,
+      last_check_ts:             null,
+      flow_control_history:      [],
+      recv_queue_history:        [],
+    } : null,
+  }
 }
 
-// ── Header stats ────────────────────────────────────────────────────────────────────────────────
+function openDrawer(nodeId: number) {
+  const found = nodes.value.find(n => n.id === nodeId)
+  drawerNode.value = found ? nodeNormToListItem(found) : { id: nodeId, name: '', host: '', port: 3306, ssh_port: 22, ssh_user: '', db_user: '', enabled: true, maintenance: false, datacenter_id: null, datacenter_name: null, cluster_id: clusterId.value, live: null }
+}
+function closeDrawer() {
+  drawerNode.value = null
+}
+
+// ── Header stats ──────────────────────────────────────────────────────────────
 const syncedCount = computed(() =>
   nodes.value.filter(n => n.ssh_ok && (n.wsrep_local_state_comment ?? '').toUpperCase() === 'SYNCED').length
 )
 
-// ── DC groups ────────────────────────────────────────────────────────────────────────────────────
-// BUG FIX #1 финал: группируем по dc_id (плоское поле), а не n.dc?.id
+// ── DC groups ─────────────────────────────────────────────────────────────────
 const dcGroups = computed<DCGroup[]>(() => {
   const map = new Map<string, DCGroup>()
   for (const n of nodes.value) {
@@ -203,8 +228,6 @@ function arbBadgeY(dc: DCGroup, ai: number) {
   return TOP_OFF + 8 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
 }
 
-// Получаем нормализованные поля через явный каст (dcGroups хранит NodeLive,
-// но мы пушим туда NodeNorm — TypeScript не знает, используем прямой доступ)
 function nodeSSHOk(n: unknown): boolean     { return (n as NodeNorm).ssh_ok }
 function nodeState(n: unknown): string|null { return (n as NodeNorm).wsrep_local_state_comment }
 function nodeReady(n: unknown): string|null { return (n as NodeNorm).wsrep_ready }
@@ -230,7 +253,6 @@ function nodeColor(n: unknown): string {
   return 'var(--color-text-faint)'
 }
 
-// BUG FIX #2 финал: arbColor использует ssh_ok/garbd_running (не is_reachable)
 function arbColor(a: unknown): string {
   if (!arbSSHOk(a))   return 'var(--color-offline)'
   if (!arbGarbd(a))   return 'var(--color-degraded)'
@@ -239,7 +261,7 @@ function arbColor(a: unknown): string {
 
 function nodeStatLabel(n: unknown): string {
   const s = (nodeState(n) ?? '').toUpperCase()
-  if (!nodeSSHOk(n))        return 'OFFLINE'
+  if (!nodeSSHOk(n))          return 'OFFLINE'
   if (nodeReady(n) === 'OFF') return 'DEGRADED'
   return s || '—'
 }
@@ -249,7 +271,7 @@ function arbStatLabel(a: unknown): string {
   return 'ONLINE'
 }
 
-// ── Tooltip ──────────────────────────────────────────────────────────────────────────────────────────
+// ── Tooltip ───────────────────────────────────────────────────────────────────
 const tooltip = ref<{ node?: NodeNorm; arb?: ArbNorm; x: number; y: number } | null>(null)
 function showNodeTip(e: MouseEvent, n: NodeNorm) { tooltip.value = { node: n, x: e.clientX, y: e.clientY } }
 function showArbTip(e: MouseEvent, a: ArbNorm)   { tooltip.value = { arb:  a, x: e.clientX, y: e.clientY } }
@@ -313,9 +335,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
-              <!-- Full-mesh lines внутри DC -->
-              <!-- BUG FIX #3: линии были почти невидимы из-за opacity:0.5 + dasharray на тёмном фоне.
-                   Поднимаем opacity до 0.85, увеличиваем stroke-width до 1.4 для intra-DC линий -->
               <g v-if="dc.nodes.length > 1">
                 <template v-for="ni in dc.nodes.length - 1" :key="`lnrow-${ni}`">
                   <template v-for="nj in dc.nodes.length" :key="`ln-${ni}-${nj}`">
@@ -443,15 +462,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <td>
                   <span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span>
                 </td>
-                <!-- BUG FIX #1 финал: dc_name (плоское поле), не n.dc?.name -->
                 <td><span class="cell-muted">{{ n.dc_name ?? '—' }}</span></td>
                 <td>
                   <span class="mode-pill" :class="n.readonly ? 'mode-ro' : 'mode-rw'">{{ n.readonly ? 'RO' : 'RW' }}</span>
                 </td>
                 <td>
-                  <!-- BUG FIX #4: SSH FAIL показывался потому что n.ssh_ok было undefined
-                       (брали из верхнего уровня объекта, а не из n.live). Теперь n.ssh_ok
-                       берётся из нормализованного computed nodes, который извлекает из n.live -->
                   <span class="ssh-cell" :class="n.ssh_ok ? 'ssh-ok' : 'ssh-fail'">
                     <i :class="n.ssh_ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
                     {{ n.ssh_ok ? 'OK' : 'FAIL' }}
@@ -498,12 +513,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
       </template>
     </template>
 
-    <!-- NodeDetailDrawer -->
+    <!-- NodeDetailDrawer — FIX: передаём полный NodeListItem объект, не node-id -->
     <NodeDetailDrawer
-      v-if="drawerOpen && drawerNodeId !== null"
-      :node-id="drawerNodeId"
+      v-if="drawerNode !== null"
+      :node="drawerNode"
       :cluster-id="clusterId"
-      :open="drawerOpen"
       @close="closeDrawer"
     />
 
@@ -630,9 +644,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
-/* BUG FIX #3: линии были почти невидимы (opacity:0.5, stroke-width:1, тёмный фон).
-   Intra-DC линии: stroke-width 1.4, opacity 0.85, более заметный цвет.
-   Inter-DC линии: уже используют primary color, только opacity чуть выше. */
 .topo-line         { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
 .topo-line--intra  { stroke: var(--color-text-faint); stroke-width: 1.4; stroke-dasharray: 4 2; opacity: 0.85; }
 .topo-line--dc     { stroke:var(--color-primary); stroke-width:1.2; stroke-dasharray:5 3; opacity:.5; }
@@ -662,7 +673,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .node-table-header {
   display: flex;
   align-items: center;
-
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-border);
