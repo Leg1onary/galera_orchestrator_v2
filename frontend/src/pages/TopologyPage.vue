@@ -184,11 +184,11 @@ function nodeNormToListItem(n: NodeNorm): NodeListItem {
 
 function openDrawer(nodeId: number) {
   const found = nodes.value.find(n => n.id === nodeId)
-  drawerNode.value = found ? nodeNormToListItem(found) : { id: nodeId, name: '', host: '', port: 3306, ssh_port: 22, ssh_user: '', db_user: '', enabled: true, maintenance: false, datacenter_id: null, datacenter_name: null, cluster_id: clusterId.value, live: null }
+  drawerNode.value = found
+    ? nodeNormToListItem(found)
+    : { id: nodeId, name: '', host: '', port: 3306, ssh_port: 22, ssh_user: '', db_user: '', enabled: true, maintenance: false, datacenter_id: null, datacenter_name: null, cluster_id: clusterId.value, live: null }
 }
-function closeDrawer() {
-  drawerNode.value = null
-}
+function closeDrawer() { drawerNode.value = null }
 
 // ── Header stats ──────────────────────────────────────────────────────────────
 const syncedCount = computed(() =>
@@ -217,7 +217,9 @@ function dcHeight(dc: DCGroup): number {
   const arbsH    = dc.arbs.length * (B_ARB_H + B_GAP)
   return TOP_OFF + 6 + nodesH + arbsH + SIDE
 }
-const svgViewH = computed(() => Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [120])) + 16)
+// Extra SVG height to accommodate downward bezier arcs (up to 20px below badges)
+const ARC_EXTRA = 24
+const svgViewH = computed(() => Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [120])) + 16 + ARC_EXTRA)
 const svgViewW = computed(() => dcGroups.value.length * (DC_W + DC_PAD) + DC_PAD)
 
 function dcX(di: number) { return DC_PAD + di * (DC_W + DC_PAD) }
@@ -236,22 +238,34 @@ function parseIncomingHosts(raw: string): Set<string> {
 }
 
 interface ConnectionLine {
+  // Anchor points at bottom-center of each badge
   x1: number; y1: number
   x2: number; y2: number
   style: 'synced' | 'active' | 'offline'
 }
 
-function nodeBadgeCenter(nodeId: number): { x: number; y: number } | null {
+// Returns bottom-center of badge so arcs exit below the badge body
+function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
   for (let di = 0; di < dcGroups.value.length; di++) {
     const dc = dcGroups.value[di]
     const ni = (dc.nodes as unknown as NodeNorm[]).findIndex(n => n.id === nodeId)
     if (ni === -1) continue
     return {
       x: badgeX(di, ni) + B_W / 2,
-      y: badgeY(ni) + B_H / 2,
+      y: badgeY(ni) + B_H + 3,   // 3px below badge bottom edge
     }
   }
   return null
+}
+
+// SVG quadratic bezier path for a downward arc between two bottom-center anchors
+function arcPath(x1: number, y1: number, x2: number, y2: number): string {
+  const mx  = (x1 + x2) / 2
+  // Control point: drop further down when nodes are close horizontally
+  const dx  = Math.abs(x2 - x1)
+  const sag = Math.max(14, dx * 0.22)   // minimum 14px sag
+  const cy  = Math.max(y1, y2) + sag
+  return `M${x1},${y1} Q${mx},${cy} ${x2},${y2}`
 }
 
 const connectionLines = computed<ConnectionLine[]>(() => {
@@ -271,8 +285,8 @@ const connectionLines = computed<ConnectionLine[]>(() => {
       if (seen.has(pairKey)) continue
       seen.add(pairKey)
 
-      const cA = nodeBadgeCenter(nodeA.id)
-      const cB = nodeBadgeCenter(nodeB.id)
+      const cA = nodeBadgeAnchor(nodeA.id)
+      const cB = nodeBadgeAnchor(nodeB.id)
       if (!cA || !cB) continue
 
       const aState = (nodeA.wsrep_local_state_comment ?? '').toUpperCase()
@@ -288,38 +302,6 @@ const connectionLines = computed<ConnectionLine[]>(() => {
     }
   }
   return lines
-})
-
-// ── Debug panel data ──────────────────────────────────────────────────────────
-const showDebug = ref(true)
-
-interface DebugNodeRow {
-  id: number
-  name: string
-  host: string
-  raw_incoming: string
-  parsed_peers: string[]
-  match_results: { target_name: string; target_host: string; matched: boolean }[]
-}
-
-const debugRows = computed<DebugNodeRow[]>(() => {
-  return nodes.value.map(nodeA => {
-    const peers = parseIncomingHosts(nodeA.wsrep_incoming_addresses)
-    return {
-      id: nodeA.id,
-      name: nodeA.name,
-      host: nodeA.host,
-      raw_incoming: nodeA.wsrep_incoming_addresses || '(empty)',
-      parsed_peers: Array.from(peers),
-      match_results: nodes.value
-        .filter(nb => nb.id !== nodeA.id)
-        .map(nb => ({
-          target_name: nb.name,
-          target_host: nb.host,
-          matched: peers.has(nb.host),
-        })),
-    }
-  })
 })
 
 function nodeSSHOk(n: unknown): boolean     { return (n as NodeNorm).ssh_ok }
@@ -422,17 +404,27 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/>
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
+              <!-- Glow filters for connection arcs -->
+              <filter id="glow-line-synced" x="-40%" y="-200%" width="180%" height="500%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <filter id="glow-line-active" x="-40%" y="-200%" width="180%" height="500%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
             </defs>
 
-            <!-- Connection lines (drawn first, under badges) -->
+            <!-- Connection arcs (drawn LAST so they appear on top of DC zones but below badges) -->
+            <!-- Rendered before badge groups so badges appear on top -->
             <g class="conn-layer">
-              <line
+              <path
                 v-for="(line, i) in connectionLines"
                 :key="`conn-${i}`"
-                :x1="line.x1" :y1="line.y1"
-                :x2="line.x2" :y2="line.y2"
-                class="topo-line"
-                :class="`topo-line--${line.style}`"
+                :d="arcPath(line.x1, line.y1, line.x2, line.y2)"
+                class="topo-arc"
+                :class="`topo-arc--${line.style}`"
+                :filter="line.style === 'synced' ? 'url(#glow-line-synced)' : line.style === 'active' ? 'url(#glow-line-active)' : undefined"
               />
             </g>
 
@@ -492,49 +484,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           </svg>
         </div>
 
-        <!-- ── DEBUG PANEL (временный, удалить после диагностики) ─────────── -->
-        <div class="debug-panel">
-          <div class="debug-header" @click="showDebug = !showDebug">
-            <span>🔍 Connection Debug</span>
-            <span class="debug-toggle">{{ showDebug ? '▲ hide' : '▼ show' }}</span>
-          </div>
-          <template v-if="showDebug">
-            <div class="debug-summary">
-              <b>connectionLines.length:</b> {{ connectionLines.length }}
-              &nbsp;|&nbsp;
-              <b>nodes.length:</b> {{ nodes.length }}
-            </div>
-            <div v-for="row in debugRows" :key="row.id" class="debug-node">
-              <div class="debug-node-title">
-                <b>{{ row.name }}</b>
-                <span class="debug-mono">host={{ row.host }}</span>
-              </div>
-              <div class="debug-row">
-                <span class="debug-label">raw wsrep_incoming_addresses:</span>
-                <span class="debug-mono">{{ row.raw_incoming }}</span>
-              </div>
-              <div class="debug-row">
-                <span class="debug-label">parsed hosts:</span>
-                <span class="debug-mono">{{ row.parsed_peers.join(', ') || '(none)' }}</span>
-              </div>
-              <div class="debug-row">
-                <span class="debug-label">peer matches:</span>
-                <span v-for="m in row.match_results" :key="m.target_name" class="debug-match" :class="m.matched ? 'debug-match--ok' : 'debug-match--no'">
-                  {{ m.target_name }}({{ m.target_host }})={{ m.matched ? '✓' : '✗' }}
-                </span>
-              </div>
-            </div>
-            <div class="debug-lines">
-              <b>Rendered lines ({{ connectionLines.length }}):</b>
-              <span v-for="(l, i) in connectionLines" :key="i" class="debug-mono debug-line-item">
-                [{{ l.style }}] ({{ l.x1.toFixed(0) }},{{ l.y1.toFixed(0) }})→({{ l.x2.toFixed(0) }},{{ l.y2.toFixed(0) }})
-              </span>
-              <span v-if="!connectionLines.length" class="debug-mono" style="color:var(--color-offline)">no lines generated</span>
-            </div>
-          </template>
-        </div>
-        <!-- ── END DEBUG PANEL ────────────────────────────────────────────── -->
-
         <!-- Legend -->
         <div class="topo-legend">
           <span class="legend-title">Legend</span>
@@ -545,13 +494,13 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-degraded)"/><span>wsrep_ready=OFF</span></div>
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-offline)"/><span>OFFLINE</span></div>
             <div class="legend-item legend-item--conn">
-              <span class="legend-line legend-line--synced"/><span>Both SYNCED</span>
+              <span class="legend-arc legend-arc--synced"/><span>Both SYNCED</span>
             </div>
             <div class="legend-item legend-item--conn">
-              <span class="legend-line legend-line--active"/><span>Connected</span>
+              <span class="legend-arc legend-arc--active"/><span>Connected</span>
             </div>
             <div class="legend-item legend-item--conn">
-              <span class="legend-line legend-line--offline"/><span>Peer offline</span>
+              <span class="legend-arc legend-arc--offline"/><span>Peer offline</span>
             </div>
             <div class="legend-item legend-item--hint"><span class="legend-icon">⤢</span><span>Click badge → details</span></div>
           </div>
@@ -594,7 +543,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 </td>
                 <td><span class="cell-mono">{{ n.host }}:{{ n.port }}</span></td>
                 <td>
-                  <span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span>
+<span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span>
                 </td>
                 <td><span class="cell-muted">{{ n.dc_name ?? '—' }}</span></td>
                 <td>
@@ -753,7 +702,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-svg {
   display: block;
-  max-height: 260px;
+  max-height: 300px;  /* slightly taller to show arcs */
   height: auto;
   width: auto;
   min-width: 100%;
@@ -782,91 +731,28 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
-/* ── Connection lines ─────────────────────────────────────────────────────────── */
-.topo-line {
-  stroke-width: 1.2;
+/* ── Connection arcs ─────────────────────────────────────────────────────────── */
+.topo-arc {
   fill: none;
+  stroke-linecap: round;
 }
-.topo-line--synced {
-  stroke: var(--color-synced);
-  stroke-dasharray: 4 2;
-  opacity: 0.75;
+.topo-arc--synced {
+  stroke: #4ade80;        /* bright green, higher contrast than var */
+  stroke-width: 1.8;
+  stroke-dasharray: 5 3;
+  opacity: 0.95;
 }
-.topo-line--active {
-  stroke: var(--color-donor);
+.topo-arc--active {
+  stroke: #facc15;        /* yellow, clearly visible */
+  stroke-width: 1.6;
   stroke-dasharray: 3 3;
-  opacity: 0.6;
+  opacity: 0.85;
 }
-.topo-line--offline {
-  stroke: var(--color-text-faint);
+.topo-arc--offline {
+  stroke: #64748b;
+  stroke-width: 1.2;
   stroke-dasharray: 2 4;
-  opacity: 0.35;
-}
-
-/* ── Debug panel ──────────────────────────────────────────────────────────────── */
-.debug-panel {
-  background: #0d1117;
-  border: 1px solid #f97316;
-  border-radius: var(--radius-md);
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  color: #e2e8f0;
-  overflow: hidden;
-}
-.debug-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-2) var(--space-4);
-  background: rgba(249,115,22,.12);
-  cursor: pointer;
-  user-select: none;
-  font-weight: 700;
-  color: #f97316;
-}
-.debug-toggle { font-size: 10px; color: #94a3b8; }
-.debug-summary {
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid #1e293b;
-  color: #94a3b8;
-}
-.debug-node {
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid #1e293b;
-}
-.debug-node-title {
-  display: flex;
-  gap: var(--space-3);
-  margin-bottom: 2px;
-  color: #f1f5f9;
-}
-.debug-row {
-  display: flex;
-  gap: var(--space-2);
-  line-height: 1.6;
-  flex-wrap: wrap;
-}
-.debug-label { color: #64748b; min-width: 220px; }
-.debug-mono  { color: #cbd5e1; }
-.debug-match {
-  padding: 0 4px;
-  border-radius: 3px;
-  margin-right: 4px;
-}
-.debug-match--ok  { background: rgba(34,197,94,.15);  color: #22c55e; }
-.debug-match--no  { background: rgba(239,68,68,.1);   color: #ef4444; }
-.debug-lines {
-  padding: var(--space-2) var(--space-4);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-.debug-line-item {
-  background: #1e293b;
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 10px;
+  opacity: 0.5;
 }
 
 /* ── Legend ───────────────────────────────────────────────────────────────────── */
@@ -883,10 +769,10 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .legend-item--conn { gap: var(--space-2); }
 .legend-dot    { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
 .legend-icon   { font-size:10px; line-height:1; }
-.legend-line   { display:inline-block; width:22px; height:2px; border-radius:1px; flex-shrink:0; }
-.legend-line--synced  { background: var(--color-synced);  opacity: 0.8; }
-.legend-line--active  { background: var(--color-donor);   opacity: 0.7; }
-.legend-line--offline { background: var(--color-text-faint); opacity: 0.5; }
+.legend-arc    { display:inline-block; width:22px; height:3px; border-radius:2px; flex-shrink:0; }
+.legend-arc--synced  { background: #4ade80; opacity: 0.95; }
+.legend-arc--active  { background: #facc15; opacity: 0.85; }
+.legend-arc--offline { background: #64748b; opacity: 0.5; }
 
 /* ── Tables ───────────────────────────────────────────────────────────────────── */
 .node-table-wrap {
