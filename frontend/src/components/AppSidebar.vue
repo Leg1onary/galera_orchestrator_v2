@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClusterStore }    from '@/stores/cluster'
 import { useOperationsStore } from '@/stores/operations'
+import { useVersionStore }    from '@/stores/version'
 import { useQueryClient }     from '@tanstack/vue-query'
 
 const props = defineProps<{ collapsed: boolean }>()
@@ -12,16 +13,22 @@ const route        = useRoute()
 const router       = useRouter()
 const clusterStore = useClusterStore()
 const opsStore     = useOperationsStore()
+const versionStore = useVersionStore()
 const qc           = useQueryClient()
 
 const clusterId = computed(() => clusterStore.selectedCluster?.id ?? 0)
 
-// ── Contour switcher ────────────────────────────────────────────────────────
-const CONTOURS = [
-  { id: 1, name: 'TEST', color: 'amber' },
-  { id: 2, name: 'PROD', color: 'green' },
-]
+// ── Contour switcher — динамически из store ──────────────────────────────────
+// Цвет назначается по позиции в массиве; первые два — amber/green, дальше neutral.
+const CONTOUR_COLORS = ['amber', 'green', 'blue', 'purple', 'red']
+const contours = computed(() => clusterStore.contours.map((c, i) => ({
+  ...c,
+  color: CONTOUR_COLORS[i] ?? 'neutral',
+})))
+
 const selectedContourId = computed(() => clusterStore.selectedContourId)
+const selectedContour   = computed(() => contours.value.find(c => c.id === selectedContourId.value) ?? null)
+
 function switchContour(id: number) {
   if (id === selectedContourId.value) return
   clusterStore.selectContour(id)
@@ -59,44 +66,24 @@ function navigate(item: NavItem)  {
   if (item.to) router.push(item.to())
 }
 
-// ── Cluster health ────────────────────────────────────────────────────────────
-const clusterStatus = computed(() => clusterStore.selectedCluster?.status ?? null)
-const clusterName   = computed(() => clusterStore.selectedCluster?.name ?? null)
-
-const statusColor = computed(() => {
-  if (clusterStatus.value === 'healthy')  return '#2dd4bf'
-  if (clusterStatus.value === 'degraded') return '#fbbf24'
-  if (clusterStatus.value === 'critical') return '#f87171'
-  return '#52525b'
-})
-
 // ── Active operation ───────────────────────────────────────────────────────────
-const activeOp = computed(() =>
-  clusterId.value ? opsStore.activeOperation(clusterId.value) : null
-)
 const isLocked = computed(() =>
   clusterId.value ? opsStore.isLocked(clusterId.value) : false
 )
 
-const OP_LABELS: Record<string, string> = {
-  'recovery-bootstrap': 'Bootstrap',
-  'recovery-rejoin':    'Rejoin',
-  'rolling-restart':    'Rolling restart',
-  'node-action':        'Node action',
-}
-const opLabel = computed(() =>
-  activeOp.value ? (OP_LABELS[activeOp.value.type] ?? activeOp.value.type) : ''
-)
-
-/*
-  showOpBar drives v-show (NOT <Transition>+v-if) on the progress bar.
-  v-show never removes the node → avoids parentNode crash on router.push.
-*/
-const showOpBar = computed(() => isLocked.value && !props.collapsed)
-
 // ── Lock check per item ───────────────────────────────────────────────────────
 function isItemLocked(item: NavItem) {
   return isLocked.value && item.group === 'ops'
+}
+
+// ── Version (load once) ───────────────────────────────────────────────────────
+// loadVersion вызывается в AppFooter — здесь просто читаем
+const checkResult  = computed(() => versionStore.checkResult)
+const checkStatus  = computed(() => checkResult.value?.status ?? null)
+const isChecking   = computed(() => versionStore.checking)
+
+function handleCheckClick() {
+  versionStore.checkUpdate()
 }
 </script>
 
@@ -139,45 +126,15 @@ function isItemLocked(item: NavItem) {
       </button>
     </div>
 
-    <!-- ══ CLUSTER PILL ═══════════════════════════════════════════════ -->
-    <div
-      v-if="clusterStore.selectedCluster"
-      class="cluster-pill"
-      :class="[
-        `cluster-pill--${clusterStatus ?? 'unknown'}`,
-        { 'cluster-pill--collapsed': collapsed },
-        { 'cluster-pill--locked': isLocked },
-      ]"
-      :title="collapsed ? `${clusterName ?? ''} · ${clusterStatus ?? 'unknown'}` : undefined"
-    >
-      <template v-if="collapsed">
-        <span class="cluster-dot" :style="{ background: statusColor, boxShadow: `0 0 7px ${statusColor}99` }" />
-      </template>
-      <template v-else>
-        <div class="cluster-pill-row">
-          <span class="cluster-pill__label">cluster</span>
-          <span :class="['cluster-status-badge', `cluster-status-badge--${clusterStatus ?? 'unknown'}`]">
-            <span class="cluster-status-dot" />
-            {{ clusterStatus ?? 'unknown' }}
-          </span>
-        </div>
-        <div class="cluster-pill-row cluster-pill-row--name">
-          <i class="pi pi-database cluster-pill-icon" />
-          <span class="cluster-pill__name">{{ clusterName }}</span>
-          <i v-if="isLocked" class="pi pi-lock cluster-lock-icon" v-tooltip.right="'Operation in progress'" />
-        </div>
-      </template>
-    </div>
-
     <!-- ══ CONTOUR SWITCHER ══════════════════════════════════════════════ -->
     <div
-      v-if="!collapsed"
+      v-if="!collapsed && contours.length > 0"
       class="contour-switcher"
       role="group"
       aria-label="Contour"
     >
       <button
-        v-for="c in CONTOURS"
+        v-for="c in contours"
         :key="c.id"
         :class="['contour-btn', `contour-btn--${c.color}`, { 'is-active': selectedContourId === c.id }]"
         @click="switchContour(c.id)"
@@ -187,27 +144,16 @@ function isItemLocked(item: NavItem) {
         {{ c.name }}
       </button>
     </div>
-    <!-- collapsed: single dot with tooltip indicating current contour -->
+    <!-- collapsed: single dot с текущим контуром -->
     <div
-      v-else-if="collapsed && clusterStore.selectedCluster"
+      v-else-if="collapsed && selectedContour"
       class="contour-collapsed"
-      v-tooltip.right="`Contour: ${CONTOURS.find(c => c.id === selectedContourId)?.name ?? '?'}`"
+      v-tooltip.right="`Contour: ${selectedContour.name}`"
     >
       <span
         class="contour-dot"
-        :class="`contour-dot--${CONTOURS.find(c => c.id === selectedContourId)?.color ?? 'amber'}`"
+        :class="`contour-dot--${selectedContour.color}`"
       />
-    </div>
-
-    <!-- ══ OPERATION PROGRESS BAR ═══════════════════════════════════════════ -->
-    <div v-show="showOpBar" class="op-progress-wrap">
-      <div class="op-progress-label">
-        <i class="pi pi-spin pi-spinner" />
-        {{ opLabel }}
-      </div>
-      <div class="op-progress-track">
-        <div class="op-progress-fill" />
-      </div>
     </div>
 
     <!-- ══ NAV ══════════════════════════════════════════════════════════ -->
@@ -241,15 +187,59 @@ function isItemLocked(item: NavItem) {
       </template>
     </div>
 
-    <!-- ══ FOOTER ═════════════════════════════════════════════════════════ -->
+    <!-- ══ FOOTER: версия + check-update ════════════════════════════════ -->
     <div class="sidebar-footer" :class="{ 'sidebar-footer--collapsed': collapsed }">
       <template v-if="!collapsed">
-        <div class="footer-meta">
-          <span class="footer-cluster-count" v-if="clusterStore.clustersForContour.length > 0">
-            {{ clusterStore.clustersForContour.length }}
-            cluster{{ clusterStore.clustersForContour.length !== 1 ? 's' : '' }}
-          </span>
+        <div class="footer-version-row">
+          <span class="footer-version">{{ versionStore.currentVersion }}</span>
+          <button
+            class="check-btn"
+            :class="{ 'check-btn--loading': isChecking }"
+            :disabled="isChecking"
+            v-tooltip.top="'Check for updates'"
+            @click="handleCheckClick"
+          >
+            <svg
+              class="check-btn-icon"
+              :class="{ spin: isChecking }"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M13.65 2.35A8 8 0 1 0 15 8h-1.5A6.5 6.5 0 1 1 8 1.5a6.45 6.45 0 0 1 4.24 1.6L10 5.5h5v-5l-1.35 1.85z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <Transition name="fade-result">
+            <span v-if="checkStatus === 'update_available'" class="check-result check-result--update">↑ update</span>
+            <span v-else-if="checkStatus === 'up_to_date'" class="check-result check-result--ok">✓ ok</span>
+            <span v-else-if="checkStatus === 'registry_unavailable'" class="check-result check-result--warn">⚠</span>
+          </Transition>
         </div>
+      </template>
+      <template v-else>
+        <!-- collapsed: только иконка обновления -->
+        <button
+          class="check-btn check-btn--solo"
+          :disabled="isChecking"
+          v-tooltip.right="'Check for updates'"
+          @click="handleCheckClick"
+        >
+          <svg
+            class="check-btn-icon"
+            :class="{ spin: isChecking }"
+            viewBox="0 0 16 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M13.65 2.35A8 8 0 1 0 15 8h-1.5A6.5 6.5 0 1 1 8 1.5a6.45 6.45 0 0 1 4.24 1.6L10 5.5h5v-5l-1.35 1.85z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
       </template>
     </div>
 
@@ -264,7 +254,7 @@ function isItemLocked(item: NavItem) {
   position: fixed;
   left: 0; top: 0; bottom: 0;
   width: var(--sidebar-width, 220px);
-  background: #0c0d10;
+  background: var(--color-bg);
   border-right: 1px solid rgba(255,255,255,0.055);
   display: flex;
   flex-direction: column;
@@ -307,7 +297,7 @@ function isItemLocked(item: NavItem) {
   font-size: 0.95rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: #e4e4e7;
+  color: var(--color-text);
   white-space: nowrap;
 }
 .logo-sub {
@@ -315,15 +305,15 @@ function isItemLocked(item: NavItem) {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #52525b;
+  color: var(--color-text-faint);
   white-space: nowrap;
 }
 .logo-version {
   font-size: 0.62rem;
   font-weight: 700;
-  color: #2dd4bf;
-  background: rgba(45,212,191,0.1);
-  border: 1px solid rgba(45,212,191,0.22);
+  color: var(--color-synced);
+  background: color-mix(in oklch, var(--color-synced) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-synced) 22%, transparent);
   border-radius: 4px;
   padding: 1px 5px;
   white-space: nowrap;
@@ -339,120 +329,13 @@ function isItemLocked(item: NavItem) {
   border-radius: 6px;
   border: 1px solid rgba(255,255,255,0.07);
   background: rgba(255,255,255,0.03);
-  color: #52525b;
+  color: var(--color-text-faint);
   font-size: 0.7rem;
   cursor: pointer;
   transition: all 150ms;
 }
-.toggle-btn:hover { color: #e4e4e7; background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.12); }
+.toggle-btn:hover { color: var(--color-text); background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.12); }
 .toggle-btn--solo { margin: 0 auto; }
-
-/* ════════════════════════════════════════════════════════
-   CLUSTER PILL
-════════════════════════════════════════════════════════ */
-.cluster-pill {
-  margin: var(--space-3) var(--space-3) 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.025);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-  transition: all 200ms ease;
-  position: relative;
-  overflow: hidden;
-}
-.cluster-pill--healthy  { border-color: rgba(45,212,191,0.18); }
-.cluster-pill--degraded { border-color: rgba(251,191,36,0.18); }
-.cluster-pill--critical { border-color: rgba(248,113,113,0.22); }
-.cluster-pill--locked   { border-color: rgba(251,191,36,0.22); }
-.cluster-pill::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 20%; bottom: 20%;
-  width: 2px;
-  border-radius: 0 2px 2px 0;
-  background: currentColor;
-  opacity: 0.5;
-}
-.cluster-pill--healthy::before  { color: #2dd4bf; }
-.cluster-pill--degraded::before { color: #fbbf24; }
-.cluster-pill--critical::before { color: #f87171; }
-.cluster-pill--unknown::before  { color: #3f3f46; }
-.cluster-pill--collapsed {
-  margin: var(--space-3) auto 0;
-  width: 36px; height: 36px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  flex-direction: row;
-}
-.cluster-pill-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.cluster-pill-row--name { gap: 6px; }
-.cluster-pill__label {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #52525b;
-  font-weight: 600;
-}
-.cluster-pill__name {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #e4e4e7;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono, monospace);
-  flex: 1;
-  min-width: 0;
-}
-.cluster-pill-icon { font-size: 0.7rem; color: #52525b; flex-shrink: 0; }
-.cluster-lock-icon { font-size: 0.7rem; color: #fbbf24; flex-shrink: 0; }
-.cluster-dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  animation: pulse-dot 2.5s ease-in-out infinite;
-}
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
-}
-.cluster-status-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.62rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 1px 6px 1px 4px;
-  border-radius: 99px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-.cluster-status-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
-.cluster-status-badge--healthy  { background: rgba(45,212,191,0.08);  border-color: rgba(45,212,191,0.2);  color: #2dd4bf; }
-.cluster-status-badge--healthy .cluster-status-dot  { background: #2dd4bf; box-shadow: 0 0 4px rgba(45,212,191,0.7); }
-.cluster-status-badge--degraded { background: rgba(251,191,36,0.08);  border-color: rgba(251,191,36,0.2);  color: #fbbf24; }
-.cluster-status-badge--degraded .cluster-status-dot { background: #fbbf24; animation: blink 1.8s ease-in-out infinite; }
-.cluster-status-badge--critical { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.22); color: #f87171; }
-.cluster-status-badge--critical .cluster-status-dot { background: #f87171; animation: blink 0.9s ease-in-out infinite; }
-.cluster-status-badge--unknown  { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); color: #52525b; }
-.cluster-status-badge--unknown .cluster-status-dot  { background: #3f3f46; }
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.2; }
-}
 
 /* ════════════════════════════════════════════════════════
    CONTOUR SWITCHER
@@ -461,7 +344,7 @@ function isItemLocked(item: NavItem) {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin: var(--space-2) var(--space-3) 0;
+  margin: var(--space-3) var(--space-3) 0;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
@@ -477,89 +360,63 @@ function isItemLocked(item: NavItem) {
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
-  color: #52525b;
+  color: var(--color-text-faint);
   transition: all 200ms cubic-bezier(0.16,1,0.3,1);
   white-space: nowrap;
   line-height: 1.5;
   text-align: center;
 }
-.contour-btn--amber:hover:not(.is-active) {
-  color: #fbbf24;
-  background: rgba(251,191,36,0.07);
-}
+/* amber */
+.contour-btn--amber:hover:not(.is-active) { color: var(--color-warning); background: color-mix(in oklch, var(--color-warning) 7%, transparent); }
 .contour-btn--amber.is-active {
-  background: rgba(251,191,36,0.12);
-  border-color: rgba(251,191,36,0.28);
-  color: #fbbf24;
-  box-shadow: 0 0 10px rgba(251,191,36,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
+  border-color: color-mix(in oklch, var(--color-warning) 28%, transparent);
+  color: var(--color-warning);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--color-warning) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-.contour-btn--green:hover:not(.is-active) {
-  color: #4ade80;
-  background: rgba(74,222,128,0.07);
-}
+/* green */
+.contour-btn--green:hover:not(.is-active) { color: var(--color-synced); background: color-mix(in oklch, var(--color-synced) 7%, transparent); }
 .contour-btn--green.is-active {
-  background: rgba(74,222,128,0.1);
-  border-color: rgba(74,222,128,0.25);
-  color: #4ade80;
-  box-shadow: 0 0 10px rgba(74,222,128,0.1), inset 0 1px 0 rgba(255,255,255,0.06);
+  background: color-mix(in oklch, var(--color-synced) 10%, transparent);
+  border-color: color-mix(in oklch, var(--color-synced) 25%, transparent);
+  color: var(--color-synced);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--color-synced) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+/* blue */
+.contour-btn--blue:hover:not(.is-active) { color: var(--color-primary); background: color-mix(in oklch, var(--color-primary) 7%, transparent); }
+.contour-btn--blue.is-active {
+  background: color-mix(in oklch, var(--color-primary) 10%, transparent);
+  border-color: color-mix(in oklch, var(--color-primary) 25%, transparent);
+  color: var(--color-primary);
+}
+/* purple / red / neutral — fallback */
+.contour-btn--purple:hover:not(.is-active),
+.contour-btn--red:hover:not(.is-active),
+.contour-btn--neutral:hover:not(.is-active) { color: var(--color-text-muted); background: rgba(255,255,255,0.05); }
+.contour-btn--purple.is-active,
+.contour-btn--red.is-active,
+.contour-btn--neutral.is-active {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+  color: var(--color-text);
 }
 
-/* Collapsed: single dot показывает активный контур */
 .contour-collapsed {
   display: flex;
   justify-content: center;
-  margin: var(--space-2) auto 0;
+  margin: var(--space-3) auto 0;
   cursor: default;
 }
 .contour-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
 }
-.contour-dot--amber { background: #fbbf24; box-shadow: 0 0 5px rgba(251,191,36,0.6); }
-.contour-dot--green { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.6); }
-
-/* ════════════════════════════════════════════════════════
-   OPERATION PROGRESS BAR
-════════════════════════════════════════════════════════ */
-.op-progress-wrap {
-  margin: 6px var(--space-3) 0;
-  padding: 8px 10px;
-  background: rgba(251,191,36,0.04);
-  border: 1px solid rgba(251,191,36,0.14);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: hidden;
-  transition: opacity 220ms ease;
-}
-.op-progress-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  color: #fbbf24;
-  font-family: var(--font-mono, monospace);
-  font-weight: 500;
-}
-.op-progress-label .pi { font-size: 0.65rem; }
-.op-progress-track {
-  height: 3px;
-  background: rgba(251,191,36,0.1);
-  border-radius: 99px;
-  overflow: hidden;
-}
-.op-progress-fill {
-  height: 100%;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, #fbbf24, transparent);
-  border-radius: 99px;
-  animation: shimmer-bar 1.6s ease-in-out infinite;
-}
-@keyframes shimmer-bar {
-  0%   { transform: translateX(-150%); }
-  100% { transform: translateX(350%); }
-}
+.contour-dot--amber   { background: var(--color-warning); box-shadow: 0 0 5px color-mix(in oklch, var(--color-warning) 60%, transparent); }
+.contour-dot--green   { background: var(--color-synced);  box-shadow: 0 0 5px color-mix(in oklch, var(--color-synced) 60%, transparent); }
+.contour-dot--blue    { background: var(--color-primary); box-shadow: 0 0 5px color-mix(in oklch, var(--color-primary) 60%, transparent); }
+.contour-dot--purple,
+.contour-dot--red,
+.contour-dot--neutral { background: var(--color-text-muted); }
 
 /* ════════════════════════════════════════════════════════
    NAV
@@ -591,7 +448,7 @@ function isItemLocked(item: NavItem) {
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #3f3f46;
+  color: var(--color-text-faint);
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
@@ -608,9 +465,9 @@ function isItemLocked(item: NavItem) {
   gap: var(--space-3);
   padding: 7px var(--space-2);
   border-radius: 7px;
-  color: #52525b;
+  color: var(--color-text-faint);
   font-size: 0.855rem;
-  font-weight: 450;
+  font-weight: 500;
   cursor: pointer;
   transition: color 150ms ease, background 150ms ease;
   width: 100%;
@@ -621,15 +478,19 @@ function isItemLocked(item: NavItem) {
   background: transparent;
   font-family: inherit;
 }
-.nav-item:hover { color: #a1a1aa; background: rgba(255,255,255,0.04); }
-.nav-item:hover .nav-icon { color: #d4d4d8; transform: scale(1.1); }
+.nav-item:hover { color: var(--color-text-muted); background: rgba(255,255,255,0.04); }
+.nav-item:hover .nav-icon { color: var(--color-text); transform: scale(1.1); }
 .nav-item:hover .nav-label { transform: translateX(2px); }
-.nav-item--active { color: #e4e4e7; background: rgba(45,212,191,0.07); font-weight: 550; }
-.nav-item--active:hover { background: rgba(45,212,191,0.1); }
-.nav-item--active .nav-icon { color: #2dd4bf; }
+.nav-item--active {
+  color: var(--color-text);
+  background: color-mix(in oklch, var(--color-synced) 7%, transparent);
+  font-weight: 600;
+}
+.nav-item--active:hover { background: color-mix(in oklch, var(--color-synced) 10%, transparent); }
+.nav-item--active .nav-icon { color: var(--color-synced); }
 .nav-item--locked { opacity: 0.55; cursor: not-allowed; }
-.nav-item--locked:hover { background: transparent; color: #52525b; }
-.nav-item--locked:hover .nav-icon { color: #52525b; transform: none; }
+.nav-item--locked:hover { background: transparent; color: var(--color-text-faint); }
+.nav-item--locked:hover .nav-icon { color: var(--color-text-faint); transform: none; }
 .sidebar--collapsed .nav-item { justify-content: center; padding: 8px; }
 .nav-icon {
   font-size: 0.875rem;
@@ -644,19 +505,20 @@ function isItemLocked(item: NavItem) {
   text-overflow: ellipsis;
   transition: transform 150ms cubic-bezier(0.16,1,0.3,1);
 }
-.nav-lock-icon { font-size: 0.65rem; color: #fbbf24; opacity: 0.7; flex-shrink: 0; margin-left: auto; }
+.nav-lock-icon { font-size: 0.65rem; color: var(--color-warning); opacity: 0.7; flex-shrink: 0; margin-left: auto; }
 .nav-active-bar {
   position: absolute;
   right: 0; top: 50%;
   transform: translateY(-50%);
   width: 3px; height: 18px;
-  background: #2dd4bf;
+  background: var(--color-synced);
   border-radius: 2px 0 0 2px;
-  box-shadow: 0 0 10px rgba(45,212,191,0.7), 0 0 20px rgba(45,212,191,0.3);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--color-synced) 70%, transparent),
+              0 0 20px color-mix(in oklch, var(--color-synced) 30%, transparent);
 }
 
 /* ════════════════════════════════════════════════════════
-   FOOTER
+   FOOTER: версия + check-update
 ════════════════════════════════════════════════════════ */
 .sidebar-footer {
   padding: var(--space-3) var(--space-4);
@@ -667,11 +529,65 @@ function isItemLocked(item: NavItem) {
   align-items: center;
 }
 .sidebar-footer--collapsed { justify-content: center; padding: var(--space-3); }
-.footer-meta { display: flex; align-items: center; width: 100%; }
-.footer-cluster-count {
-  font-size: 0.65rem;
-  color: #3f3f46;
-  font-family: var(--font-mono, monospace);
-  letter-spacing: 0.02em;
+
+.footer-version-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
 }
+.footer-version {
+  font-size: 0.68rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-faint);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  border-radius: 3px;
+  transition: color 200ms ease;
+  flex-shrink: 0;
+}
+.check-btn:hover:not(:disabled) { color: var(--color-text-muted); }
+.check-btn:disabled { cursor: default; }
+.check-btn--solo { width: 22px; height: 22px; }
+.check-btn-icon { width: 11px; height: 11px; flex-shrink: 0; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin { animation: spin 0.9s linear infinite; }
+
+.check-result {
+  font-size: 0.65rem;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+.check-result--update { color: var(--color-synced); }
+.check-result--ok     { color: var(--color-success, #4ade80); }
+.check-result--warn   { color: var(--color-warning); }
+
+.fade-result-enter-active { transition: opacity 350ms ease, transform 350ms ease; }
+.fade-result-leave-active { transition: opacity 200ms ease; }
+.fade-result-enter-from   { opacity: 0; transform: translateX(-4px); }
+.fade-result-leave-to     { opacity: 0; }
 </style>

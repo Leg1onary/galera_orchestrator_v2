@@ -24,7 +24,7 @@ const isFinished = computed(() =>
   ['success', 'failed', 'cancelled'].includes(activeOp.value.status)
 )
 
-// ── Auto-dismiss finished op after 10s ───────────────────────────────────────────────
+// ── Auto-dismiss finished op after 10s ────────────────────────────────────────
 const finishedVisible = ref(false)
 let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -42,8 +42,9 @@ watch(isRunning, (val) => {
 })
 onUnmounted(() => { if (dismissTimer) clearTimeout(dismissTimer) })
 
-// ── Live local clock ───────────────────────────────────────────────────────────────────
-const nowStr = ref('')
+// ── Live local clock ──────────────────────────────────────────────────────────
+const nowStr    = ref('')
+const nowUTCStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
 function tick() {
@@ -52,11 +53,16 @@ function tick() {
   const mm = String(d.getMinutes()).padStart(2, '0')
   const ss = String(d.getSeconds()).padStart(2, '0')
   nowStr.value = `${hh}:${mm}:${ss}`
+  // UTC для tooltip
+  const uh = String(d.getUTCHours()).padStart(2, '0')
+  const um = String(d.getUTCMinutes()).padStart(2, '0')
+  const us = String(d.getUTCSeconds()).padStart(2, '0')
+  nowUTCStr.value = `UTC ${uh}:${um}:${us}`
 }
 onMounted(() => { tick(); clockTimer = setInterval(tick, 1000) })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 
-// ── Op labels ──────────────────────────────────────────────────────────────────────────
+// ── Op labels ─────────────────────────────────────────────────────────────────
 const OP_LABELS: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
   'recovery-rejoin':    'Rejoin',
@@ -75,7 +81,7 @@ const STATUS_LABEL: Record<string, string> = {
 const opTypeLabel   = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
 const opStatusLabel = computed(() => STATUS_LABEL[activeOp.value?.status ?? ''] ?? activeOp.value?.status ?? '')
 
-// ── Elapsed timer ──────────────────────────────────────────────────────────────────────
+// ── Elapsed timer ─────────────────────────────────────────────────────────────
 const elapsedStr = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -90,60 +96,16 @@ function updateElapsed() {
 onMounted(() => { updateElapsed(); elapsedTimer = setInterval(updateElapsed, 1000) })
 onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
-// ── Version (load once on mount) ─────────────────────────────────────────────────────
+// version loadVersion вызываем здесь — один раз для всего приложения
 onMounted(() => versionStore.loadVersion())
-
-const checkResult   = computed(() => versionStore.checkResult)
-const checkStatus   = computed(() => checkResult.value?.status ?? null)
-const isChecking    = computed(() => versionStore.checking)
-
-function handleCheckClick() {
-  versionStore.checkUpdate()
-}
 </script>
 
 <template>
   <footer class="app-footer">
 
-    <!-- LEFT: version + check button + result text -->
+    <!-- LEFT: idle / пустое место (версия переехала в sidebar) -->
     <div class="footer-left">
-      <span class="footer-version">{{ versionStore.currentVersion }}</span>
-
-      <button
-        class="check-btn"
-        :class="{ 'check-btn--loading': isChecking }"
-        :disabled="isChecking"
-        title="Check for updates"
-        @click="handleCheckClick"
-      >
-        <svg
-          class="check-btn-icon"
-          :class="{ spin: isChecking }"
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M13.65 2.35A8 8 0 1 0 15 8h-1.5A6.5 6.5 0 1 1 8 1.5a6.45 6.45 0 0 1 4.24 1.6L10 5.5h5v-5l-1.35 1.85z"
-            fill="currentColor"
-          />
-        </svg>
-      </button>
-
-      <Transition name="fade-result">
-        <span
-          v-if="checkStatus === 'update_available'"
-          class="check-result check-result--update"
-        >↑ new version available</span>
-        <span
-          v-else-if="checkStatus === 'up_to_date'"
-          class="check-result check-result--ok"
-        >✓ up to date</span>
-        <span
-          v-else-if="checkStatus === 'registry_unavailable'"
-          class="check-result check-result--warn"
-        >⚠ registry unavailable</span>
-      </Transition>
+      <!-- зарезервировано для будущих элементов (event-log shortcut и т.п.) -->
     </div>
 
     <!-- CENTER: op status -->
@@ -177,9 +139,12 @@ function handleCheckClick() {
 
     </div>
 
-    <!-- RIGHT: clock -->
+    <!-- RIGHT: clock (local + UTC tooltip) -->
     <div class="footer-right">
-      <span class="footer-clock">{{ nowStr }}</span>
+      <span
+        class="footer-clock"
+        v-tooltip.top="nowUTCStr"
+      >{{ nowStr }}</span>
     </div>
 
   </footer>
@@ -194,7 +159,7 @@ function handleCheckClick() {
   padding: 0 var(--space-5);
   border-top: 1px solid rgba(255,255,255,0.05);
   flex-shrink: 0;
-  background: #0a0b0e;
+  background: var(--color-bg);
   gap: var(--space-4);
   user-select: none;
 }
@@ -202,67 +167,8 @@ function handleCheckClick() {
 /* ── Left ── */
 .footer-left {
   flex-shrink: 0;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  min-width: 80px;
 }
-
-.footer-version {
-  font-size: 0.72rem;
-  font-family: var(--font-mono, monospace);
-  color: #3f3f46;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* ── Check button ── */
-.check-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #3f3f46;
-  border-radius: 3px;
-  transition: color 200ms ease;
-  flex-shrink: 0;
-}
-.check-btn:hover:not(:disabled) { color: #71717a; }
-.check-btn:disabled { cursor: default; }
-
-.check-btn-icon {
-  width: 11px;
-  height: 11px;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-.spin { animation: spin 0.9s linear infinite; }
-
-/* ── Result text ── */
-.check-result {
-  font-size: 0.70rem;
-  font-family: var(--font-mono, monospace);
-  white-space: nowrap;
-  letter-spacing: 0.03em;
-}
-.check-result--update { color: #2dd4bf; }
-.check-result--ok     { color: #4ade80; }
-.check-result--warn   { color: #f59e0b; }
-
-.fade-result-enter-active { transition: opacity 350ms ease, transform 350ms ease; }
-.fade-result-leave-active { transition: opacity 200ms ease; }
-.fade-result-enter-from   { opacity: 0; transform: translateX(-4px); }
-.fade-result-leave-to     { opacity: 0; }
 
 /* ── Center ── */
 .footer-center {
@@ -283,27 +189,27 @@ function handleCheckClick() {
   flex-shrink: 0;
 }
 .op-dot--running {
-  background: #2dd4bf;
-  box-shadow: 0 0 7px rgba(45,212,191,0.75);
+  background: var(--color-synced);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--color-synced) 75%, transparent);
   animation: blink 2.4s ease-in-out infinite;
 }
-.op-dot--success { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.55); }
-.op-dot--error   { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.55); }
+.op-dot--success { background: var(--color-success, #4ade80); box-shadow: 0 0 6px color-mix(in oklch, var(--color-success, #4ade80) 55%, transparent); }
+.op-dot--error   { background: var(--color-offline); box-shadow: 0 0 6px color-mix(in oklch, var(--color-offline) 55%, transparent); }
 
 @keyframes blink {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 7px rgba(45,212,191,0.75); }
-  50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2);  }
+  0%, 100% { opacity: 1;    box-shadow: 0 0 7px color-mix(in oklch, var(--color-synced) 75%, transparent); }
+  50%       { opacity: 0.35; box-shadow: 0 0 2px color-mix(in oklch, var(--color-synced) 20%, transparent); }
 }
 
-.op-type   { font-size: 0.78rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
-.op-sep    { font-size: 0.78rem; color: #3f3f46; }
-.op-status { font-size: 0.78rem; color: #2dd4bf; font-family: var(--font-mono, monospace); white-space: nowrap; }
-.op-status--ok  { color: #4ade80; }
-.op-status--err { color: #f87171; }
+.op-type   { font-size: 0.78rem; color: var(--color-text-muted); font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-sep    { font-size: 0.78rem; color: var(--color-text-faint); }
+.op-status { font-size: 0.78rem; color: var(--color-synced); font-family: var(--font-mono, monospace); white-space: nowrap; }
+.op-status--ok  { color: var(--color-success, #4ade80); }
+.op-status--err { color: var(--color-offline); }
 
 .op-elapsed {
   font-size: 0.72rem;
-  color: #71717a;
+  color: var(--color-text-muted);
   font-family: var(--font-mono, monospace);
   background: rgba(255,255,255,0.05);
   padding: 2px 7px;
@@ -314,13 +220,13 @@ function handleCheckClick() {
 .idle-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: #27272a;
-  box-shadow: 0 0 0 1.5px #3f3f46;
+  background: var(--color-surface-dynamic, #27272a);
+  box-shadow: 0 0 0 1.5px var(--color-text-faint);
   opacity: 0.6;
 }
 .idle-text {
   font-size: 0.78rem;
-  color: #3f3f46;
+  color: var(--color-text-faint);
   letter-spacing: 0.06em;
   font-family: var(--font-mono, monospace);
 }
@@ -342,10 +248,11 @@ function handleCheckClick() {
   font-size: 0.82rem;
   font-family: var(--font-mono, monospace);
   font-weight: 500;
-  color: #52525b;
+  color: var(--color-text-faint);
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   transition: color 300ms ease;
+  cursor: default;
 }
-.footer-clock:hover { color: #a1a1aa; }
+.footer-clock:hover { color: var(--color-text-muted); }
 </style>
