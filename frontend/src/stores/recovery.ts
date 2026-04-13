@@ -137,6 +137,38 @@ export const useRecoveryStore = defineStore('recovery', () => {
         }
     }
 
+    /**
+     * Retry after a failed recovery operation.
+     * Resets error/progress state and re-runs bootstrap with the same node.
+     * If selectedBootstrapNodeId is lost — falls back to Step 2.
+     */
+    async function retryOperation() {
+        if (!clusterId.value) return
+        operationError.value = null
+        operationState.value = 'pending'
+        progressPct.value = 0
+        progressMessage.value = null
+        operationId.value = null
+
+        if (!selectedBootstrapNodeId.value) {
+            // Bootstrap node unknown — go back to selection
+            step.value = 2
+            return
+        }
+
+        try {
+            const res = await recoveryApi.bootstrap(
+                clusterId.value,
+                selectedBootstrapNodeId.value,
+            )
+            operationId.value = res.operation_id ?? null
+            operationState.value = 'running'
+        } catch (err: any) {
+            operationState.value = 'failed'
+            operationError.value = err?.response?.data?.detail ?? err.message
+        }
+    }
+
     async function startRejoin(nodeId: number) {
         if (!clusterId.value) return
         try {
@@ -224,7 +256,8 @@ export const useRecoveryStore = defineStore('recovery', () => {
         operationId, progressPct, progressMessage, operationState, operationError,
         cancelling,
         offlineNodes, recommendedBootstrapNodeId, nodesNeedingRejoin,
-        init, reset, loadStatus, startBootstrap, startRejoin, cancelOperation, destroy,
+        init, reset, loadStatus, startBootstrap, startRejoin, retryOperation,
+        cancelOperation, destroy,
         goNext, goBack, goTo,
     }
 })
