@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { api } from './client'
 
 export interface VersionInfo {
   version: string
@@ -15,10 +15,10 @@ export interface UpdateCheckInfo {
 
 export const versionApi = {
   getVersion(): Promise<VersionInfo> {
-    return apiClient.get<VersionInfo>('/version')
+    return api.get<VersionInfo>('/api/version').then(r => r.data)
   },
 
   checkUpdate(): Promise<UpdateCheckInfo> {
-    return apiClient.post<UpdateCheckInfo>('/version/check', {})
+    return api.post<UpdateCheckInfo>('/api/version/check', {}).then(r => r.data)
   },
 }
