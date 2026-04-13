@@ -123,9 +123,9 @@ function dcName(id: number | null) {
 const arbFields = computed((): FormField[] => [
   { key: 'name',          label: 'Name',       required: true, placeholder: 'arb-01' },
   { key: 'host',          label: 'Host / IP',  required: true, placeholder: '10.0.0.4' },
-  { key: 'port',          label: 'garbd Port', type: 'number', min: 1, max: 65535 },
+  { key: 'port',          label: 'garbd Port', type: 'number', min: 1, max: 65535, placeholder: '4567' },
   { key: 'ssh_user',      label: 'SSH User',   placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535 },
+  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535, placeholder: '22' },
   { key: 'datacenter_id', label: 'Datacenter', type: 'select', options: dcOptions.value },
   { key: 'enabled',       label: 'Enabled',    type: 'toggle', toggleLabel: 'Monitor this arbitrator' },
 ])
