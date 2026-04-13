@@ -283,56 +283,9 @@ def _fetch_resources(node: dict) -> dict:
     return result
 
 
-def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
-    try:
-        with SSHClient(
-                host=arb["host"],
-                port=int(arb.get("ssh_port") or 22),
-                username=arb.get("ssh_user") or "root",
-        ) as client:
-            stdout, _ = client.execute(
-                f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null"
-            )
-            log_lines = _filter_journalctl_noise(stdout)
-
-            if not log_lines:
-                stdout, _ = client.execute(
-                    f"tail -n {lines} /var/log/garbd.log 2>/dev/null || "
-                    f"tail -n {lines} /var/log/garbd/garbd.log 2>/dev/null || echo ''"
-                )
-                log_lines = [l for l in stdout.strip().splitlines() if l.strip()]
-
-        return {
-            "arbitrator_id":   arb["id"],
-            "arbitrator_name": arb["name"],
-            "host":            arb["host"],
-            "lines":           log_lines,
-            "fetched_at":      datetime.now(timezone.utc).isoformat(),
-            "error":           None,
-        }
-    except SSHError as exc:
-        return {
-            "arbitrator_id":   arb["id"],
-            "arbitrator_name": arb["name"],
-            "host":            arb["host"],
-            "lines":           [],
-            "fetched_at":      datetime.now(timezone.utc).isoformat(),
-            "error":           str(exc),
-        }
-    except Exception as exc:
-        return {
-            "arbitrator_id":   arb["id"],
-            "arbitrator_name": arb["name"],
-            "host":            arb["host"],
-            "lines":           [],
-            "fetched_at":      datetime.now(timezone.utc).isoformat(),
-            "error":           str(exc),
-        }
-
-
-# ── Error log helpers ────────────────────────────────────────────────────────────────
-
-# Journalctl выводит служебные строки вроде "-- No entries --" или
+# ── Journalctl noise filter ──────────────────────────────────────────────────────────
+#
+# journalctl выводит служебные строки вроде "-- No entries --" или
 # "-- Logs begin at Mon 2026-04-13..." — фильтруем их.
 _JOURNALCTL_NOISE_PREFIXES = (
     "-- No entries --",
@@ -355,6 +308,113 @@ def _filter_journalctl_noise(raw: str) -> list[str]:
         result.append(line)
     return result
 
+
+# ── _fetch_arbitrator_log (Variant A) ───────────────────────────────────────────────
+#
+# Стратегия поиска лога garbd (в порядке приоритета):
+#
+#   1. journalctl с несколькими именами unit:
+#      garbd → garb → garbd@ (systemd prefix match)
+#      Каждый вызов — отдельный execute(), без || цепочек.
+#
+#   2. Файловые fallback-и через отдельные execute():
+#      /var/log/garbd.log
+#      /var/log/garbd/garbd.log
+#      /var/log/garb/garbd.log
+#      Раздельные вызовы исключают баг: файл есть, но пуст → exit 0 →
+#      || цепочка останавливается и не пробует следующий путь.
+#
+#   3. Last resort: journalctl без unit-фильтра + grep garb.
+#      Ловит случаи когда сервис логируется под другим именем.
+#
+# Поле `source` в ответе показывает откуда взяты строки.
+# При lines=[] && error=null фронт должен показывать
+# "garbd log not found on this host", а не пустой блок.
+
+_GARBD_SYSTEMD_UNITS = ("garbd", "garb", "garbd@")
+
+_GARBD_LOG_FILES = (
+    "/var/log/garbd.log",
+    "/var/log/garbd/garbd.log",
+    "/var/log/garb/garbd.log",
+)
+
+
+def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
+    try:
+        with SSHClient(
+                host=arb["host"],
+                port=int(arb.get("ssh_port") or 22),
+                username=arb.get("ssh_user") or "root",
+        ) as client:
+            log_lines: list[str] = []
+            source_used: str = "none"
+
+            # 1. journalctl — пробуем несколько имён unit по очереди
+            for unit in _GARBD_SYSTEMD_UNITS:
+                stdout, _ = client.execute(
+                    f"journalctl -u {unit} -n {lines} --no-pager 2>/dev/null"
+                )
+                candidate = _filter_journalctl_noise(stdout)
+                if candidate:
+                    log_lines = candidate
+                    source_used = f"journalctl -u {unit}"
+                    break
+
+            # 2. Файловые fallback-и — каждый файл отдельным execute()
+            if not log_lines:
+                for path in _GARBD_LOG_FILES:
+                    stdout, _ = client.execute(
+                        f"test -f {path} && tail -n {lines} {path} 2>/dev/null || true"
+                    )
+                    candidate = [l for l in stdout.strip().splitlines() if l.strip()]
+                    if candidate:
+                        log_lines = candidate
+                        source_used = f"tail {path}"
+                        break
+
+            # 3. Last resort: journalctl без unit-фильтра + grep
+            if not log_lines:
+                stdout, _ = client.execute(
+                    f"journalctl -n {lines} --no-pager 2>/dev/null | grep -i garb || true"
+                )
+                candidate = [l for l in stdout.strip().splitlines() if l.strip()]
+                if candidate:
+                    log_lines = candidate
+                    source_used = "journalctl grep garb"
+
+        return {
+            "arbitrator_id":   arb["id"],
+            "arbitrator_name": arb["name"],
+            "host":            arb["host"],
+            "lines":           log_lines,
+            "source":          source_used,
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
+            "error":           None,
+        }
+    except SSHError as exc:
+        return {
+            "arbitrator_id":   arb["id"],
+            "arbitrator_name": arb["name"],
+            "host":            arb["host"],
+            "lines":           [],
+            "source":          "none",
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
+            "error":           str(exc),
+        }
+    except Exception as exc:
+        return {
+            "arbitrator_id":   arb["id"],
+            "arbitrator_name": arb["name"],
+            "host":            arb["host"],
+            "lines":           [],
+            "source":          "none",
+            "fetched_at":      datetime.now(timezone.utc).isoformat(),
+            "error":           str(exc),
+        }
+
+
+# ── Error log helpers ────────────────────────────────────────────────────────────────
 
 # Пробуем кандидатов по очереди, возвращаем первый непустой результат.
 # Каждый кандидат работает через отдельный execute() — нет бага с пустым
