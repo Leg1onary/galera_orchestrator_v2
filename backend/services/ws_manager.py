@@ -33,7 +33,6 @@ class ConnectionManager:
         Register an already-accepted WebSocket connection for a cluster.
         IMPORTANT: caller (ws.py) must call websocket.accept() BEFORE this.
         """
-        # НЕ вызываем accept() здесь — он уже вызван в ws.py
         if cluster_id not in self._connections:
             self._connections[cluster_id] = set()
         self._connections[cluster_id].add(websocket)
@@ -46,15 +45,24 @@ class ConnectionManager:
     async def disconnect(self, cluster_id: int, websocket: WebSocket) -> None:
         """
         Remove a WebSocket connection from the registry.
-        Made async to match ws.py caller: await ws_manager.disconnect(...)
+        Cleans up the empty set for cluster_id to prevent memory accumulation.
         """
         if cluster_id in self._connections:
             self._connections[cluster_id].discard(websocket)
+            remaining = len(self._connections[cluster_id])
             logger.info(
                 "WS client disconnected from cluster %d — remaining: %d",
                 cluster_id,
-                len(self._connections[cluster_id]),
+                remaining,
             )
+            # FIX: remove empty bucket so cluster_ids with no active
+            # connections don't accumulate in memory indefinitely
+            if remaining == 0:
+                del self._connections[cluster_id]
+                logger.debug(
+                    "WS connection set for cluster %d removed (no active clients)",
+                    cluster_id,
+                )
 
     async def broadcast(self, cluster_id: int, event: dict) -> None:
         """
@@ -80,7 +88,9 @@ class ConnectionManager:
                     "WS send failed for cluster %d, removing client: %s",
                     cluster_id, exc,
                 )
-                self.disconnect(cluster_id, ws)
+                # FIX: was missing `await` — dead connections were never
+                # removed, causing unbounded memory growth (WS memory leak)
+                await self.disconnect(cluster_id, ws)
 
         await asyncio.gather(*[_send(ws) for ws in snapshot])
 
@@ -93,6 +103,6 @@ class ConnectionManager:
         return [cid for cid, conns in self._connections.items() if conns]
 
 
-# ── Singleton instance ────────────────────────────────────────────────────────
+# ── Singleton instance ─────────────────────────────────────────────────────
 # Imported by routers/ws.py and services/poller.py
 ws_manager = ConnectionManager()
