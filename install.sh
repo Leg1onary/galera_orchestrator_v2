@@ -27,9 +27,9 @@ prompt()  { echo -e "${BOLD}$*${NC}"; }
 echo -e ""
 echo -e "${BOLD}${CYAN}██████╗ █████╗ ██╗     ███████╗██████╗  █████╗ ${NC}"
 echo -e "${BOLD}${CYAN}██╔════╝ ██╔══██╗██║     ██╔════╝██╔══██╗██╔══██╗${NC}"
-echo -e "${BOLD}${CYAN}██║  ███╗███████║██║     █████╗  ██████╔╝███████║${NC}"
+echo -e "${BOLD}${CYAN}██║  ███╗███████║██║     █████╗  █████╔╝███████║${NC}"
 echo -e "${BOLD}${CYAN}██║   ██║██╔══██║██║     ██╔══╝  ██╔══██╗██╔══██║${NC}"
-echo -e "${BOLD}${CYAN}╚██████╔╝██║  ██║███████╗███████╗██║  ██║██║  ██║${NC}"
+echo -e "${BOLD}${CYAN}╚██████╔╝██║  ██║██████╗███████╗██║  ██║██║  ██║${NC}"
 echo -e "${BOLD}${CYAN} ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝${NC}"
 echo -e "${BOLD}        Orchestrator v2 — Installer${NC}"
 echo -e ""
@@ -76,12 +76,15 @@ read -rs ADMIN_PASSWORD
 echo ""
 [[ -z "$ADMIN_PASSWORD" ]] && error "Admin password не может быть пустым"
 
-# SSH key
+# SSH key — без pattern substitution, раскрываем ~ через sed
 echo ""
 prompt "🔑 Путь к SSH-ключу [по умолчанию: ~/.ssh/id_rsa]:"
 read -r SSH_KEY_INPUT
-SSH_KEY_PATH="${SSH_KEY_INPUT:-$HOME/.ssh/id_rsa}"
-SSH_KEY_PATH="${SSH_KEY_PATH/#\~/$HOME}"  # раскрываем ~
+if [ -z "$SSH_KEY_INPUT" ]; then
+    SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+else
+    SSH_KEY_PATH=$(echo "$SSH_KEY_INPUT" | sed "s|^~|$HOME|")
+fi
 [[ -f "$SSH_KEY_PATH" ]] || warn "Файл ключа не найден: $SSH_KEY_PATH (проверь путь после запуска)"
 
 # Port
@@ -135,7 +138,7 @@ echo -e "  👤 Логин:  ${BOLD}${ADMIN_USERNAME}${NC}"
 echo -e "  📁 Каталог: ${BOLD}${INSTALL_DIR}${NC}"
 echo ""
 echo -e "  🔄 Обновление в будущем:"
-echo -e "     ${CYAN}cd ${INSTALL_DIR} && docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d${NC}"
+echo -e "     ${CYAN}bash ${INSTALL_DIR}/update.sh${NC}"
 echo ""
 echo -e "  📜 Логи:"
 echo -e "     ${CYAN}docker logs -f galera-orchestrator${NC}"
