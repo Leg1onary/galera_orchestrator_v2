@@ -241,7 +241,7 @@ The key is **bind-mounted read-only** into the container — never stored in the
 ```yaml
 # docker-compose.ghcr.yml (already configured)
 volumes:
-  - ${SSH_KEY_PATH}:/home/nonroot/.ssh/id_rsa:ro
+  - ${SSH_KEY_PATH}:/root/.ssh/id_rsa:ro
 ```
 
 ✅ Проверь доступ перед запуском:
@@ -410,7 +410,7 @@ docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml up -d
 │                     │   SQLite /data   │   │
 │                     └──────────────────┘   │
 │                                            │
-│  /home/nonroot/.ssh/id_rsa  (bind :ro)     │
+│  /root/.ssh/id_rsa  (bind :ro)             │
 └────────────────────────────────────────────┘
          │ SSH + MariaDB
          ▼
@@ -423,7 +423,6 @@ docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml up -d
 - **DB:** SQLite (single file, named Docker volume)
 - **Auth:** JWT в `httpOnly` cookie, проверка через `GET /api/auth/me`
 - **Realtime:** WebSocket `/ws/clusters/{cluster_id}` + 5s polling fallback
-- **Process:** runs as `nonroot` (uid 1001) — no root inside container
 
 ---
 
@@ -527,7 +526,6 @@ docker compose exec backend pytest tests/ -v
 | 🌐 **Security headers** | Каждый ответ содержит: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`. |
 | 📄 **OpenAPI schema** | `/docs`, `/redoc`, `/openapi.json` отключены по умолчанию (`DOCS_ENABLED=false`). |
 | 🔒 **Secure cookie** | `COOKIE_SECURE=true` по умолчанию — cookie не отправляется по HTTP. |
-| 👤 **Non-root process** | Контейнер запускается от `nonroot` (uid 1001) — компрометация процесса не даёт root на хосте. |
 | ⚠️ **No mock mode** | Все SSH / SQL операции **реальные** — используй тестовый кластер для экспериментов. |
 | 🌐 **CORS** | В проде SPA и API на одном origin — CORS middleware активен только в dev. |
 
