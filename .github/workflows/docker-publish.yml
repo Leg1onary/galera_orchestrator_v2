@@ -51,7 +51,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 4. Генерация тегов и labels ─────────────────────
+      # ── 4. Short SHA ──────────────────────────────────────
+      - name: Compute short SHA
+        id: short_sha
+        run: echo "value=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      # ── 5. Генерация тегов и labels ─────────────────────
       #
       #   push → master   → ghcr.io/owner/repo:latest
       #   push → v1.2.3   → ghcr.io/owner/repo:v1.2.3
@@ -70,7 +75,7 @@ jobs:
             type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
 
-      # ── 5. Кэш слоёв ───────────────────────────────────
+      # ── 6. Кэш слоёв ───────────────────────────────────
       - name: Cache Docker layers
         uses: actions/cache@v4.2.2
         with:
@@ -79,7 +84,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      # ── 6. Build (+ Push если не PR) ─────────────────────
+      # ── 7. Build (+ Push если не PR) ─────────────────────
       - name: Build and push Docker image
         uses: docker/build-push-action@v6.15.0
         with:
@@ -94,14 +99,15 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
+            GIT_SHA=${{ steps.short_sha.outputs.value }}
 
-      # ── 7. Rotate cache ────────────────────────────────────
+      # ── 8. Rotate cache ────────────────────────────────────
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-      # ── 8. Summary ───────────────────────────────────────
+      # ── 9. Summary ───────────────────────────────────────
       - name: Job summary
         if: github.event_name != 'pull_request'
         run: |
@@ -113,6 +119,8 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Git SHA (short):** \`${{ steps.short_sha.outputs.value }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY

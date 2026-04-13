@@ -15,19 +15,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/version", tags=["version"])
 
 DOCKER_IMAGE = "ghcr.io/leg1onary/galera_orchestrator_v2:latest"
-GHCR_TAGS_API = (
+GHCR_TOKEN_URL = (
     "https://ghcr.io/token?scope=repository:leg1onary/galera_orchestrator_v2:pull&service=ghcr.io"
 )
-GHCR_MANIFEST_API = (
+GHCR_MANIFEST_URL = (
     "https://ghcr.io/v2/leg1onary/galera_orchestrator_v2/manifests/latest"
 )
+GHCR_BLOBS_URL = "https://ghcr.io/v2/leg1onary/galera_orchestrator_v2/blobs/{digest}"
 
 
 # ---------------------------------------------------------------------------
 # Resolve current git SHA once at import time — no user config needed
 # ---------------------------------------------------------------------------
 def _resolve_git_sha() -> str:
-    """Try git, then env fallback APP_VERSION, then 'unknown'."""
+    """Try git, then env fallback APP_VERSION (set by Dockerfile ARG GIT_SHA), then 'unknown'."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -44,7 +45,7 @@ def _resolve_git_sha() -> str:
         pass
     import os
     v = os.getenv("APP_VERSION", "").strip()
-    return v if v and v != "2.0.0" else "unknown"
+    return v if v and v != "unknown" else "unknown"
 
 
 CURRENT_VERSION: str = _resolve_git_sha()
@@ -110,7 +111,10 @@ def _get_remote_digest() -> Optional[str]:
 def _ghcr_token() -> Optional[str]:
     """Obtain anonymous pull token from GHCR."""
     try:
-        req = urllib.request.Request(GHCR_TAGS_API, headers={"User-Agent": "galera-orchestrator"})
+        req = urllib.request.Request(
+            GHCR_TOKEN_URL,
+            headers={"User-Agent": "galera-orchestrator"},
+        )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read()).get("token")
     except Exception as exc:
@@ -121,53 +125,55 @@ def _ghcr_token() -> Optional[str]:
 def _get_latest_sha_from_ghcr() -> Optional[str]:
     """
     Fetch :latest manifest from GHCR and extract the git SHA from the
-    org.opencontainers.image.revision label (set by CI as GIT_SHA arg).
-    Falls back to parsing subject annotations if label is absent.
+    org.opencontainers.image.revision label (injected by docker/metadata-action).
+
+    docker/metadata-action sets this label to the full 40-char SHA.
+    We return the first 7 characters to match CURRENT_VERSION (short SHA).
+
     Returns 7-char short SHA or None.
     """
     token = _ghcr_token()
     if not token:
         return None
+
+    auth_header = {"Authorization": f"Bearer {token}", "User-Agent": "galera-orchestrator"}
+
     try:
+        # Step 1: fetch OCI manifest → get config blob digest
         req = urllib.request.Request(
-            GHCR_MANIFEST_API,
+            GHCR_MANIFEST_URL,
             headers={
-                "Authorization": f"Bearer {token}",
+                **auth_header,
                 "Accept": "application/vnd.oci.image.manifest.v1+json",
-                "User-Agent": "galera-orchestrator",
             },
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             manifest = json.loads(resp.read())
 
-        # OCI manifest: labels are in config blob — need a second request
         config_digest = manifest.get("config", {}).get("digest")
         if not config_digest:
+            logger.debug("GHCR manifest: no config digest found")
             return None
 
-        config_url = (
-            "https://ghcr.io/v2/leg1onary/galera_orchestrator_v2/blobs/"
-            + config_digest
-        )
+        # Step 2: fetch config blob → extract Labels
         req2 = urllib.request.Request(
-            config_url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "User-Agent": "galera-orchestrator",
-            },
+            GHCR_BLOBS_URL.format(digest=config_digest),
+            headers=auth_header,
         )
         with urllib.request.urlopen(req2, timeout=15) as resp2:
             config = json.loads(resp2.read())
 
-        labels: dict = (
-            config.get("config", {}).get("Labels") or {}
-        )
+        labels: dict = config.get("config", {}).get("Labels") or {}
+        # docker/metadata-action sets org.opencontainers.image.revision = full 40-char SHA
         revision: str = labels.get("org.opencontainers.image.revision", "")
-        if revision:
+        if revision and len(revision) >= 7:
             return revision[:7]
 
+        logger.debug("GHCR config labels: %s", labels)
+
     except Exception as exc:
-        logger.debug("GHCR manifest fetch failed: %s", exc)
+        logger.debug("GHCR manifest/blob fetch failed: %s", exc)
+
     return None
 
 
@@ -183,7 +189,7 @@ async def _run_check() -> UpdateCheckResponse:
     remote_digest  = await loop.run_in_executor(None, _get_remote_digest)
 
     if remote_digest is not None:
-        # docker CLI works — compare digests
+        # docker CLI works — compare digests directly
         if current_digest is not None and current_digest != remote_digest:
             return UpdateCheckResponse(
                 status="update_available",
@@ -199,13 +205,13 @@ async def _run_check() -> UpdateCheckResponse:
         )
 
     # --- Fallback path: no docker CLI (local dev / bare process) ---
-    # Compare CURRENT_VERSION (git SHA) against the SHA label baked into
-    # the :latest image on GHCR via OCI manifest + config blob API.
+    # Compare CURRENT_VERSION (7-char short SHA from git or APP_VERSION env)
+    # against the revision label baked into the :latest image on GHCR.
     if CURRENT_VERSION == "unknown":
         return UpdateCheckResponse(
             status="registry_unavailable",
             current_version=CURRENT_VERSION,
-            message="Registry unavailable — network may be isolated or docker CLI not accessible",
+            message="Cannot determine current version — APP_VERSION env not set and git unavailable",
             checked_at=now,
         )
 
@@ -215,7 +221,7 @@ async def _run_check() -> UpdateCheckResponse:
         return UpdateCheckResponse(
             status="registry_unavailable",
             current_version=CURRENT_VERSION,
-            message="Registry unavailable — network may be isolated or docker CLI not accessible",
+            message="Registry unavailable — network may be isolated or GHCR unreachable",
             checked_at=now,
         )
 
@@ -251,8 +257,16 @@ async def get_version() -> VersionResponse:
 async def check_update() -> UpdateCheckResponse:
     """
     Triggered by user clicking 'Check updates'.
-    Primary: docker manifest inspect (container mode).
-    Fallback: GHCR OCI manifest API + config blob SHA label (local dev mode).
+
+    Primary path (container mode):
+      docker inspect → current digest
+      docker manifest inspect → remote digest
+      Compare digests directly.
+
+    Fallback path (local dev / no docker CLI):
+      GHCR anonymous token → OCI manifest → config blob → Labels
+      org.opencontainers.image.revision[:7] vs CURRENT_VERSION
+
     Always performs a fresh check — no server-side caching.
     Returns one of three statuses:
       - update_available

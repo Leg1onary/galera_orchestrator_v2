@@ -18,10 +18,14 @@ RUN npm run build
 # =============================================================================
 FROM python:3.11-slim-bookworm AS runtime
 
+# Build-time argument: short git SHA injected by CI (docker/build-push-action)
+ARG GIT_SHA=unknown
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UVICORN_ACCESS_LOG=1
+    UVICORN_ACCESS_LOG=1 \
+    APP_VERSION=${GIT_SHA}
 
 # openssh-client нужен paramiko для known_hosts и host-key проверок
 # curl нужен для healthcheck
