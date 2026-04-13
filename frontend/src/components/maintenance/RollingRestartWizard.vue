@@ -7,8 +7,8 @@
       v-model:visible="store.wizardOpen"
       header="Rolling Restart Wizard"
       modal
-      :closable="!store.operationRunning"
-      :close-on-escape="!store.operationRunning"
+      :closable="isClosable"
+      :close-on-escape="isClosable"
       :dismissable-mask="false"
       :style="{ width: '700px' }"
       :pt="{
@@ -38,14 +38,17 @@
       </div>
     </div>
 
-    <!-- Step content -->
-    <RRStep1Config   v-if="store.wizardStep === 1" />
-    <RRStep2Progress v-else-if="store.wizardStep === 2" />
-    <RRStep3Done     v-else-if="store.wizardStep === 3" />
+    <!-- Step content with transition -->
+    <Transition name="rr-step" mode="out-in">
+      <RRStep1Config   v-if="store.wizardStep === 1" key="1" />
+      <RRStep2Progress v-else-if="store.wizardStep === 2" key="2" />
+      <RRStep3Done     v-else-if="store.wizardStep === 3" key="3" />
+    </Transition>
   </Dialog>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import Dialog from 'primevue/dialog'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import RRStep1Config   from './RRStep1Config.vue'
@@ -54,6 +57,14 @@ import RRStep3Done     from './RRStep3Done.vue'
 
 const store = useMaintenanceStore()
 const STEP_LABELS = ['Configure', 'Progress', 'Done']
+
+// Fix: avoid race where operationRunning is still true for one tick
+// when operation_finished arrives and wizardStep flips to 3.
+// Allow closing on step 1 (not started) and step 3 (finished/failed/cancelled).
+// Block closing only while step 2 is active (operation in flight).
+const isClosable = computed(() =>
+  store.wizardStep === 1 || store.wizardStep === 3
+)
 </script>
 
 <style scoped>
@@ -135,4 +146,10 @@ const STEP_LABELS = ['Configure', 'Progress', 'Done']
 .step--completed .step-label {
   color: var(--color-text-muted);
 }
+
+/* Step transition */
+.rr-step-enter-active,
+.rr-step-leave-active  { transition: opacity 220ms ease, transform 220ms ease; }
+.rr-step-enter-from    { opacity: 0; transform: translateX(10px); }
+.rr-step-leave-to      { opacity: 0; transform: translateX(-10px); }
 </style>

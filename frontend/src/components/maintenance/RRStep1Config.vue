@@ -15,6 +15,27 @@
       </p>
     </div>
 
+    <!-- Node count preview -->
+    <div v-if="localOrder.length > 0" class="node-count-preview">
+      <i class="pi pi-info-circle" />
+      <span>
+        <strong>{{ localOrder.length }}</strong> node{{ localOrder.length !== 1 ? 's' : '' }} will be restarted
+        <template v-if="store.nodes.length > localOrder.length">
+          &nbsp;({{ store.nodes.length - localOrder.length }} disabled/excluded)
+        </template>
+      </span>
+    </div>
+
+    <!-- Warning: nodes already in maintenance -->
+    <div v-if="nodesInMaintenance.length > 0" class="maintenance-warning">
+      <i class="pi pi-exclamation-triangle" />
+      <div>
+        <strong>{{ nodesInMaintenance.length }} node{{ nodesInMaintenance.length !== 1 ? 's are' : ' is' }} already in maintenance:</strong>
+        {{ nodesInMaintenance.map(n => n.name).join(', ') }}.
+        The rolling restart will still proceed but these nodes will not be put into read-only mode again.
+      </div>
+    </div>
+
     <!-- Drag list -->
     <div class="node-order-section">
       <div v-if="localOrder.length === 0" class="node-order-empty">
@@ -83,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import Button      from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
 import { useSortable } from '@vueuse/integrations/useSortable'
@@ -97,9 +118,10 @@ const startError = ref<string | null>(null)
 
 const localOrder = ref<number[]>([...store.nodeOrder])
 
+// Keep localOrder in sync if store.nodeOrder changes externally
 watch(() => store.nodeOrder, (val) => {
   localOrder.value = [...val]
-})
+}, { immediate: true })
 
 const { stop } = useSortable(sortableEl, localOrder, {
   handle: '.drag-handle',
@@ -107,6 +129,13 @@ const { stop } = useSortable(sortableEl, localOrder, {
   onUpdate: () => { store.nodeOrder = [...localOrder.value] },
 })
 onUnmounted(() => stop())
+
+// Nodes already in maintenance mode within the restart order
+const nodesInMaintenance = computed(() =>
+  store.nodes.filter(
+    (n) => localOrder.value.includes(n.id) && n.maintenance
+  )
+)
 
 function nodeName(id: number) {
   return store.nodes.find((n) => n.id === id)?.name ?? `Node #${id}`
@@ -136,7 +165,7 @@ async function handleStart() {
 .wizard-step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-5);
 }
 
 /* ── Header ──────────────────────────────────────────────────────────── */
@@ -155,6 +184,42 @@ async function handleStart() {
   color: var(--color-text-muted);
   line-height: 1.6;
 }
+
+/* ── Node count preview ──────────────────────────────────────────────── */
+.node-count-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.node-count-preview .pi { color: var(--color-primary); font-size: 0.75rem; flex-shrink: 0; }
+.node-count-preview strong { color: var(--color-text); }
+
+/* ── Maintenance warning ─────────────────────────────────────────────── */
+.maintenance-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in oklch, var(--color-warning) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 30%, transparent);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.maintenance-warning .pi {
+  color: var(--color-warning);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.maintenance-warning strong { color: var(--color-warning); font-weight: 600; }
 
 /* ── Node order section ──────────────────────────────────────────────── */
 .node-order-section {
@@ -259,25 +324,14 @@ async function handleStart() {
   width: 130px;
 }
 
-/* PrimeVue InputNumber: фиксируем внешний блок, задаём высоту 40px и padding внутри input */
-:deep(.timeout-input.p-inputnumber) {
-  width: 130px;
-  max-width: 130px;
-  min-width: 0;
-}
+:deep(.timeout-input.p-inputnumber) { width: 130px; max-width: 130px; min-width: 0; }
 :deep(.timeout-input .p-inputtext) {
-  width: 100%;
-  min-width: 0;
-  height: 40px;
-  padding-top: 0;
-  padding-bottom: 0;
+  width: 100%; min-width: 0; height: 40px;
+  padding-top: 0; padding-bottom: 0;
   padding-left: var(--space-3);
   box-sizing: border-box;
 }
-/* Стрелки тоже должны соответствовать высоте */
-:deep(.timeout-input .p-inputnumber-button) {
-  height: 20px;
-}
+:deep(.timeout-input .p-inputnumber-button) { height: 20px; }
 
 .timeout-hint {
   grid-column: 1 / -1;
@@ -286,15 +340,8 @@ async function handleStart() {
   color: var(--color-text-muted);
 }
 
-.field-label {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
-}
-.field-label-hint {
-  color: var(--color-text-muted);
-  font-weight: 400;
-}
+.field-label { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
+.field-label-hint { color: var(--color-text-muted); font-weight: 400; }
 
 /* ── Error ───────────────────────────────────────────────────────────── */
 .error-alert {

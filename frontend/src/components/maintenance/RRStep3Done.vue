@@ -35,15 +35,15 @@
       <h2 class="done-title">Rolling restart cancelled</h2>
       <p class="done-desc">
         Cancelled after completing
-        {{ store.rrStatus?.completed_node_ids.length ?? 0 }} of
+        {{ store.rrStatus?.completed_node_ids?.length ?? 0 }} of
         {{ store.nodeOrder.length }} nodes.
       </p>
     </template>
 
     <div class="done-actions">
       <Button label="Close" outlined @click="store.closeWizard()" />
+      <!-- Run again available in all non-pending outcomes -->
       <Button
-          v-if="store.rrStatus?.state !== 'finished'"
           label="Run again"
           icon="pi pi-refresh"
           @click="store.resetWizard()"

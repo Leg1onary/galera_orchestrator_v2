@@ -27,10 +27,11 @@
     </div>
 
     <!-- Per-node list -->
-    <div class="node-progress-list">
+    <div ref="nodeListEl" class="node-progress-list">
       <div
           v-for="nodeId in store.nodeOrder"
           :key="nodeId"
+          :ref="el => setNodeRef(nodeId, el)"
           class="node-progress-row"
           :class="`row--${statusMap.get(nodeId) ?? 'pending'}`"
       >
@@ -50,7 +51,7 @@
 
         <!-- Status label -->
         <div class="row-status">
-          <span v-if="statusMap.get(nodeId) === 'current'"     class="status-label status--current">Restarting…</span>
+          <span v-if="statusMap.get(nodeId) === 'current'"        class="status-label status--current">Restarting…</span>
           <span v-else-if="statusMap.get(nodeId) === 'completed'" class="status-label status--done">SYNCED</span>
           <span v-else-if="statusMap.get(nodeId) === 'failed'"    class="status-label status--fail">Failed</span>
           <span v-else                                             class="status-label status--wait">Waiting</span>
@@ -80,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch, ref, nextTick } from 'vue'
 import Button          from 'primevue/button'
 import ProgressBar     from 'primevue/progressbar'
 import ProgressSpinner from 'primevue/progressspinner'
@@ -89,17 +90,39 @@ import { useMaintenanceStore } from '@/stores/maintenance'
 const store = useMaintenanceStore()
 
 type NodeStatus = 'current' | 'completed' | 'failed' | 'pending'
+
+// Guard: rrStatus may be null during brief init window
 const statusMap = computed((): Map<number, NodeStatus> => {
   const map = new Map<number, NodeStatus>()
   const s   = store.rrStatus
+  if (!s) {
+    for (const nodeId of store.nodeOrder) map.set(nodeId, 'pending')
+    return map
+  }
   for (const nodeId of store.nodeOrder) {
-    if (s?.current_node_id === nodeId)               map.set(nodeId, 'current')
-    else if (s?.completed_node_ids.includes(nodeId)) map.set(nodeId, 'completed')
-    else if (s?.failed_node_id === nodeId)           map.set(nodeId, 'failed')
-    else                                             map.set(nodeId, 'pending')
+    if (s.current_node_id === nodeId)               map.set(nodeId, 'current')
+    else if (s.completed_node_ids.includes(nodeId)) map.set(nodeId, 'completed')
+    else if (s.failed_node_id === nodeId)           map.set(nodeId, 'failed')
+    else                                            map.set(nodeId, 'pending')
   }
   return map
 })
+
+// Auto-scroll to currently active node row
+const nodeRefs = new Map<number, Element>()
+function setNodeRef(nodeId: number, el: unknown) {
+  if (el instanceof Element) nodeRefs.set(nodeId, el)
+  else nodeRefs.delete(nodeId)
+}
+
+watch(
+  () => store.rrStatus?.current_node_id,
+  async (nodeId) => {
+    if (nodeId == null) return
+    await nextTick()
+    nodeRefs.get(nodeId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+)
 
 function nodeName(id: number) {
   return store.nodes.find((n) => n.id === id)?.name ?? `Node #${id}`
@@ -170,6 +193,12 @@ function nodeHost(id: number) {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  max-height: 320px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  /* subtle scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 .node-progress-row {
   display: flex;

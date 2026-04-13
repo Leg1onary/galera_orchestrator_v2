@@ -9,7 +9,7 @@
     <div class="section-toolbar">
       <div class="section-title-wrap">
         <i class="pi pi-wrench section-icon" />
-        <h2 class="section-title">Node maintenance state</h2>
+        <h2 class="section-heading">Node maintenance state</h2>
       </div>
       <div class="toolbar-actions">
         <Button
@@ -19,14 +19,19 @@
             aria-label="Refresh nodes"
             @click="store.loadNodes()"
         />
-        <Button
-            label="Rolling restart"
-            icon="pi pi-sync"
-            size="small"
-            :disabled="store.operationRunning"
-            :pt="{ root: { style: 'padding-inline: 1rem' } }"
-            @click="store.openWizard()"
-        />
+        <span
+          v-tooltip.top="store.operationRunning ? 'A rolling restart is already in progress' : undefined"
+          :class="{ 'btn-wrap-disabled': store.operationRunning }"
+        >
+          <Button
+              label="Rolling restart"
+              icon="pi pi-sync"
+              size="small"
+              :disabled="store.operationRunning"
+              :pt="{ root: { style: 'padding-inline: 1rem' } }"
+              @click="store.openWizard()"
+          />
+        </span>
       </div>
     </div>
 
@@ -134,11 +139,11 @@
 </template>
 
 <script setup lang="ts">
-import Button   from 'primevue/button'
+import Button    from 'primevue/button'
 import DataTable from 'primevue/datatable'
-import Column   from 'primevue/column'
-import Tag      from 'primevue/tag'
-import Message  from 'primevue/message'
+import Column    from 'primevue/column'
+import Tag       from 'primevue/tag'
+import Message   from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import NodeStateBadge from '@/components/shared/NodeStateBadge.vue'
@@ -196,7 +201,7 @@ async function handleToggle(nodeId: number, enter: boolean) {
   font-size: var(--text-base);
   color: var(--color-text-muted);
 }
-.section-title {
+.section-heading {
   font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -208,6 +213,15 @@ async function handleToggle(nodeId: number, enter: boolean) {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+/* Wrapper for disabled button tooltip */
+.btn-wrap-disabled {
+  display: inline-flex;
+  cursor: not-allowed;
+}
+.btn-wrap-disabled :deep(.p-button:disabled) {
+  pointer-events: none;
 }
 
 /* ── Drift / Error ───────────────────────────────────── */
