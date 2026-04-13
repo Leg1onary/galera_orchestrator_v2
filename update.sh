@@ -27,8 +27,6 @@ echo -e "  https://github.com/Leg1onary/galera_orchestrator_v2"
 echo -e ""
 
 # ─── locate install dir ──────────────────────────────────────
-# Если скрипт запущен из директории установки — используем её.
-# Иначе — пробуем дефолт ~/galera-orchestrator.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$(pwd)}")" 2>/dev/null && pwd || echo "")"
 if [ -f "${SCRIPT_DIR}/docker-compose.ghcr.yml" ]; then
     INSTALL_DIR="${SCRIPT_DIR}"
@@ -48,7 +46,7 @@ info "Директория установки: ${INSTALL_DIR}"
 cd "${INSTALL_DIR}"
 
 # ─── check docker ────────────────────────────────────────────
-command -v docker &>/dev/null   || error "Docker не найден."
+command -v docker &>/dev/null      || error "Docker не найден."
 docker compose version &>/dev/null || error "Docker Compose v2 не найден."
 
 # ─── show current state ──────────────────────────────────────
@@ -57,8 +55,9 @@ CURRENT_IMAGE=$(docker compose -f docker-compose.ghcr.yml images --format json 2
     || echo "unknown")
 info "Текущий тег образа: ${CURRENT_IMAGE}"
 
-# ─── backup reminder ─────────────────────────────────────────
-warn "Перед обновлением рекомендуется сделать бэкап БД:"
+# ─── data safety note ─────────────────────────────────────────
+info "БД хранится в Docker named volume — обновление её не затронет."
+echo -e "  Опциональный бэкап перед обновлением:"
 echo -e "  ${CYAN}docker run --rm -v orchestrator-data:/data -v \"\$(pwd)\":/backup alpine \\"
 echo -e "    tar czf /backup/orchestrator-db-\$(date +%Y%m%d-%H%M%S).tar.gz /data${NC}"
 echo ""
@@ -78,17 +77,13 @@ info "Перезапускаю контейнер..."
 docker compose -f docker-compose.ghcr.yml up -d --remove-orphans
 ok "Контейнер перезапущен"
 
-# ─── also update compose file itself ────────────────────────
+# ─── update compose file ───────────────────────────────────────
 info "Обновляю docker-compose.ghcr.yml из репозитория..."
 RAW="https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master"
 curl -fsSL "${RAW}/docker-compose.ghcr.yml" -o docker-compose.ghcr.yml
 ok "docker-compose.ghcr.yml обновлён"
 
 # ─── show result ─────────────────────────────────────────────
-NEW_IMAGE=$(docker compose -f docker-compose.ghcr.yml images --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0].get('Tag','unknown') if d else 'unknown')" 2>/dev/null \
-    || echo "unknown")
-
 HOST_PORT=$(grep '^HOST_PORT=' .env | cut -d= -f2 | tr -d '[:space:]' || echo "8000")
 
 echo ""
