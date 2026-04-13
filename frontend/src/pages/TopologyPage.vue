@@ -150,18 +150,18 @@ const drawerNode = ref<NodeListItem | null>(null)
 
 function nodeNormToListItem(n: NodeNorm): NodeListItem {
   return {
-    id:             n.id,
-    name:           n.name,
-    host:           n.host,
-    port:           n.port,
-    ssh_port:       22,
-    ssh_user:       '',
-    db_user:        '',
-    enabled:        true,
-    maintenance:    n.maintenance,
-    datacenter_id:  n.dc_id,
+    id:              n.id,
+    name:            n.name,
+    host:            n.host,
+    port:            n.port,
+    ssh_port:        22,
+    ssh_user:        '',
+    db_user:         '',
+    enabled:         true,
+    maintenance:     n.maintenance,
+    datacenter_id:   n.dc_id,
     datacenter_name: n.dc_name,
-    cluster_id:     clusterId.value,
+    cluster_id:      clusterId.value,
     live: n.ssh_ok || n.db_ok ? {
       wsrep_cluster_status:      null,
       wsrep_cluster_size:        null,
@@ -189,7 +189,13 @@ function openDrawer(nodeId: number) {
   const found = nodes.value.find(n => n.id === nodeId)
   drawerNode.value = found
     ? nodeNormToListItem(found)
-    : { id: nodeId, name: '', host: '', port: 3306, ssh_port: 22, ssh_user: '', db_user: '', enabled: true, maintenance: false, datacenter_id: null, datacenter_name: null, cluster_id: clusterId.value, live: null }
+    : {
+        id: nodeId, name: '', host: '', port: 3306,
+        ssh_port: 22, ssh_user: '', db_user: '',
+        enabled: true, maintenance: false,
+        datacenter_id: null, datacenter_name: null,
+        cluster_id: clusterId.value, live: null,
+      }
 }
 function closeDrawer() { drawerNode.value = null }
 
@@ -338,7 +344,7 @@ function nodeStatLabel(n: unknown): string {
   const s = (nodeState(n) ?? '').toUpperCase()
   if (!nodeSSHOk(n))          return 'OFFLINE'
   if (nodeReady(n) === 'OFF') return 'DEGRADED'
-  return s || '—'
+  return s || '\u2014'
 }
 function arbStatLabel(a: unknown): string {
   if (!arbSSHOk(a)) return 'OFFLINE'
@@ -365,6 +371,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
     </div>
 
     <template v-else>
+      <!-- HEADER -->
       <div class="pg-header">
         <div class="pg-header__left">
           <span class="section-title">Topology</span>
@@ -385,11 +392,19 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
         </div>
       </div>
 
-      <div v-if="isLoading" class="loading-state">
-        <i class="pi pi-spin pi-spinner" /><span>Loading…</span>
+      <!-- LOADING — canvas skeleton -->
+      <div v-if="isLoading" class="topo-canvas-skeleton">
+        <div class="tcs-inner">
+          <div class="tcs-zone" v-for="i in 2" :key="i">
+            <Skeleton height="1rem" width="7rem" />
+            <Skeleton height="130px" />
+            <Skeleton height="130px" />
+          </div>
+        </div>
       </div>
 
       <template v-else>
+        <!-- CANVAS -->
         <div class="topo-canvas-wrap">
           <svg
             class="topo-svg"
@@ -418,10 +433,17 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               </filter>
             </defs>
 
-            <!-- DC zones и badges (нижний слой) -->
+            <!-- DC zones + badges -->
             <g v-for="(dc, di) in dcGroups" :key="di">
-              <rect :x="dcX(di)" :y="ARC_TOP + 4" :width="DC_W" :height="dcHeight(dc)" rx="10" ry="10" class="dc-zone-rect" />
-              <text :x="dcX(di) + SIDE" :y="ARC_TOP + 22" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
+              <rect
+                :x="dcX(di)" :y="ARC_TOP + 4"
+                :width="DC_W" :height="dcHeight(dc)"
+                rx="10" ry="10"
+                class="dc-zone-rect"
+              />
+              <text :x="dcX(di) + SIDE" :y="ARC_TOP + 22" class="dc-zone-label">
+                {{ dc.dcName.toUpperCase() }}
+              </text>
 
               <g
                 v-for="(node, ni) in dc.nodes" :key="(node as any).id"
@@ -432,11 +454,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 @click="openDrawer((node as any).id)"
               >
                 <rect x="0" y="0" :width="B_W" :height="B_H" rx="10" class="badge-bg" />
-                <rect x="0" y="0" :width="B_W" height="6" rx="4"
+                <rect
+                  x="0" y="0" :width="B_W" height="6" rx="4"
                   :fill="nodeColor(node)"
                   :filter="nodeSSHOk(node) && nodeState(node)?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <!-- CSS-анимация вместо SVG SMIL <animate> — стабильнее на VDI/Chrome -->
                 <circle
                   cx="18" cy="30" r="6"
                   :fill="nodeColor(node)"
@@ -446,11 +468,27 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <text x="32" y="35" class="badge-name">{{ (node as any).name }}</text>
                 <text x="10" y="54" class="badge-host">{{ (node as any).host }}:{{ (node as any).port }}</text>
                 <text x="10" y="76" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
-                <rect x="10" y="88" width="48" height="22" rx="5" :fill="nodeRO(node) ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
-                <text x="34" y="103" class="badge-pill" :fill="nodeRO(node) ? 'var(--color-readonly)' : 'var(--color-synced)'">{{ nodeRO(node) ? 'RO' : 'RW' }}</text>
-                <rect v-if="nodeMaint(node)" x="64" y="88" width="62" height="22" rx="5" fill="rgba(249,115,22,.15)" />
-                <text v-if="nodeMaint(node)" x="95" y="103" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
-                <circle v-if="nodeDrift(node)" :cx="B_W - 10" :cy="B_H - 10" r="5" fill="var(--color-offline)" />
+                <rect x="10" y="88" width="48" height="22" rx="5"
+                  :fill="nodeRO(node) ? 'color-mix(in oklch, var(--color-readonly) 15%, transparent)' : 'color-mix(in oklch, var(--color-synced) 12%, transparent)'"
+                />
+                <text x="34" y="103" class="badge-pill"
+                  :fill="nodeRO(node) ? 'var(--color-readonly)' : 'var(--color-synced)'"
+                >{{ nodeRO(node) ? 'RO' : 'RW' }}</text>
+                <rect
+                  v-if="nodeMaint(node)"
+                  x="64" y="88" width="62" height="22" rx="5"
+                  fill="color-mix(in oklch, var(--color-degraded) 12%, transparent)"
+                />
+                <text
+                  v-if="nodeMaint(node)"
+                  x="95" y="103" class="badge-pill"
+                  fill="var(--color-degraded)"
+                >MAINT</text>
+                <circle
+                  v-if="nodeDrift(node)"
+                  :cx="B_W - 10" :cy="B_H - 10" r="5"
+                  fill="var(--color-offline)"
+                />
                 <text :x="B_W - 12" y="20" class="badge-open-hint">⤢</text>
               </g>
 
@@ -466,12 +504,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <circle cx="18" cy="30" r="5" :fill="arbColor(arb)" />
                 <text x="32" y="35" class="badge-name">{{ (arb as any).name }}</text>
                 <text x="10" y="54" class="badge-host">{{ (arb as any).host }}</text>
-                <text x="28" y="54" class="badge-arb-ico">◈</text>
                 <text x="10" y="76" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
               </g>
             </g>
 
-            <!-- Арки ПОСЛЕДНИМИ — поверх DC-зон (SVG z-order = DOM order) -->
+            <!-- Arcs — LAST (SVG z-order) -->
             <g class="conn-layer">
               <path
                 v-for="(line, i) in connectionLines"
@@ -485,7 +522,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           </svg>
         </div>
 
-        <!-- Legend -->
+        <!-- LEGEND -->
         <div class="topo-legend">
           <span class="legend-title">Legend</span>
           <div class="legend-items">
@@ -501,7 +538,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           </div>
         </div>
 
-        <!-- Nodes table -->
+        <!-- NODES TABLE -->
         <div class="node-table-wrap">
           <div class="node-table-header">
             <span class="node-table-title">Nodes</span>
@@ -516,6 +553,8 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <th>DC</th>
                 <th>Mode</th>
                 <th>SSH</th>
+                <th>SSH lat</th>
+                <th>DB lat</th>
               </tr>
             </thead>
             <tbody>
@@ -538,7 +577,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 </td>
                 <td><span class="cell-mono">{{ n.host }}:{{ n.port }}</span></td>
                 <td><span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span></td>
-                <td><span class="cell-muted">{{ n.dc_name ?? '—' }}</span></td>
+                <td><span class="cell-muted">{{ n.dc_name ?? '\u2014' }}</span></td>
                 <td>
                   <span class="mode-pill" :class="n.readonly ? 'mode-ro' : 'mode-rw'">{{ n.readonly ? 'RO' : 'RW' }}</span>
                 </td>
@@ -548,12 +587,22 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                     {{ n.ssh_ok ? 'OK' : 'FAIL' }}
                   </span>
                 </td>
+                <td>
+                  <span class="cell-mono" :class="n.ssh_latency_ms != null && n.ssh_latency_ms > 100 ? 'cell-warn' : ''">
+                    {{ n.ssh_latency_ms != null ? `${n.ssh_latency_ms} ms` : '\u2014' }}
+                  </span>
+                </td>
+                <td>
+                  <span class="cell-mono" :class="n.db_latency_ms != null && n.db_latency_ms > 100 ? 'cell-warn' : ''">
+                    {{ n.db_latency_ms != null ? `${n.db_latency_ms} ms` : '\u2014' }}
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Arbitrators table -->
+        <!-- ARBITRATORS TABLE -->
         <div v-if="arbitrators.length" class="node-table-wrap">
           <div class="node-table-header">
             <span class="node-table-title">Arbitrators</span>
@@ -566,7 +615,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <th>Host</th>
                 <th>State</th>
                 <th>DC</th>
-                <th>Latency</th>
+                <th>SSH lat</th>
               </tr>
             </thead>
             <tbody>
@@ -580,8 +629,12 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 </td>
                 <td><span class="cell-mono">{{ a.host }}</span></td>
                 <td><span class="cell-state" :style="{ color: arbColor(a) }">{{ arbStatLabel(a) }}</span></td>
-                <td><span class="cell-muted">{{ a.dc_name ?? '—' }}</span></td>
-                <td><span class="cell-mono">{{ a.ssh_latency_ms != null ? `${a.ssh_latency_ms} ms` : '—' }}</span></td>
+                <td><span class="cell-muted">{{ a.dc_name ?? '\u2014' }}</span></td>
+                <td>
+                  <span class="cell-mono" :class="a.ssh_latency_ms != null && a.ssh_latency_ms > 100 ? 'cell-warn' : ''">
+                    {{ a.ssh_latency_ms != null ? `${a.ssh_latency_ms} ms` : '\u2014' }}
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -606,8 +659,14 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           <div class="tt-name">{{ tooltip.node.name }}</div>
           <div class="tt-row"><span>Host</span><span class="tt-val">{{ tooltip.node.host }}:{{ tooltip.node.port }}</span></div>
           <div class="tt-row"><span>State</span><span class="tt-val" :style="{ color: nodeColor(tooltip.node) }">{{ nodeStatLabel(tooltip.node) }}</span></div>
-          <div class="tt-row"><span>DC</span><span class="tt-val">{{ tooltip.node.dc_name ?? '—' }}</span></div>
+          <div class="tt-row"><span>DC</span><span class="tt-val">{{ tooltip.node.dc_name ?? '\u2014' }}</span></div>
           <div class="tt-row"><span>SSH</span><span class="tt-val" :style="{ color: tooltip.node.ssh_ok ? 'var(--color-synced)' : 'var(--color-offline)' }">{{ tooltip.node.ssh_ok ? 'OK' : 'FAIL' }}</span></div>
+          <div v-if="tooltip.node.ssh_latency_ms != null" class="tt-row">
+            <span>SSH lat</span><span class="tt-val">{{ tooltip.node.ssh_latency_ms }} ms</span>
+          </div>
+          <div v-if="tooltip.node.db_latency_ms != null" class="tt-row">
+            <span>DB lat</span><span class="tt-val">{{ tooltip.node.db_latency_ms }} ms</span>
+          </div>
           <div v-if="tooltip.node.wsrep_incoming_addresses" class="tt-row">
             <span>Peers</span>
             <span class="tt-val tt-peers">{{ tooltip.node.wsrep_incoming_addresses }}</span>
@@ -626,7 +685,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           <div class="tt-row"><span>State</span><span class="tt-val" :style="{ color: arbColor(tooltip.arb) }">{{ arbStatLabel(tooltip.arb) }}</span></div>
           <div class="tt-row"><span>garbd</span><span class="tt-val" :style="{ color: tooltip.arb.garbd_running ? 'var(--color-synced)' : 'var(--color-offline)' }">{{ tooltip.arb.garbd_running ? 'running' : 'stopped' }}</span></div>
           <div v-if="tooltip.arb.ssh_latency_ms != null" class="tt-row">
-            <span>Latency</span><span class="tt-val">{{ tooltip.arb.ssh_latency_ms }} ms</span>
+            <span>SSH lat</span><span class="tt-val">{{ tooltip.arb.ssh_latency_ms }} ms</span>
           </div>
         </template>
       </div>
@@ -635,14 +694,17 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 </template>
 
 <style scoped>
-.topology-page { display:flex; flex-direction:column; gap:var(--space-6); }
+.topology-page { display: flex; flex-direction: column; gap: var(--space-6); }
 
 .pg-empty {
-  display:flex; align-items:center; gap:var(--space-3);
-  color:var(--color-text-muted); padding:var(--space-12);
-  justify-content:center; font-size:var(--text-sm);
+  display: flex; align-items: center; gap: var(--space-3);
+  color: var(--color-text-muted); padding: var(--space-12);
+  justify-content: center; font-size: var(--text-sm);
 }
 
+/* ═══════════════════════════════════════
+   HEADER
+═══════════════════════════════════════ */
 .pg-header {
   display: flex;
   align-items: center;
@@ -674,13 +736,33 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   color: var(--color-text-muted);
   white-space: nowrap;
 }
-.stat-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.stat-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════
+   CANVAS SKELETON (loading state)
+═══════════════════════════════════════ */
+.topo-canvas-skeleton {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  min-height: 280px;
+}
+.tcs-inner {
+  display: flex;
+  gap: var(--space-8);
+}
+.tcs-zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  max-width: 260px;
 }
 
+/* ═══════════════════════════════════════
+   CANVAS WRAP
+═══════════════════════════════════════ */
 .topo-canvas-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -689,90 +771,84 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   overflow-x: auto;
   overflow-y: hidden;
 }
-.topo-svg {
-  display: block;
-  height: auto;
-  min-height: 280px;
-}
+.topo-svg { display: block; height: auto; min-height: 280px; }
 
-.dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:1; }
-.dc-zone-label { fill:var(--color-text-faint); font-size:13px; font-weight:700; letter-spacing:.08em; font-family:var(--font-body,sans-serif); }
+/* ═══════════════════════════════════════
+   SVG — ZONES + BADGES
+═══════════════════════════════════════ */
+.dc-zone-rect  { fill: var(--color-surface-2); stroke: var(--color-border); stroke-width: 1; }
+.dc-zone-label { fill: var(--color-text-faint); font-size: 13px; font-weight: 700; letter-spacing: .08em; font-family: var(--font-body, sans-serif); }
 
-.topo-badge      { cursor:default; }
+.topo-badge           { cursor: default; }
 .topo-badge--clickable { cursor: pointer; }
-.badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:1; transition:fill .18s; }
-.topo-badge--clickable:hover .badge-bg { fill:var(--color-surface-dynamic); stroke: var(--color-primary); stroke-width: 1.5; }
-.badge-bg--arb   { opacity:.85; }
+.badge-bg             { fill: var(--color-surface-offset); stroke: var(--color-border); stroke-width: 1; }
+.topo-badge--clickable:hover .badge-bg { fill: var(--color-surface-dynamic); stroke: var(--color-primary); stroke-width: 1.5; }
+.badge-bg--arb        { opacity: .85; }
 
-.badge-name      { fill:var(--color-text);       font-size:16px; font-weight:600; font-family:var(--font-body,sans-serif); }
-.badge-host      { fill:var(--color-text-muted); font-size:11px; font-family:var(--font-mono,monospace); }
-.badge-state     { font-size:14px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
-.badge-pill      { font-size:11px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
-.badge-arb-ico   { fill:var(--color-text-faint); font-size:13px; }
-.badge-open-hint {
-  fill: var(--color-text-faint);
-  font-size: 13px;
-  text-anchor: end;
-  opacity: 0;
-  transition: opacity .15s;
-}
+.badge-name      { fill: var(--color-text);       font-size: 16px; font-weight: 600; font-family: var(--font-body, sans-serif); }
+.badge-host      { fill: var(--color-text-muted); font-size: 11px; font-family: var(--font-mono, monospace); }
+.badge-state     { font-size: 14px; font-weight: 700; letter-spacing: .05em; font-family: var(--font-body, sans-serif); }
+.badge-pill      { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-anchor: middle; font-family: var(--font-body, sans-serif); }
+.badge-open-hint { fill: var(--color-text-faint); font-size: 13px; text-anchor: end; opacity: 0; transition: opacity .15s; }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
 /*
- * dot-pulse — CSS-анимация для offline dot в SVG.
- * Заменяет SVG SMIL <animate>, который некорректно работает
- * в Chrome на VDI/RDP (ускоренное воспроизведение).
+ * dot-pulse — CSS animation for offline dot.
+ * Replaces SVG SMIL <animate> which misbehaves on VDI/Chrome.
  */
 @keyframes dot-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.15; }
 }
-.dot-pulse {
-  animation: dot-pulse 1.8s ease-in-out infinite;
-  /* will-change отключён намеренно — на VDI GPU acceleration нестабильна */
-}
+.dot-pulse { animation: dot-pulse 1.8s ease-in-out infinite; }
 
-.topo-arc {
-  fill: none;
-  stroke-linecap: round;
-}
+/* ═══════════════════════════════════════
+   SVG — CONNECTION ARCS (CSS tokens only)
+═══════════════════════════════════════ */
+.topo-arc { fill: none; stroke-linecap: round; }
+
 .topo-arc--synced {
-  stroke: #4ade80;
+  stroke: var(--color-synced);
   stroke-width: 2.5;
   stroke-dasharray: 8 4;
   opacity: 0.95;
 }
 .topo-arc--active {
-  stroke: #facc15;
+  stroke: var(--color-readonly);
   stroke-width: 2;
   stroke-dasharray: 5 4;
   opacity: 0.85;
 }
 .topo-arc--offline {
-  stroke: #64748b;
+  stroke: var(--color-text-faint);
   stroke-width: 1.5;
   stroke-dasharray: 3 5;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
+/* ═══════════════════════════════════════
+   LEGEND
+═══════════════════════════════════════ */
 .topo-legend {
-  display:flex; flex-wrap:wrap; align-items:center;
-  gap:var(--space-2) var(--space-5);
-  background:var(--color-surface); border:1px solid var(--color-border);
-  border-radius:var(--radius-md); padding:var(--space-2) var(--space-4);
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2) var(--space-5);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-4);
 }
-.legend-title  { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.08em; color:var(--color-text-faint); font-weight:600; }
-.legend-items  { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); align-items:center; }
-.legend-item   { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); }
+.legend-title  { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-faint); font-weight: 600; }
+.legend-items  { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; }
+.legend-item   { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--color-text-muted); }
 .legend-item--hint { color: var(--color-text-faint); }
-.legend-item--conn { gap: var(--space-2); }
-.legend-dot    { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
-.legend-icon   { font-size:10px; line-height:1; }
-.legend-arc    { display:inline-block; width:22px; height:3px; border-radius:2px; flex-shrink:0; }
-.legend-arc--synced  { background: #4ade80; opacity: 0.95; }
-.legend-arc--active  { background: #facc15; opacity: 0.85; }
-.legend-arc--offline { background: #64748b; opacity: 0.5; }
+.legend-dot    { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.legend-icon   { font-size: 10px; line-height: 1; }
+.legend-arc    { display: inline-block; width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+.legend-arc--synced  { background: var(--color-synced);      opacity: 0.95; }
+.legend-arc--active  { background: var(--color-readonly);    opacity: 0.85; }
+.legend-arc--offline { background: var(--color-text-faint);  opacity: 0.5; }
 
+/* ═══════════════════════════════════════
+   TABLES
+═══════════════════════════════════════ */
 .node-table-wrap {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -780,113 +856,90 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   overflow: hidden;
 }
 .node-table-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-border);
 }
 .node-table-title {
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: var(--color-text);
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  font-size: var(--text-sm); font-weight: 700;
+  color: var(--color-text); text-transform: uppercase; letter-spacing: .06em;
 }
 .node-table-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 var(--space-2);
-  background: var(--color-surface-dynamic);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 var(--space-2);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  color: var(--color-text-muted);
+  font-size: var(--text-xs); font-weight: 700; color: var(--color-text-muted);
+  font-family: var(--font-mono);
 }
 
-.node-table { width:100%; border-collapse:collapse; }
-.node-table thead tr { background: var(--color-surface-offset); }
+.node-table           { width: 100%; border-collapse: collapse; }
+.node-table thead tr  { background: var(--color-surface-offset); }
 .node-table th {
-  padding: var(--space-3) var(--space-6);
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--color-text-faint);
-  white-space: nowrap;
+  padding: var(--space-3) var(--space-5);
+  text-align: left; font-size: var(--text-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--color-text-faint); white-space: nowrap;
   border-bottom: 1px solid var(--color-border);
 }
 .node-row {
-  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);
   transition: background var(--transition-interactive);
 }
-.node-row:last-child { border-bottom: none; }
-.node-row:hover { background: var(--color-surface-offset); }
-.node-row--clickable { cursor: pointer; }
-.node-table td { padding: var(--space-4) var(--space-6); vertical-align: middle; }
+.node-row:last-child     { border-bottom: none; }
+.node-row:hover          { background: var(--color-surface-offset); }
+.node-row--clickable     { cursor: pointer; }
+.node-table td           { padding: var(--space-3) var(--space-5); vertical-align: middle; }
 
-.cell-name { display:flex; align-items:center; gap:var(--space-3); }
+.cell-name { display: flex; align-items: center; gap: var(--space-3); }
 
 @keyframes status-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
-  50%       { opacity: 0.3; box-shadow: 0 0 2px currentColor; }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
 }
 .status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  transition: box-shadow .3s;
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: box-shadow .3s;
 }
-.status-dot--pulse {
-  animation: status-pulse 1.8s ease-in-out infinite;
-}
+.status-dot--pulse { animation: status-pulse 1.8s ease-in-out infinite; }
 
-.name-text { font-size:var(--text-sm); font-weight:600; color:var(--color-text); }
-.maint-badge, .arb-badge {
-  font-size: 9px; font-weight: 700; letter-spacing:.06em;
-  border-radius: var(--radius-sm); padding: 1px 5px;
-}
-.maint-badge { background:rgba(249,115,22,.12); color:var(--color-degraded); }
-.arb-badge   { background:var(--color-surface-dynamic); color:var(--color-text-faint); }
+.name-text    { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
+.maint-badge,
+.arb-badge    { font-size: 9px; font-weight: 700; letter-spacing: .06em; border-radius: var(--radius-sm); padding: 1px 5px; }
+.maint-badge  { background: color-mix(in oklch, var(--color-degraded) 12%, transparent); color: var(--color-degraded); }
+.arb-badge    { background: var(--color-surface-offset); border: 1px solid var(--color-border); color: var(--color-text-faint); }
 
-.cell-mono  { font-family:var(--font-mono,monospace); font-size:var(--text-xs); color:var(--color-text-muted); }
-.cell-state { font-family:var(--font-mono,monospace); font-size:var(--text-xs); font-weight:700; letter-spacing:.05em; }
-.cell-muted { font-size:var(--text-xs); color:var(--color-text-muted); }
+.cell-mono    { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-state   { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; letter-spacing: .05em; }
+.cell-muted   { font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-warn    { color: var(--color-degraded) !important; }
 
 .mode-pill {
-  display:inline-flex; align-items:center; justify-content:center;
-  min-width:32px; padding:2px 8px;
-  border-radius:var(--radius-full);
-  font-size:var(--text-xs); font-weight:700; letter-spacing:.06em;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px; padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 700; letter-spacing: .06em;
 }
-.mode-rw { background:rgba(74,222,128,.10); color:var(--color-synced);   border:1px solid rgba(74,222,128,.2); }
-.mode-ro { background:rgba(234,179,8,.10);  color:var(--color-readonly); border:1px solid rgba(234,179,8,.2);  }
+.mode-rw { background: color-mix(in oklch, var(--color-synced)   10%, transparent); color: var(--color-synced);   border: 1px solid color-mix(in oklch, var(--color-synced)   25%, transparent); }
+.mode-ro { background: color-mix(in oklch, var(--color-readonly) 10%, transparent); color: var(--color-readonly); border: 1px solid color-mix(in oklch, var(--color-readonly) 25%, transparent); }
 
-.ssh-cell { display:inline-flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); font-weight:600; }
-.ssh-ok   { color:var(--color-synced); }
-.ssh-fail { color:var(--color-offline); }
+.ssh-cell { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); font-weight: 600; }
+.ssh-ok   { color: var(--color-synced); }
+.ssh-fail { color: var(--color-offline); }
 
+/* ═══════════════════════════════════════
+   TOOLTIP
+═══════════════════════════════════════ */
 .topo-tooltip {
-  position:fixed; z-index:9999;
-  background:var(--color-surface-2); border:1px solid var(--color-border);
-  border-radius:var(--radius-md); padding:var(--space-3) var(--space-4);
-  box-shadow:var(--shadow-lg); min-width:180px; pointer-events:none;
+  position: fixed; z-index: 9999;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-lg); min-width: 180px; pointer-events: none;
 }
-.tt-name  { font-size:var(--text-sm); font-weight:700; color:var(--color-text); margin-bottom:var(--space-2); display:flex; align-items:center; gap:var(--space-2); }
-.tt-tag   { font-size:9px; background:var(--color-surface-dynamic); border-radius:var(--radius-sm); padding:1px 5px; color:var(--color-text-muted); font-weight:600; letter-spacing:.06em; }
-.tt-row   { display:flex; justify-content:space-between; gap:var(--space-4); font-size:var(--text-xs); color:var(--color-text-muted); line-height:1.7; }
-.tt-val   { font-family:var(--font-mono,monospace); color:var(--color-text); }
-.tt-peers { font-size:9px; max-width:140px; word-break:break-all; color:var(--color-text-muted); }
-.tt-hint  { margin-top:var(--space-2); font-size:var(--text-xs); color:var(--color-text-faint); text-align:center; border-top:1px solid var(--color-divider); padding-top:var(--space-2); }
-
-.loading-state {
-  display:flex; align-items:center; gap:var(--space-3);
-  color:var(--color-text-muted); padding:var(--space-8);
-  justify-content:center; font-size:var(--text-sm);
-}
+.tt-name  { font-size: var(--text-sm); font-weight: 700; color: var(--color-text); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
+.tt-tag   { font-size: 9px; background: var(--color-surface-offset); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 1px 5px; color: var(--color-text-faint); font-weight: 600; letter-spacing: .06em; }
+.tt-row   { display: flex; justify-content: space-between; gap: var(--space-4); font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.7; }
+.tt-val   { font-family: var(--font-mono); color: var(--color-text); }
+.tt-peers { font-size: 9px; max-width: 140px; word-break: break-all; color: var(--color-text-muted); }
+.tt-hint  { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--color-text-faint); text-align: center; border-top: 1px solid var(--color-divider); padding-top: var(--space-2); }
 </style>

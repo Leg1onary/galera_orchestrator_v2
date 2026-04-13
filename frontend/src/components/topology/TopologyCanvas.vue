@@ -1,8 +1,6 @@
 <!--
-  SVG топология без внешних зависимостей.
-  Раскладка: DC-зоны горизонтально, ноды внутри вертикально.
-  Линии связи: curved bezier между центрами нод из разных DC.
-  Unassigned ноды — в зоне "No DC" справа.
+  @deprecated — TopologyPage uses inline SVG (Variant A).
+  This component is kept for reference; will be removed in a future refactor sprint.
 -->
 <template>
   <div class="canvas-wrapper" ref="wrapperRef">
@@ -12,7 +10,6 @@
         :height="svgH"
         class="topology-svg"
     >
-      <!-- Defs: маркеры стрелок для каждого типа соединения -->
       <defs>
         <marker
             v-for="state in CONNECTION_STATES"
@@ -26,7 +23,6 @@
         </marker>
       </defs>
 
-      <!-- Connection lines — ДО зон чтобы линии были под карточками -->
       <g class="connections">
         <path
             v-for="(line, i) in connectionPaths"
@@ -41,7 +37,6 @@
         />
       </g>
 
-      <!-- DC Zones -->
       <DCZone
           v-for="zone in zones"
           :key="zone.dc.id"
@@ -64,23 +59,19 @@ import {
   ARB_W, ARB_H,
   NODE_GAP,
   DC_PAD, DC_GAP,
+  CANVAS_MARGIN, NODE_START_Y,
   CONN_STROKE, CONN_DASH_SYNC, CONN_DASH_ACTIVE,
 } from './topology.constants'
 import type { TopologyViewModel, TopoNode, TopoDatacenter } from '@/api/topology'
 
-const CANVAS_MARGIN = 24
-const NODE_START_Y  = 36
-
 const CONNECTION_STATES = [
-  { id: 'arrow-synced', color: '#437a22' },
-  { id: 'arrow-sync',   color: '#d19900' },
-  { id: 'arrow-error',  color: '#a12c7b' },
+  { id: 'arrow-synced', color: 'var(--color-synced)'  },
+  { id: 'arrow-sync',   color: 'var(--color-readonly)' },
+  { id: 'arrow-error',  color: 'var(--color-offline)'  },
 ] as const
 
-const props = defineProps<{
-  topology: TopologyViewModel
-}>()
-const emit = defineEmits<{ nodeClick: [node: TopoNode] }>()
+const props = defineProps<{ topology: TopologyViewModel }>()
+const emit  = defineEmits<{ nodeClick: [node: TopoNode] }>()
 
 const wrapperRef = ref<HTMLDivElement>()
 
@@ -141,8 +132,9 @@ function nodeCenter(nodeId: number): { x: number; y: number } | null {
   for (const zone of zones.value) {
     const idx = zone.dc.nodes.findIndex((n) => n.id === nodeId)
     if (idx === -1) continue
+    // Fixed: was zone.x + DC_PAD + CARD_W (right edge), now correct center
     return {
-      x: zone.x + DC_PAD + CARD_W,
+      x: zone.x + DC_PAD + CARD_W / 2,
       y: zone.y + NODE_START_Y + idx * (CARD_H + NODE_GAP) + CARD_H / 2,
     }
   }
@@ -151,21 +143,15 @@ function nodeCenter(nodeId: number): { x: number; y: number } | null {
 
 const connectionPaths = computed(() => {
   const paths: { d: string; color: string; dash: number; markerId: string }[] = []
-
   for (const [aId, bId] of props.topology.connections) {
     const a = nodeCenter(aId)
     const b = nodeCenter(bId)
     if (!a || !b) continue
-
     const nodeA = findNode(aId)
     const nodeB = findNode(bId)
     const { color, markerId, dash } = connectionStyle(nodeA, nodeB)
-
-    const aRight = { x: a.x, y: a.y }
-    const bLeft  = { x: b.x - CARD_W, y: b.y }
-    const cp1x   = aRight.x + (bLeft.x - aRight.x) * 0.5
-    const d      = `M ${aRight.x} ${aRight.y} C ${cp1x} ${aRight.y}, ${cp1x} ${bLeft.y}, ${bLeft.x} ${bLeft.y}`
-
+    const cp1x = a.x + (b.x - a.x) * 0.5
+    const d    = `M ${a.x} ${a.y} C ${cp1x} ${a.y}, ${cp1x} ${b.y}, ${b.x} ${b.y}`
     paths.push({ d, color, dash, markerId })
   }
   return paths
@@ -182,30 +168,15 @@ function connectionStyle(
     a?: TopoNode,
     b?: TopoNode,
 ): { color: string; markerId: string; dash: number } {
-  if (!a || !b) {
-    return { color: '#7a7974', markerId: 'arrow-error', dash: 0 }
-  }
-  if (isOffline(a) || isOffline(b)) {
-    return { color: '#a12c7b', markerId: 'arrow-error', dash: 0 }
-  }
-  const bothSynced =
-      a.wsrep_local_state_comment === 'SYNCED' &&
-      b.wsrep_local_state_comment === 'SYNCED'
-  if (bothSynced) {
-    return { color: '#437a22', markerId: 'arrow-synced', dash: CONN_DASH_ACTIVE }
-  }
-  return { color: '#d19900', markerId: 'arrow-sync', dash: CONN_DASH_SYNC }
+  if (!a || !b)                     return { color: 'var(--color-offline)',  markerId: 'arrow-error',  dash: 0 }
+  if (isOffline(a) || isOffline(b)) return { color: 'var(--color-offline)',  markerId: 'arrow-error',  dash: 0 }
+  const bothSynced = a.wsrep_local_state_comment === 'SYNCED' && b.wsrep_local_state_comment === 'SYNCED'
+  if (bothSynced)                   return { color: 'var(--color-synced)',   markerId: 'arrow-synced', dash: CONN_DASH_ACTIVE }
+  return                                   { color: 'var(--color-readonly)', markerId: 'arrow-sync',   dash: CONN_DASH_SYNC }
 }
 </script>
 
 <style scoped>
-.canvas-wrapper {
-  overflow: auto;
-  width: 100%;
-  height: 100%;
-  padding: var(--space-4);
-}
-.topology-svg {
-  display: block;
-}
+.canvas-wrapper { overflow: auto; width: 100%; height: 100%; padding: var(--space-4); }
+.topology-svg   { display: block; }
 </style>
