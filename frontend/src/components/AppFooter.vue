@@ -22,8 +22,6 @@ const isFinished = computed(() =>
 )
 
 // ── Auto-dismiss finished op after 10s ───────────────────────────────────────
-// We keep a local "visible" flag that goes false 10s after op finishes.
-// isRunning resets it back to true when a new op starts.
 const finishedVisible = ref(false)
 let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -180,7 +178,11 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 .op-dot--running {
   background: #2dd4bf;
   box-shadow: 0 0 7px rgba(45,212,191,0.75);
-  animation: blink 1.2s ease-in-out infinite;
+  /*
+   * Замедлено 1.2s → 2.4s: на VDI быстрые CSS-анимации
+   * воспроизводятся с артефактами из-за remote rendering pipeline.
+   */
+  animation: blink 2.4s ease-in-out infinite;
 }
 .op-dot--success {
   background: #4ade80;
@@ -191,8 +193,8 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   box-shadow: 0 0 6px rgba(248,113,113,0.55);
 }
 @keyframes blink {
-  0%, 100% { opacity: 1;   box-shadow: 0 0 7px rgba(45,212,191,0.75); }
-  50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2); }
+  0%, 100% { opacity: 1;    box-shadow: 0 0 7px rgba(45,212,191,0.75); }
+  50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2);  }
 }
 
 .op-type   { font-size: 0.78rem; color: #71717a; font-family: var(--font-mono, monospace); white-space: nowrap; }
@@ -211,16 +213,19 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   white-space: nowrap;
 }
 
+/*
+ * idle-dot — статичный, без анимации.
+ * Оригинальный idle-pulse (3s ease-in-out) давал визуальный флапп на VDI:
+ * Chrome на remote desktop воспроизводит короткие opacity-анимации
+ * с артефактами (двойной кадр, дёрганье). Декоративный dot
+ * не несёт смысловой нагрузки — анимация не нужна.
+ */
 .idle-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: #27272a;
   box-shadow: 0 0 0 1.5px #3f3f46;
-  animation: idle-pulse 3s ease-in-out infinite;
-}
-@keyframes idle-pulse {
-  0%, 100% { opacity: 0.4; }
-  50%       { opacity: 0.9; }
+  opacity: 0.6;
 }
 .idle-text {
   font-size: 0.78rem;
