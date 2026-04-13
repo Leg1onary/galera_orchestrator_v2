@@ -1,16 +1,15 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # =============================================================================
 # Galera Orchestrator v2 — One-line installer
 # Использование:
 #   curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/install.sh | bash
 # =============================================================================
 
-set -euo pipefail
+set -eu
 
 REPO_RAW="https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/galera-orchestrator}"
 
-# Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -18,11 +17,11 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
-ok()      { echo -e "${GREEN}[OK]${NC}    $*"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
-prompt()  { echo -e "${BOLD}$*${NC}"; }
+info()   { echo -e "${CYAN}[INFO]${NC}  $*"; }
+ok()     { echo -e "${GREEN}[OK]${NC}    $*"; }
+warn()   { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+prompt() { echo -e "${BOLD}$*${NC}"; }
 
 echo -e ""
 echo -e "${BOLD}${CYAN}██████╗ █████╗ ██╗     ███████╗██████╗  █████╗ ${NC}"
@@ -38,25 +37,25 @@ echo -e ""
 # 1. Проверка зависимостей
 # ────────────────────────────────────────────────────────────────────────
 info "Проверяю наличие Docker..."
-command -v docker &>/dev/null || error "Docker не установлен. Установи: https://docs.docker.com/engine/install/"
-docker compose version &>/dev/null || error "Docker Compose v2 не найден. Установи plugin: https://docs.docker.com/compose/install/"
+command -v docker >/dev/null 2>&1 || error "Docker не установлен."
+docker compose version >/dev/null 2>&1 || error "Docker Compose v2 не найден."
 ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
 ok "Docker Compose $(docker compose version --short)"
 
 # ────────────────────────────────────────────────────────────────────────
-# 2. Создаём директорию
+# 2. Директория
 # ────────────────────────────────────────────────────────────────────────
 info "Инсталляция в ${INSTALL_DIR}"
 mkdir -p "${INSTALL_DIR}"
 cd "${INSTALL_DIR}"
 
 # ────────────────────────────────────────────────────────────────────────
-# 3. Скачиваем файлы
+# 3. Скачиваем docker-compose.ghcr.yml
 # ────────────────────────────────────────────────────────────────────────
 info "Скачиваю docker-compose.ghcr.yml..."
 curl -fsSL "${REPO_RAW}/docker-compose.ghcr.yml" -o docker-compose.ghcr.yml
-ok "docker-compose.ghcr.yml скачан
-"
+ok "docker-compose.ghcr.yml скачан"
+echo ""
 
 # ────────────────────────────────────────────────────────────────────────
 # 4. Настройка .env
@@ -66,26 +65,28 @@ echo -e "${BOLD}  Настройка конфигурации${NC}"
 echo -e "${BOLD}────────────────────────────────────────${NC}"
 echo ""
 
-# Admin
+# Admin username
 prompt "👤 Admin username [admin]:"
 read -r ADMIN_USERNAME
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 
+# Admin password
 prompt "🔐 Admin password:"
 read -rs ADMIN_PASSWORD
 echo ""
-[[ -z "$ADMIN_PASSWORD" ]] && error "Admin password не может быть пустым"
+if test -z "$ADMIN_PASSWORD"; then
+    error "Admin password не может быть пустым"
+fi
 
-# SSH key — без pattern substitution, раскрываем ~ через sed
+# SSH key path
 echo ""
 prompt "🔑 Путь к SSH-ключу [по умолчанию: ~/.ssh/id_rsa]:"
 read -r SSH_KEY_INPUT
-if [ -z "$SSH_KEY_INPUT" ]; then
-    SSH_KEY_PATH="$HOME/.ssh/id_rsa"
-else
-    SSH_KEY_PATH=$(echo "$SSH_KEY_INPUT" | sed "s|^~|$HOME|")
+SSH_KEY_INPUT="${SSH_KEY_INPUT:-$HOME/.ssh/id_rsa}"
+SSH_KEY_PATH=$(echo "$SSH_KEY_INPUT" | sed "s|^~|$HOME|g")
+if test ! -f "$SSH_KEY_PATH"; then
+    warn "Файл ключа не найден: $SSH_KEY_PATH (проверь путь после запуска)"
 fi
-[[ -f "$SSH_KEY_PATH" ]] || warn "Файл ключа не найден: $SSH_KEY_PATH (проверь путь после запуска)"
 
 # Port
 echo ""
@@ -93,12 +94,12 @@ prompt "🌐 Порт панели [8000]:"
 read -r HOST_PORT
 HOST_PORT="${HOST_PORT:-8000}"
 
-# Генерируем секреты автоматически
+# Генерируем секреты
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))")
 FERNET_SECRET=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || openssl rand -base64 32)
 
 # Записываем .env
-cat > .env <<EOF
+cat > .env << EOF
 # Сгенерировано install.sh $(date '+%Y-%m-%d %H:%M:%S')
 
 HOST_PORT=${HOST_PORT}
