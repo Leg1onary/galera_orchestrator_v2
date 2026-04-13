@@ -5,7 +5,7 @@ import { useClusterStatus } from '@/composables/useClusterStatus'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 import type { NodeListItem } from '@/api/nodes'
 
-// ── Типы, соответствующие backend /status → nodes[] / arbitrators[] ──────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface NodeLive {
   id: number
   name: string
@@ -26,6 +26,7 @@ interface NodeLive {
     wsrep_ready: string | null
     wsrep_flow_control_paused: number | null
     wsrep_local_recv_queue: number | null
+    wsrep_incoming_addresses: string | null
     ssh_ok: boolean
     readonly: boolean
     maintenance_drift: boolean
@@ -85,6 +86,7 @@ interface NodeNorm {
   wsrep_ready: string | null
   wsrep_flow_control_paused: number | null
   wsrep_local_recv_queue: number | null
+  wsrep_incoming_addresses: string
   readonly: boolean
   maintenance_drift: boolean
   ssh_latency_ms: number | null
@@ -118,6 +120,7 @@ const nodes = computed<NodeNorm[]>(() =>
     wsrep_ready:               n.live?.wsrep_ready               ?? null,
     wsrep_flow_control_paused: n.live?.wsrep_flow_control_paused ?? null,
     wsrep_local_recv_queue:    n.live?.wsrep_local_recv_queue    ?? null,
+    wsrep_incoming_addresses:  n.live?.wsrep_incoming_addresses  ?? '',
     readonly:                  n.live?.readonly                  ?? false,
     maintenance_drift:         n.live?.maintenance_drift         ?? false,
     ssh_latency_ms:            n.live?.ssh_latency_ms            ?? null,
@@ -140,10 +143,6 @@ const arbitrators = computed<ArbNorm[]>(() =>
 )
 
 // ── NodeDetailDrawer ──────────────────────────────────────────────────────────
-// FIX: NodeDetailDrawer ожидает node: NodeListItem | null, а не node-id: number.
-// Строим NodeListItem из NodeNorm (поля из /status) + дефолты для полей которых нет в /status
-// (ssh_port, ssh_user, db_user, enabled, cluster_id, datacenter_id).
-// Дровер сам перезапросит полные данные через nodesApi.details(clusterId, node.id).
 const drawerNode = ref<NodeListItem | null>(null)
 
 function nodeNormToListItem(n: NodeNorm): NodeListItem {
@@ -228,6 +227,82 @@ function arbBadgeY(dc: DCGroup, ai: number) {
   return TOP_OFF + 8 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
 }
 
+// ── Connection lines based on wsrep_incoming_addresses ───────────────────────
+//
+// Алгоритм:
+//  1. Для каждой ноды парсим wsrep_incoming_addresses → список host'ов пиров
+//     Формат: "192.168.1.1:4567,192.168.1.2:4567" или "0.0.0.0" (гарбд/нет пиров)
+//  2. Для каждой пары (nodeA, nodeB) где nodeA видит host nodeB в своём
+//     wsrep_incoming_addresses — добавляем ребро [idA, idB]
+//  3. Дедупликация: храним только пары где idA < idB чтобы не рисовать дважды
+//  4. Стиль линии определяется состоянием обеих нод
+
+function parseIncomingHosts(raw: string): Set<string> {
+  if (!raw || raw === '0.0.0.0') return new Set()
+  return new Set(
+    raw.split(',').map(s => s.trim().split(':')[0]).filter(Boolean)
+  )
+}
+
+interface ConnectionLine {
+  x1: number; y1: number
+  x2: number; y2: number
+  style: 'synced' | 'active' | 'offline'
+}
+
+// Возвращает центр бейджа ноды в SVG-координатах по её id
+function nodeBadgeCenter(nodeId: number): { x: number; y: number } | null {
+  for (let di = 0; di < dcGroups.value.length; di++) {
+    const dc = dcGroups.value[di]
+    const ni = (dc.nodes as unknown as NodeNorm[]).findIndex(n => n.id === nodeId)
+    if (ni === -1) continue
+    return {
+      x: badgeX(di, ni) + B_W / 2,
+      y: badgeY(ni) + B_H / 2,
+    }
+  }
+  return null
+}
+
+const connectionLines = computed<ConnectionLine[]>(() => {
+  const allNodes = nodes.value
+  const lines: ConnectionLine[] = []
+  const seen = new Set<string>()
+
+  for (const nodeA of allNodes) {
+    const peersOfA = parseIncomingHosts(nodeA.wsrep_incoming_addresses)
+    if (!peersOfA.size) continue
+
+    for (const nodeB of allNodes) {
+      if (nodeA.id === nodeB.id) continue
+      // nodeA видит nodeB как пира
+      if (!peersOfA.has(nodeB.host)) continue
+
+      // Дедупликация — одна линия на пару
+      const pairKey = [nodeA.id, nodeB.id].sort((a, b) => a - b).join('-')
+      if (seen.has(pairKey)) continue
+      seen.add(pairKey)
+
+      const cA = nodeBadgeCenter(nodeA.id)
+      const cB = nodeBadgeCenter(nodeB.id)
+      if (!cA || !cB) continue
+
+      // Стиль: обе SYNCED → зелёный, кто-то offline → серый, иначе жёлтый
+      const aState = (nodeA.wsrep_local_state_comment ?? '').toUpperCase()
+      const bState = (nodeB.wsrep_local_state_comment ?? '').toUpperCase()
+      let style: ConnectionLine['style'] = 'active'
+      if (!nodeA.ssh_ok || !nodeB.ssh_ok || aState === 'OFFLINE' || bState === 'OFFLINE') {
+        style = 'offline'
+      } else if (aState === 'SYNCED' && bState === 'SYNCED') {
+        style = 'synced'
+      }
+
+      lines.push({ x1: cA.x, y1: cA.y, x2: cB.x, y2: cB.y, style })
+    }
+  }
+  return lines
+})
+
 function nodeSSHOk(n: unknown): boolean     { return (n as NodeNorm).ssh_ok }
 function nodeState(n: unknown): string|null { return (n as NodeNorm).wsrep_local_state_comment }
 function nodeReady(n: unknown): string|null { return (n as NodeNorm).wsrep_ready }
@@ -303,6 +378,10 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               <span class="stat-dot" style="background:var(--color-text-faint)"/>
               {{ arbitrators.filter(a => a.ssh_ok).length }} / {{ arbitrators.length }} ARB
             </span>
+            <span v-if="connectionLines.length" class="stat-chip">
+              <span class="stat-dot" style="background:var(--color-primary)"/>
+              {{ connectionLines.filter(l => l.style === 'synced').length }} / {{ connectionLines.length }} links
+            </span>
           </div>
         </div>
       </div>
@@ -331,22 +410,21 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               </filter>
             </defs>
 
+            <!-- Connection lines (drawn first, under badges) -->
+            <g class="conn-layer">
+              <line
+                v-for="(line, i) in connectionLines"
+                :key="`conn-${i}`"
+                :x1="line.x1" :y1="line.y1"
+                :x2="line.x2" :y2="line.y2"
+                class="topo-line"
+                :class="`topo-line--${line.style}`"
+              />
+            </g>
+
             <g v-for="(dc, di) in dcGroups" :key="di">
               <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
-
-              <g v-if="dc.nodes.length > 1">
-                <template v-for="ni in dc.nodes.length - 1" :key="`lnrow-${ni}`">
-                  <template v-for="nj in dc.nodes.length" :key="`ln-${ni}-${nj}`">
-                    <line
-                      v-if="nj > ni"
-                      :x1="badgeX(di, ni - 1) + B_W / 2" :y1="badgeY(ni - 1) + B_H / 2"
-                      :x2="badgeX(di, nj - 1) + B_W / 2" :y2="badgeY(nj - 1) + B_H / 2"
-                      class="topo-line topo-line--intra"
-                    />
-                  </template>
-                </template>
-              </g>
 
               <g
                 v-for="(node, ni) in dc.nodes" :key="(node as any).id"
@@ -397,16 +475,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 <text x="4"  y="40" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
               </g>
             </g>
-
-            <!-- Inter-DC lines -->
-            <g v-if="dcGroups.length > 1">
-              <line
-                v-for="di in dcGroups.length - 1" :key="`dcl-${di}`"
-                :x1="dcX(di - 1) + DC_W" :y1="svgViewH / 2"
-                :x2="dcX(di)"            :y2="svgViewH / 2"
-                class="topo-line topo-line--dc"
-              />
-            </g>
           </svg>
         </div>
 
@@ -419,6 +487,15 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-donor)"/><span>DONOR / JOINER</span></div>
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-degraded)"/><span>wsrep_ready=OFF</span></div>
             <div class="legend-item"><span class="legend-dot" style="background:var(--color-offline)"/><span>OFFLINE</span></div>
+            <div class="legend-item legend-item--conn">
+              <span class="legend-line legend-line--synced"/><span>Both SYNCED</span>
+            </div>
+            <div class="legend-item legend-item--conn">
+              <span class="legend-line legend-line--active"/><span>Connected</span>
+            </div>
+            <div class="legend-item legend-item--conn">
+              <span class="legend-line legend-line--offline"/><span>Peer offline</span>
+            </div>
             <div class="legend-item legend-item--hint"><span class="legend-icon">⤢</span><span>Click badge → details</span></div>
           </div>
         </div>
@@ -513,7 +590,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
       </template>
     </template>
 
-    <!-- NodeDetailDrawer — FIX: передаём полный NodeListItem объект, не node-id -->
+    <!-- NodeDetailDrawer -->
     <NodeDetailDrawer
       v-if="drawerNode !== null"
       :node="drawerNode"
@@ -534,6 +611,10 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           <div class="tt-row"><span>State</span><span class="tt-val" :style="{ color: nodeColor(tooltip.node) }">{{ nodeStatLabel(tooltip.node) }}</span></div>
           <div class="tt-row"><span>DC</span><span class="tt-val">{{ tooltip.node.dc_name ?? '—' }}</span></div>
           <div class="tt-row"><span>SSH</span><span class="tt-val" :style="{ color: tooltip.node.ssh_ok ? 'var(--color-synced)' : 'var(--color-offline)' }">{{ tooltip.node.ssh_ok ? 'OK' : 'FAIL' }}</span></div>
+          <div v-if="tooltip.node.wsrep_incoming_addresses" class="tt-row">
+            <span>Peers</span>
+            <span class="tt-val tt-peers">{{ tooltip.node.wsrep_incoming_addresses }}</span>
+          </div>
           <div v-if="tooltip.node.wsrep_flow_control_paused != null" class="tt-row">
             <span>Flow Ctrl</span><span class="tt-val">{{ (tooltip.node.wsrep_flow_control_paused * 100).toFixed(1) }}%</span>
           </div>
@@ -644,9 +725,26 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
-.topo-line         { stroke:var(--color-border); stroke-width:1; stroke-dasharray:3 2; opacity:.5; }
-.topo-line--intra  { stroke: var(--color-text-faint); stroke-width: 1.4; stroke-dasharray: 4 2; opacity: 0.85; }
-.topo-line--dc     { stroke:var(--color-primary); stroke-width:1.2; stroke-dasharray:5 3; opacity:.5; }
+/* ── Connection lines ─────────────────────────────────────────────────────────── */
+.topo-line {
+  stroke-width: 1.2;
+  fill: none;
+}
+.topo-line--synced {
+  stroke: var(--color-synced);
+  stroke-dasharray: 4 2;
+  opacity: 0.75;
+}
+.topo-line--active {
+  stroke: var(--color-donor);
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.topo-line--offline {
+  stroke: var(--color-text-faint);
+  stroke-dasharray: 2 4;
+  opacity: 0.35;
+}
 
 /* ── Legend ───────────────────────────────────────────────────────────────────── */
 .topo-legend {
@@ -659,8 +757,13 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .legend-items  { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); align-items:center; }
 .legend-item   { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); }
 .legend-item--hint { color: var(--color-text-faint); }
+.legend-item--conn { gap: var(--space-2); }
 .legend-dot    { width:7px; height:7px; border-radius:50%; display:inline-block; flex-shrink:0; }
 .legend-icon   { font-size:10px; line-height:1; }
+.legend-line   { display:inline-block; width:22px; height:2px; border-radius:1px; flex-shrink:0; }
+.legend-line--synced  { background: var(--color-synced);  opacity: 0.8; }
+.legend-line--active  { background: var(--color-donor);   opacity: 0.7; }
+.legend-line--offline { background: var(--color-text-faint); opacity: 0.5; }
 
 /* ── Tables ───────────────────────────────────────────────────────────────────── */
 .node-table-wrap {
@@ -777,6 +880,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .tt-tag   { font-size:9px; background:var(--color-surface-dynamic); border-radius:var(--radius-sm); padding:1px 5px; color:var(--color-text-muted); font-weight:600; letter-spacing:.06em; }
 .tt-row   { display:flex; justify-content:space-between; gap:var(--space-4); font-size:var(--text-xs); color:var(--color-text-muted); line-height:1.7; }
 .tt-val   { font-family:var(--font-mono,monospace); color:var(--color-text); }
+.tt-peers { font-size:9px; max-width:140px; word-break:break-all; color:var(--color-text-muted); }
 .tt-hint  { margin-top:var(--space-2); font-size:var(--text-xs); color:var(--color-text-faint); text-align:center; border-top:1px solid var(--color-divider); padding-top:var(--space-2); }
 
 .loading-state {

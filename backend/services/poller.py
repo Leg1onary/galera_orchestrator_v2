@@ -63,6 +63,7 @@ _WSREP_STATUS_VARS = (
     "wsrep_local_send_queue",
     "wsrep_flow_control_paused",
     "wsrep_flow_control_sent",
+    "wsrep_incoming_addresses",
 )
 
 _WSREP_IN_CLAUSE = ", ".join(f"'{v}'" for v in _WSREP_STATUS_VARS)
@@ -408,6 +409,7 @@ def _apply_wsrep_status(state: LiveNodeState, status_map: dict[str, str]) -> Non
     state.wsrep_connected             = status_map.get("wsrep_connected", "OFF")
     state.wsrep_ready                 = status_map.get("wsrep_ready", "OFF")
     state.wsrep_local_state_comment   = status_map.get("wsrep_local_state_comment", "OFFLINE")
+    state.wsrep_incoming_addresses    = status_map.get("wsrep_incoming_addresses", "")
 
     try:
         state.wsrep_cluster_size = int(status_map.get("wsrep_cluster_size", "0") or "0")
@@ -443,6 +445,7 @@ def _fill_wsrep_defaults(state: LiveNodeState) -> None:
     state.wsrep_local_recv_queue      = 0
     state.wsrep_local_send_queue      = 0
     state.wsrep_flow_control_paused   = 0.0
+    state.wsrep_incoming_addresses    = ""
     state.readonly                    = False
 
 

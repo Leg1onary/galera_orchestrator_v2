@@ -33,6 +33,9 @@ class LiveNodeState:
     wsrep_local_recv_queue: int = 0
     wsrep_local_send_queue: int = 0
     wsrep_flow_control_paused: float = 0.0      # 0.0 – 1.0
+    # Comma-separated list of host:port peers this node sees right now.
+    # Populated from SHOW GLOBAL STATUS WHERE Variable_name='wsrep_incoming_addresses'
+    wsrep_incoming_addresses: str = ""
 
     # ── Extra live fields ─────────────────────────────────────────────────────
     readonly: bool = False          # SHOW GLOBAL VARIABLES LIKE 'read_only'
@@ -71,6 +74,7 @@ class LiveNodeState:
             "wsrep_local_recv_queue":    self.wsrep_local_recv_queue,
             "wsrep_local_send_queue":    self.wsrep_local_send_queue,
             "wsrep_flow_control_paused": self.wsrep_flow_control_paused,
+            "wsrep_incoming_addresses":  self.wsrep_incoming_addresses,
             "readonly":                  self.readonly,
             "maintenance_drift":         self.maintenance_drift,
             "ssh_ok":                    self.ssh_ok,
