@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     FERNET_SECRET_KEY: str = "change-me-fernet-base64-key"
 
     # SSH
-    SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
+    SSH_KEY_PATH: str = "/home/nonroot/.ssh/id_rsa"
     SSH_CONNECT_TIMEOUT: int = 5
     SSH_COMMAND_TIMEOUT: int = 10
 
@@ -60,6 +60,9 @@ class Settings(BaseSettings):
 
     # App
     APP_VERSION: str = "2.0.0"
+
+    # Docs (SEC-006: disabled in prod by default)
+    DOCS_ENABLED: bool = False
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod

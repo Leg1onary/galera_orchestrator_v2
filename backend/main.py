@@ -11,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from config import settings
 from database import init_db
 from routers import (
     auth_router,
@@ -29,6 +31,48 @@ from services.poller import start_poller, stop_poller
 logger = logging.getLogger(__name__)
 
 
+# ── Security Headers Middleware (SEC-005) ────────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Add security headers to every HTTP response.
+    WebSocket upgrade requests are excluded automatically —
+    Starlette does not call this middleware for WS connections.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Prevent MIME-type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Deny framing (clickjacking protection)
+        response.headers["X-Frame-Options"] = "DENY"
+        # Legacy XSS filter (defence in depth for old browsers)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Limit referrer information leakage
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Disable browser features not used by this app
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), camera=(), microphone=(), usb=(), payment=()"
+        )
+        # CSP: SPA served from same origin; no inline scripts needed in prod
+        # 'unsafe-inline' style for Vite/React CSS-in-JS — tighten after audit of frontend
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self' ws: wss:; "
+            "frame-ancestors 'none'"
+        )
+        # HSTS: enforce HTTPS for 1 year (only active when behind TLS proxy)
+        # Set COOKIE_SECURE=true in prod and ensure TLS termination is in place
+        if settings.COOKIE_SECURE:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -39,12 +83,13 @@ async def lifespan(app: FastAPI):
     logger.info("Galera Orchestrator v2 stopped")
 
 
+# ── FastAPI app (SEC-006: docs disabled in prod by default) ────────────────
 app = FastAPI(
     title="Galera Orchestrator v2",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url="/docs"     if settings.DOCS_ENABLED else None,
+    redoc_url="/redoc"   if settings.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
     lifespan=lifespan,
 )
 
@@ -52,6 +97,10 @@ app = FastAPI(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Security headers ─────────────────────────────────────────────────────────
+# Must be added AFTER exception handlers so headers are set on all responses
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── CORS (dev only) ──────────────────────────────────────────────────────────
 app.add_middleware(

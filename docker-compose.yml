@@ -19,8 +19,8 @@ services:
       - orchestrator-data:/data
 
       # SSH ключ — read-only bind mount (ТЗ раздел 3.2)
-      # Путь на хосте задаётся через SSH_KEY_HOST_PATH в .env
-      - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/root/.ssh/id_rsa:ro
+      # SEC-004: монтируем в директорию nonroot-пользователя
+      - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/home/nonroot/.ssh/id_rsa:ro
 
     environment:
       # ── Database ────────────────────────────────────────────
@@ -42,7 +42,13 @@ services:
       FERNET_SECRET_KEY: ${FERNET_SECRET_KEY}
 
       # ── SSH ─────────────────────────────────────────────────
-      SSH_KEY_PATH: /root/.ssh/id_rsa
+      # SEC-004: путь обновлён под nonroot-пользователя
+      SSH_KEY_PATH: /home/nonroot/.ssh/id_rsa
+
+      # ── App ───────────────────────────────────────────────────
+      # false — выключает /docs, /redoc, /openapi.json в проде (default)
+      # true  — включить только для локальной разработки
+      DOCS_ENABLED: ${DOCS_ENABLED:-false}
 
       # ── Timeouts (sec) ──────────────────────────────────────
       SSH_CONNECT_TIMEOUT:  ${SSH_CONNECT_TIMEOUT:-5}
