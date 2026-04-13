@@ -19,19 +19,14 @@ export const useRecoveryStore = defineStore('recovery', () => {
     const step = ref<WizardStep>(1)
     const clusterId = ref<number | null>(null)
 
-    // Step 1 — данные из GET /api/clusters/{id}/status (ТЗ п.13.7 шаг 1)
-    // [BLOCKER FIX] scan() удалён, scanResult заменён на clusterStatus
     const clusterStatus = ref<any | null>(null)
     const statusLoading = ref(false)
     const statusError = ref<string | null>(null)
 
-    // Step 2 — bootstrap selection
     const selectedBootstrapNodeId = ref<number | null>(null)
-    // [BLOCKER FIX] bootstrapForce удалён — ТЗ не фиксирует этот параметр
     const bootstrapping = ref(false)
     const bootstrapError = ref<string | null>(null)
 
-    // Step 3 — progress
     const operationId = ref<number | null>(null)
     const progressPct = ref(0)
     const progressMessage = ref<string | null>(null)
@@ -49,12 +44,9 @@ export const useRecoveryStore = defineStore('recovery', () => {
     )
 
     const recommendedBootstrapNodeId = computed<number | null>(() =>
-        // backend рекомендует ноду с наибольшим seqno и safe_to_bootstrap=1
-        // ТЗ п.13.7: логика выбора на бэке, фронт отображает
         clusterStatus.value?.recommended_bootstrap_node_id ?? null
     )
 
-    // [MINOR FIX] только OFFLINE ноды нуждаются в rejoin
     const nodesNeedingRejoin = computed<NodeListItem[]>(() =>
         clusterStatus.value?.nodes?.filter(
             (n: NodeListItem) =>
@@ -65,16 +57,19 @@ export const useRecoveryStore = defineStore('recovery', () => {
 
     // ── Actions ───────────────────────────────────────────────────────────────
     async function init(cId: number) {
-        // [MAJOR FIX] отписываем предыдущую WS-подписку перед reset
+        // Если кластер тот же — не сбрасываем стейт (сохраняем результаты скана)
+        if (clusterId.value === cId) return
+
+        // Смена кластера — полный сброс
         wsUnsub?.()
         wsUnsub = null
         clusterId.value = cId
         reset()
         subscribeWs()
+
         // Polling-fallback: восстанавливаем прогресс если зашли во время активной операции
         try {
             const status = await recoveryApi.getStatus(cId)
-            // [BUG FIX] op.state — правильное поле (было op.status)
             const op = status.active_operation
             if (op && ['pending', 'running', 'cancel_requested'].includes(op.state)) {
                 operationId.value = op.operation_id
@@ -108,12 +103,10 @@ export const useRecoveryStore = defineStore('recovery', () => {
         statusLoading.value = true
         statusError.value = null
         try {
-            // используем cluster status endpoint — содержит nodes с wsrep-данными
             const { data } = await import('@/api/client').then(m =>
                 m.api.get(`/api/clusters/${clusterId.value}/status`)
             )
             clusterStatus.value = data
-            // Автовыбор рекомендованной ноды
             if (data.recommended_bootstrap_node_id) {
                 selectedBootstrapNodeId.value = data.recommended_bootstrap_node_id
             }
@@ -129,7 +122,6 @@ export const useRecoveryStore = defineStore('recovery', () => {
         bootstrapping.value = true
         bootstrapError.value = null
         try {
-            // [BLOCKER FIX] bootstrap без force — ТЗ п.9.1
             const res = await recoveryApi.bootstrap(
                 clusterId.value,
                 selectedBootstrapNodeId.value,
@@ -173,7 +165,6 @@ export const useRecoveryStore = defineStore('recovery', () => {
     function subscribeWs() {
         const wsStore = useWsStore()
         wsUnsub = wsStore.on((event) => {
-            // [MAJOR FIX] фильтр по payload.type вместо payload.operation_type
             if (
                 event.event === 'operation_started' &&
                 (event.payload?.type as string)?.startsWith('recovery')
@@ -192,8 +183,6 @@ export const useRecoveryStore = defineStore('recovery', () => {
                 const status = event.payload?.status as string
                 progressMessage.value = (event.payload?.message as string) ?? 'Completed'
 
-                // [BLOCKER FIX] 'operation_cancelled' не существует в ТЗ —
-                // отмена приходит через operation_finished с status='cancelled'
                 if (status === 'cancelled' || status === 'cancel_requested') {
                     operationState.value = 'cancelled'
                 } else if (status === 'failed') {
@@ -201,7 +190,6 @@ export const useRecoveryStore = defineStore('recovery', () => {
                     operationState.value = 'failed'
                     operationError.value = (event.payload?.error_message as string) ?? 'Unknown error'
                 } else {
-                    // [MAJOR FIX] 'success' вместо 'finished'
                     progressPct.value = 100
                     operationState.value = 'success'
                 }
@@ -226,6 +214,7 @@ export const useRecoveryStore = defineStore('recovery', () => {
         wsUnsub?.()
         wsUnsub = null
         reset()
+        clusterId.value = null
     }
 
     return {
