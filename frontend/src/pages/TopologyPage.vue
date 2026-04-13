@@ -227,16 +227,7 @@ function arbBadgeY(dc: DCGroup, ai: number) {
   return TOP_OFF + 8 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
 }
 
-// ── Connection lines based on wsrep_incoming_addresses ───────────────────────
-//
-// Алгоритм:
-//  1. Для каждой ноды парсим wsrep_incoming_addresses → список host'ов пиров
-//     Формат: "192.168.1.1:4567,192.168.1.2:4567" или "0.0.0.0" (гарбд/нет пиров)
-//  2. Для каждой пары (nodeA, nodeB) где nodeA видит host nodeB в своём
-//     wsrep_incoming_addresses — добавляем ребро [idA, idB]
-//  3. Дедупликация: храним только пары где idA < idB чтобы не рисовать дважды
-//  4. Стиль линии определяется состоянием обеих нод
-
+// ── Connection lines ──────────────────────────────────────────────────────────
 function parseIncomingHosts(raw: string): Set<string> {
   if (!raw || raw === '0.0.0.0') return new Set()
   return new Set(
@@ -250,7 +241,6 @@ interface ConnectionLine {
   style: 'synced' | 'active' | 'offline'
 }
 
-// Возвращает центр бейджа ноды в SVG-координатах по её id
 function nodeBadgeCenter(nodeId: number): { x: number; y: number } | null {
   for (let di = 0; di < dcGroups.value.length; di++) {
     const dc = dcGroups.value[di]
@@ -275,10 +265,8 @@ const connectionLines = computed<ConnectionLine[]>(() => {
 
     for (const nodeB of allNodes) {
       if (nodeA.id === nodeB.id) continue
-      // nodeA видит nodeB как пира
       if (!peersOfA.has(nodeB.host)) continue
 
-      // Дедупликация — одна линия на пару
       const pairKey = [nodeA.id, nodeB.id].sort((a, b) => a - b).join('-')
       if (seen.has(pairKey)) continue
       seen.add(pairKey)
@@ -287,7 +275,6 @@ const connectionLines = computed<ConnectionLine[]>(() => {
       const cB = nodeBadgeCenter(nodeB.id)
       if (!cA || !cB) continue
 
-      // Стиль: обе SYNCED → зелёный, кто-то offline → серый, иначе жёлтый
       const aState = (nodeA.wsrep_local_state_comment ?? '').toUpperCase()
       const bState = (nodeB.wsrep_local_state_comment ?? '').toUpperCase()
       let style: ConnectionLine['style'] = 'active'
@@ -303,20 +290,47 @@ const connectionLines = computed<ConnectionLine[]>(() => {
   return lines
 })
 
+// ── Debug panel data ──────────────────────────────────────────────────────────
+const showDebug = ref(true)
+
+interface DebugNodeRow {
+  id: number
+  name: string
+  host: string
+  raw_incoming: string
+  parsed_peers: string[]
+  match_results: { target_name: string; target_host: string; matched: boolean }[]
+}
+
+const debugRows = computed<DebugNodeRow[]>(() => {
+  return nodes.value.map(nodeA => {
+    const peers = parseIncomingHosts(nodeA.wsrep_incoming_addresses)
+    return {
+      id: nodeA.id,
+      name: nodeA.name,
+      host: nodeA.host,
+      raw_incoming: nodeA.wsrep_incoming_addresses || '(empty)',
+      parsed_peers: Array.from(peers),
+      match_results: nodes.value
+        .filter(nb => nb.id !== nodeA.id)
+        .map(nb => ({
+          target_name: nb.name,
+          target_host: nb.host,
+          matched: peers.has(nb.host),
+        })),
+    }
+  })
+})
+
 function nodeSSHOk(n: unknown): boolean     { return (n as NodeNorm).ssh_ok }
 function nodeState(n: unknown): string|null { return (n as NodeNorm).wsrep_local_state_comment }
 function nodeReady(n: unknown): string|null { return (n as NodeNorm).wsrep_ready }
 function nodeRO(n: unknown): boolean        { return (n as NodeNorm).readonly }
 function nodeMaint(n: unknown): boolean     { return (n as NodeNorm).maintenance }
 function nodeDrift(n: unknown): boolean     { return (n as NodeNorm).maintenance_drift }
-function nodeFlowCtrl(n: unknown): number|null { return (n as NodeNorm).wsrep_flow_control_paused }
-function nodeRecvQ(n: unknown): number|null    { return (n as NodeNorm).wsrep_local_recv_queue }
-function nodeDcName(n: unknown): string|null   { return (n as NodeNorm).dc_name }
 
 function arbSSHOk(a: unknown): boolean        { return (a as ArbNorm).ssh_ok }
 function arbGarbd(a: unknown): boolean        { return (a as ArbNorm).garbd_running }
-function arbLatency(a: unknown): number|null  { return (a as ArbNorm).ssh_latency_ms }
-function arbDcName(a: unknown): string|null   { return (a as ArbNorm).dc_name }
 
 function nodeColor(n: unknown): string {
   const s = (nodeState(n) ?? '').toUpperCase()
@@ -477,6 +491,49 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             </g>
           </svg>
         </div>
+
+        <!-- ── DEBUG PANEL (временный, удалить после диагностики) ─────────── -->
+        <div class="debug-panel">
+          <div class="debug-header" @click="showDebug = !showDebug">
+            <span>🔍 Connection Debug</span>
+            <span class="debug-toggle">{{ showDebug ? '▲ hide' : '▼ show' }}</span>
+          </div>
+          <template v-if="showDebug">
+            <div class="debug-summary">
+              <b>connectionLines.length:</b> {{ connectionLines.length }}
+              &nbsp;|&nbsp;
+              <b>nodes.length:</b> {{ nodes.length }}
+            </div>
+            <div v-for="row in debugRows" :key="row.id" class="debug-node">
+              <div class="debug-node-title">
+                <b>{{ row.name }}</b>
+                <span class="debug-mono">host={{ row.host }}</span>
+              </div>
+              <div class="debug-row">
+                <span class="debug-label">raw wsrep_incoming_addresses:</span>
+                <span class="debug-mono">{{ row.raw_incoming }}</span>
+              </div>
+              <div class="debug-row">
+                <span class="debug-label">parsed hosts:</span>
+                <span class="debug-mono">{{ row.parsed_peers.join(', ') || '(none)' }}</span>
+              </div>
+              <div class="debug-row">
+                <span class="debug-label">peer matches:</span>
+                <span v-for="m in row.match_results" :key="m.target_name" class="debug-match" :class="m.matched ? 'debug-match--ok' : 'debug-match--no'">
+                  {{ m.target_name }}({{ m.target_host }})={{ m.matched ? '✓' : '✗' }}
+                </span>
+              </div>
+            </div>
+            <div class="debug-lines">
+              <b>Rendered lines ({{ connectionLines.length }}):</b>
+              <span v-for="(l, i) in connectionLines" :key="i" class="debug-mono debug-line-item">
+                [{{ l.style }}] ({{ l.x1.toFixed(0) }},{{ l.y1.toFixed(0) }})→({{ l.x2.toFixed(0) }},{{ l.y2.toFixed(0) }})
+              </span>
+              <span v-if="!connectionLines.length" class="debug-mono" style="color:var(--color-offline)">no lines generated</span>
+            </div>
+          </template>
+        </div>
+        <!-- ── END DEBUG PANEL ────────────────────────────────────────────── -->
 
         <!-- Legend -->
         <div class="topo-legend">
@@ -744,6 +801,72 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   stroke: var(--color-text-faint);
   stroke-dasharray: 2 4;
   opacity: 0.35;
+}
+
+/* ── Debug panel ──────────────────────────────────────────────────────────────── */
+.debug-panel {
+  background: #0d1117;
+  border: 1px solid #f97316;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: #e2e8f0;
+  overflow: hidden;
+}
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  background: rgba(249,115,22,.12);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 700;
+  color: #f97316;
+}
+.debug-toggle { font-size: 10px; color: #94a3b8; }
+.debug-summary {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid #1e293b;
+  color: #94a3b8;
+}
+.debug-node {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid #1e293b;
+}
+.debug-node-title {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: 2px;
+  color: #f1f5f9;
+}
+.debug-row {
+  display: flex;
+  gap: var(--space-2);
+  line-height: 1.6;
+  flex-wrap: wrap;
+}
+.debug-label { color: #64748b; min-width: 220px; }
+.debug-mono  { color: #cbd5e1; }
+.debug-match {
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+.debug-match--ok  { background: rgba(34,197,94,.15);  color: #22c55e; }
+.debug-match--no  { background: rgba(239,68,68,.1);   color: #ef4444; }
+.debug-lines {
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.debug-line-item {
+  background: #1e293b;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
 }
 
 /* ── Legend ───────────────────────────────────────────────────────────────────── */
