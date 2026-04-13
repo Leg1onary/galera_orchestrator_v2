@@ -12,9 +12,7 @@
 
     <!-- IDLE -->
     <div v-if="!store.clusterStatus && !store.statusLoading" class="state-idle">
-      <div class="state-idle-icon">
-        <i class="pi pi-search" />
-      </div>
+      <div class="state-idle-icon"><i class="pi pi-search" /></div>
       <p class="state-idle-hint">No scan performed yet.</p>
       <Button label="Start scan" icon="pi pi-play" class="idle-btn" @click="store.loadStatus()" />
     </div>
@@ -46,11 +44,20 @@
 
       <!-- NODE TABLE -->
       <div class="scan-table-wrap">
+        <!-- Empty state -->
+        <div v-if="!store.clusterStatus.nodes?.length" class="scan-empty">
+          <i class="pi pi-exclamation-circle" />
+          <span>No nodes returned from scan. Check SSH connectivity.</span>
+        </div>
+
         <DataTable
+            v-else
             :value="store.clusterStatus.nodes"
             dataKey="id"
             size="small"
             class="scan-table"
+            scrollable
+            scrollHeight="360px"
         >
           <Column field="name" header="Node" :sortable="true">
             <template #body="{ data }">
@@ -97,6 +104,31 @@
             </template>
           </Column>
 
+          <!-- seqno column: key for bootstrap node selection -->
+          <Column header="seqno" style="width: 90px">
+            <template #body="{ data }">
+              <span v-if="data.live?.seqno == null" class="cell-muted">—</span>
+              <span v-else class="cell-seqno" :class="data.live.seqno === maxSeqno ? 'cell-seqno--max' : ''">
+                {{ data.live.seqno }}
+              </span>
+            </template>
+          </Column>
+
+          <!-- safe_to_bootstrap: critical safety field from grastate.dat -->
+          <Column header="safe_to_btsp" style="width: 110px">
+            <template #body="{ data }">
+              <span v-if="data.live?.safe_to_bootstrap == null" class="cell-muted">—</span>
+              <span
+                v-else
+                class="stb-badge"
+                :class="data.live.safe_to_bootstrap === 1 ? 'stb-badge--yes' : 'stb-badge--no'"
+              >
+                <i v-if="data.live.safe_to_bootstrap !== 1" class="pi pi-exclamation-triangle" style="font-size:0.6rem" />
+                {{ data.live.safe_to_bootstrap === 1 ? 'YES' : 'NO' }}
+              </span>
+            </template>
+          </Column>
+
           <Column header="Error">
             <template #body="{ data }">
               <span v-if="data.live?.error" class="cell-error">{{ data.live.error }}</span>
@@ -110,14 +142,18 @@
       <div class="step-actions">
         <Button label="Re-scan" icon="pi pi-refresh" outlined size="small" @click="store.loadStatus()" />
 
-        <!--
-          Кнопка Next задизейблена когда:
-            1. clusterIsHealthy — все ноды Synced, recovery не нужен
-            2. !hasOfflineNodes  — нет ни одной ноды с wsrep_connected != ON
-          Так как disabled=true поглощает pointer-events, оборачиваем в span
-          чтобы v-tooltip отрабатывал при наведении на задизейбленную кнопку.
-        -->
+        <!-- When healthy: offer navigation to Overview instead of disabled Next -->
+        <Button
+          v-if="clusterIsHealthy"
+          label="Go to Overview"
+          icon="pi pi-home"
+          outlined
+          size="small"
+          @click="emit('go-overview')"
+        />
+
         <span
+          v-else
           v-tooltip.top="nextButtonTooltip"
           :class="{ 'next-btn-wrapper': isNextDisabled }"
         >
@@ -142,24 +178,25 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import ProgressSpinner from 'primevue/progressspinner'
 import { useRecoveryStore } from '@/stores/recovery'
+import { useRouter } from 'vue-router'
 
-const emit = defineEmits<{ next: [] }>()
+const emit = defineEmits<{ next: []; 'go-overview': [] }>()
 const store = useRecoveryStore()
+const router = useRouter()
 
 const clusterIsHealthy = computed(
   () => store.clusterStatus?.cluster_status === 'healthy'
 )
 
+// Simplified: previous expr had redundant double condition
 const hasOfflineNodes = computed(() =>
   (store.clusterStatus?.nodes ?? []).some(
-    (n: any) => !n.live?.wsrep_connected || n.live?.wsrep_connected !== 'ON'
+    (n: any) => n.live?.wsrep_connected !== 'ON'
   )
 )
 
-/** true когда кнопка Next должна быть задизейблена */
 const isNextDisabled = computed(() => clusterIsHealthy.value || !hasOfflineNodes.value)
 
-/** Текст тултипа — объясняет конкретную причину блокировки */
 const nextButtonTooltip = computed(() => {
   if (!isNextDisabled.value) return undefined
   if (clusterIsHealthy.value)
@@ -169,10 +206,22 @@ const nextButtonTooltip = computed(() => {
   return undefined
 })
 
+// Max seqno across nodes for highlighting the candidate
+const maxSeqno = computed(() => {
+  const seqnos = (store.clusterStatus?.nodes ?? [])
+    .map((n: any) => n.live?.seqno)
+    .filter((s: any) => s != null) as number[]
+  return seqnos.length ? Math.max(...seqnos) : null
+})
+
+// Fixed: API returns uppercase SYNCED/JOINED/DONOR/DESYNCED
 function stateClass(state: string | null): string {
   if (!state) return 'cell-state--unknown'
-  if (state === 'Synced') return 'cell-state--synced'
-  if (state === 'Joined') return 'cell-state--joined'
+  const s = state.toUpperCase()
+  if (s === 'SYNCED')               return 'cell-state--synced'
+  if (s === 'JOINED')               return 'cell-state--joined'
+  if (s === 'DONOR' || s === 'DESYNCED') return 'cell-state--donor'
+  if (s === 'JOINER')               return 'cell-state--donor'
   return 'cell-state--other'
 }
 </script>
@@ -185,97 +234,58 @@ function stateClass(state: string | null): string {
   height: 100%;
 }
 
-/* HEADER */
 .step-header { display: flex; flex-direction: column; gap: var(--space-2); }
-.step-title  {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--color-text);
-  letter-spacing: -0.02em;
-}
+.step-title  { font-size: var(--text-xl); font-weight: 700; color: var(--color-text); letter-spacing: -0.02em; }
 .step-desc   { font-size: var(--text-sm); color: var(--color-text-muted); line-height: 1.5; }
 
-/* IDLE STATE */
+/* IDLE */
 .state-idle {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-6);
-  padding: var(--space-16) 0;
-  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: var(--space-6); padding: var(--space-16) 0; flex: 1;
 }
 .state-idle-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-offset);
-  color: var(--color-text-faint);
-  font-size: 1.8rem;
-  border: 1px solid var(--color-border);
+  width: 72px; height: 72px; border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-surface-offset); color: var(--color-text-faint);
+  font-size: 1.8rem; border: 1px solid var(--color-border);
 }
-.state-idle-hint {
-  font-size: var(--text-base);
-  color: var(--color-text-muted);
-}
-.state-idle :deep(.idle-btn.p-button) {
-  padding: var(--space-3) var(--space-8);
-  font-size: var(--text-base);
-  font-weight: 600;
-}
+.state-idle-hint { font-size: var(--text-base); color: var(--color-text-muted); }
+.state-idle :deep(.idle-btn.p-button) { padding: var(--space-3) var(--space-8); font-size: var(--text-base); font-weight: 600; }
 
-/* SCANNING STATE */
+/* SCANNING */
 .state-scanning {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
-  padding: var(--space-16) 0;
-  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: var(--space-4); padding: var(--space-16) 0; flex: 1;
 }
 .state-scanning-hint { font-size: var(--text-sm); color: var(--color-text-muted); }
 
-/* ERROR STATE */
+/* ERROR */
 .state-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-12) 0;
-  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; gap: var(--space-3);
+  padding: var(--space-12) 0; flex: 1;
 }
 .state-error-icon {
-  font-size: 2rem;
-  color: var(--color-error);
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 2rem; color: var(--color-error);
+  width: 56px; height: 56px;
+  display: flex; align-items: center; justify-content: center;
   background: color-mix(in oklch, var(--color-error) 12%, transparent);
   border-radius: var(--radius-full);
 }
 .state-error-msg { font-size: var(--text-sm); color: var(--color-error); text-align: center; max-width: 48ch; }
 
-/* BANNERS */
+/* BANNER */
 .result-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  font-size: var(--text-sm);
-  line-height: 1.5;
+  display: flex; align-items: flex-start;
+  gap: var(--space-3); padding: var(--space-4);
+  border-radius: var(--radius-md); border: 1px solid transparent;
+  font-size: var(--text-sm); line-height: 1.5;
 }
 .result-banner i { font-size: 1.1rem; margin-top: 1px; flex-shrink: 0; }
 .result-banner strong { display: block; font-weight: 600; margin-bottom: 2px; }
 .result-banner p { margin: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
-
 .result-banner--success {
   background: color-mix(in oklch, var(--color-success) 10%, transparent);
   border-color: color-mix(in oklch, var(--color-success) 30%, transparent);
@@ -283,34 +293,41 @@ function stateClass(state: string | null): string {
 }
 
 /* TABLE */
-.scan-table-wrap {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+.scan-table-wrap { border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.scan-empty {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-6) var(--space-5);
+  color: var(--color-text-muted); font-size: var(--text-sm);
+}
+.scan-empty .pi { color: var(--color-warning); font-size: 1rem; }
+
+/* CELLS */
+.cell-node        { display: flex; flex-direction: column; gap: 2px; }
+.cell-node-name   { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
+.cell-node-host   { font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
+.cell-muted       { color: var(--color-text-faint); font-size: var(--text-xs); }
+.cell-error       { font-size: var(--text-xs); color: var(--color-error); }
+
+.cell-state              { font-size: var(--text-xs); font-weight: 600; }
+.cell-state--synced      { color: var(--color-success); }
+.cell-state--joined      { color: var(--color-primary); }
+.cell-state--donor       { color: var(--color-warning); }
+.cell-state--other       { color: var(--color-warning); }
+.cell-state--unknown     { color: var(--color-text-faint); }
+
+/* seqno highlight */
+.cell-seqno         { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-seqno--max    {
+  color: var(--color-success); font-weight: 700;
+  background: color-mix(in oklch, var(--color-success) 10%, transparent);
+  border-radius: var(--radius-sm); padding: 1px 5px;
 }
 
-/* CELL STYLES */
-.cell-node { display: flex; flex-direction: column; gap: 2px; }
-.cell-node-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-text); }
-.cell-node-host { font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
-.cell-muted     { color: var(--color-text-faint); font-size: var(--text-xs); }
-.cell-error     { font-size: var(--text-xs); color: var(--color-error); }
-
-.cell-state { font-size: var(--text-xs); font-weight: 600; }
-.cell-state--synced  { color: var(--color-success); }
-.cell-state--joined  { color: var(--color-primary); }
-.cell-state--other   { color: var(--color-warning); }
-.cell-state--unknown { color: var(--color-text-faint); }
-
-/* SSH badge */
+/* SSH / connected badges */
 .ssh-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
+  display: inline-flex; align-items: center;
+  gap: 4px; font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.06em; padding: 2px 7px;
   border-radius: var(--radius-full);
 }
 .ssh-badge--ok {
@@ -323,14 +340,10 @@ function stateClass(state: string | null): string {
   color: var(--color-error);
   border: 1px solid color-mix(in oklch, var(--color-error) 30%, transparent);
 }
-
-/* wsrep_connected badge */
 .stb-badge {
-  display: inline-block;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.08em; padding: 2px 8px;
   border-radius: var(--radius-full);
 }
 .stb-badge--yes {
@@ -346,24 +359,9 @@ function stateClass(state: string | null): string {
 
 /* ACTIONS */
 .step-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--color-border);
-  margin-top: auto;
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: var(--space-2); border-top: 1px solid var(--color-border); margin-top: auto;
 }
-
-/*
-  Обёртка для задизейбленной кнопки Next.
-  pointer-events: none на самой кнопке — восстанавливаем на span,
-  чтобы v-tooltip мог сработать при наведении.
-*/
-.next-btn-wrapper {
-  display: inline-flex;
-  cursor: not-allowed;
-}
-.next-btn-wrapper :deep(.p-button:disabled) {
-  pointer-events: none;  /* клик всё равно не проходит */
-}
+.next-btn-wrapper { display: inline-flex; cursor: not-allowed; }
+.next-btn-wrapper :deep(.p-button:disabled) { pointer-events: none; }
 </style>

@@ -2,7 +2,7 @@
   <div class="wizard-step step-done">
 
     <!-- SUCCESS -->
-    <template v-if="store.operationState === 'success'">
+    <template v-if="isSuccess">
       <div class="done-icon-wrap done-icon-wrap--success">
         <i class="pi pi-check" />
       </div>
@@ -32,7 +32,7 @@
     </template>
 
     <!-- FAILED -->
-    <template v-else-if="store.operationState === 'failed'">
+    <template v-else-if="isFailed">
       <div class="done-icon-wrap done-icon-wrap--error">
         <i class="pi pi-times" />
       </div>
@@ -67,52 +67,41 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Button from 'primevue/button'
+import { useClusterStore } from '@/stores/cluster'
 import { useRecoveryStore } from '@/stores/recovery'
 
 const emit = defineEmits<{ 'go-overview': [] }>()
 const store = useRecoveryStore()
+const clusterStore = useClusterStore()
 
-// Resolve bootstrap node name from clusterStatus by selectedBootstrapNodeId
+const isSuccess = computed(() => store.operationState === 'success')
+const isFailed  = computed(() => store.operationState === 'failed')
+
 const bootstrapNodeName = computed(() => {
-    if (!store.selectedBootstrapNodeId || !store.clusterStatus?.nodes) return '—'
-    const node = (store.clusterStatus.nodes as any[]).find(
-        (n: any) => n.id === store.selectedBootstrapNodeId
-    )
-    return node?.name ?? '—'
+  if (!store.selectedBootstrapNodeId || !store.clusterStatus?.nodes) return '—'
+  const node = (store.clusterStatus.nodes as any[]).find(
+    (n: any) => n.id === store.selectedBootstrapNodeId
+  )
+  return node?.name ?? '—'
 })
 
 function handleRestart() {
-    store.reset()
-    // store.reset() sets step.value = 1, no need for extra emit
+  store.reset()
+  // Re-init with current cluster so Step 1 scan works immediately
+  const id = clusterStore.selectedClusterId
+  if (id) store.init(id)
 }
 </script>
 
 <style scoped>
-.wizard-step {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  height: 100%;
-}
-
-.step-done {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: var(--space-8) var(--space-6);
-}
+.wizard-step { display: flex; flex-direction: column; gap: var(--space-6); height: 100%; }
+.step-done   { align-items: center; justify-content: center; text-align: center; padding: var(--space-8) var(--space-6); }
 
 /* ICON */
 .done-icon-wrap {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.75rem;
-  position: relative;
-  flex-shrink: 0;
+  width: 72px; height: 72px; border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.75rem; position: relative; flex-shrink: 0;
 }
 .done-icon-wrap--success {
   background: color-mix(in oklch, var(--color-success) 15%, transparent);
@@ -131,77 +120,25 @@ function handleRestart() {
 }
 
 /* TEXT */
-.done-text { display: flex; flex-direction: column; gap: var(--space-2); }
-.done-title {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--color-text);
-  letter-spacing: -0.02em;
-}
-.done-desc {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  max-width: 44ch;
-  line-height: 1.6;
-  margin: 0 auto;
-}
+.done-text  { display: flex; flex-direction: column; gap: var(--space-2); }
+.done-title { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text); letter-spacing: -0.02em; }
+.done-desc  { font-size: var(--text-sm); color: var(--color-text-muted); max-width: 44ch; line-height: 1.6; margin: 0 auto; }
 .done-desc--error { color: var(--color-error); }
 
-/* STATS (success only) */
-.done-stats {
-  display: flex;
-  gap: var(--space-4);
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.done-stat {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
-  background: var(--color-surface-offset);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  min-width: 160px;
-  text-align: left;
-}
+/* STATS */
+.done-stats   { display: flex; gap: var(--space-4); justify-content: center; flex-wrap: wrap; }
+.done-stat    { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); background: var(--color-surface-offset); border: 1px solid var(--color-border); border-radius: var(--radius-md); min-width: 160px; text-align: left; }
 .done-stat-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  flex-shrink: 0;
+  width: 32px; height: 32px; border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.9rem; flex-shrink: 0;
 }
-.done-stat-icon--success {
-  background: color-mix(in oklch, var(--color-success) 15%, transparent);
-  color: var(--color-success);
-}
-.done-stat-icon--primary {
-  background: color-mix(in oklch, var(--color-primary) 15%, transparent);
-  color: var(--color-primary);
-}
-.done-stat > div { display: flex; flex-direction: column; gap: 2px; }
-.done-stat-label {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-text-faint);
-  font-weight: 600;
-}
-.done-stat-value {
-  font-size: var(--text-base);
-  font-weight: 700;
-  color: var(--color-text);
-}
+.done-stat-icon--success { background: color-mix(in oklch, var(--color-success) 15%, transparent); color: var(--color-success); }
+.done-stat-icon--primary { background: color-mix(in oklch, var(--color-primary) 15%, transparent); color: var(--color-primary); }
+.done-stat > div     { display: flex; flex-direction: column; gap: 2px; }
+.done-stat-label     { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-faint); font-weight: 600; }
+.done-stat-value     { font-size: var(--text-base); font-weight: 700; color: var(--color-text); }
 
 /* ACTIONS */
-.done-actions {
-  display: flex;
-  gap: var(--space-3);
-  justify-content: center;
-  margin-top: auto;
-}
+.done-actions { display: flex; gap: var(--space-3); justify-content: center; margin-top: auto; }
 </style>

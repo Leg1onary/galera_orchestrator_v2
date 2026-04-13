@@ -22,15 +22,11 @@ const clusterStatus = computed(() => {
   )
 })
 
-// Guard срабатывает только когда данные реально получены (не undefined).
-// Без этого на VDI при быстрой навигации кэш ещё пустой → status=undefined
-// → clusterIsHealthy=false → виджет мигает между wizard и healthy-banner.
 const clusterIsHealthy = computed(() => {
   if (clusterStatus.value === undefined || clusterStatus.value === null) return false
   return clusterStatus.value.status === 'healthy'
 })
 
-// Показываем wizard только когда кэш уже есть
 const statusReady = computed(() =>
   clusterStatus.value !== undefined && clusterStatus.value !== null
 )
@@ -104,12 +100,10 @@ onUnmounted(() => store.destroy())
       <i class="pi pi-server" /><span>No cluster selected</span>
     </div>
 
-    <!-- Пока кэш не прогрелся — показываем spinner вместо мигания wizard/banner -->
     <div v-else-if="!statusReady" class="rp-loading">
       <i class="pi pi-spin pi-spinner" /><span>Loading cluster status…</span>
     </div>
 
-    <!-- Guard: healthy -->
     <Message v-else-if="clusterIsHealthy" severity="success" :closable="false" class="rp-guard-msg">
       <div class="rp-guard-body">
         <strong>Cluster is healthy</strong>
@@ -117,7 +111,7 @@ onUnmounted(() => store.destroy())
       </div>
     </Message>
 
-    <!-- WIZARD two-column layout -->
+    <!-- WIZARD -->
     <div v-else class="rp-wizard">
 
       <!-- LEFT: vertical step sidebar -->
@@ -127,15 +121,13 @@ onUnmounted(() => store.destroy())
           :key="s.value"
           class="rp-step-item"
           :class="{
-            'rp-step--active':    store.step === s.value,
-            'rp-step--done':      store.step > s.value,
-            'rp-step--upcoming':  store.step < s.value,
+            'rp-step--active':   store.step === s.value,
+            'rp-step--done':     store.step > s.value,
+            'rp-step--upcoming': store.step < s.value,
           }"
         >
           <div class="rp-step-indicator">
-            <span v-if="store.step > s.value" class="rp-step-check">
-              <i class="pi pi-check" />
-            </span>
+            <span v-if="store.step > s.value" class="rp-step-check"><i class="pi pi-check" /></span>
             <span v-else class="rp-step-num">{{ s.value }}</span>
           </div>
           <div class="rp-step-connector" v-if="s.value < STEPS.length" />
@@ -149,21 +141,17 @@ onUnmounted(() => store.destroy())
       <!-- RIGHT: step content -->
       <main class="rp-content">
         <Transition name="step" mode="out-in">
-          <Step1Scan    v-if="store.step === 1" key="1" @next="store.goNext()" />
+          <Step1Scan      v-if="store.step === 1"      key="1" @next="store.goNext()" />
           <Step2Bootstrap v-else-if="store.step === 2" key="2" @back="store.goBack()" @next="store.goNext()" />
-          <Step3Rejoin  v-else-if="store.step === 3" key="3" @back="store.goBack()" @next="store.goNext()" />
-          <Step4Done    v-else-if="store.step === 4" key="4" @go-overview="router.push({ name: 'overview' })" />
+          <Step3Rejoin    v-else-if="store.step === 3" key="3" @next="store.goNext()" />
+          <Step4Done      v-else-if="store.step === 4" key="4" @go-overview="router.push({ name: 'overview' })" />
         </Transition>
       </main>
-
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════
-   PAGE ROOT
-═══════════════════════════════════════ */
 .recovery-page {
   display: flex;
   flex-direction: column;
@@ -175,17 +163,15 @@ onUnmounted(() => store.destroy())
 .rp-head { display: flex; flex-direction: column; gap: var(--space-1); }
 .rp-desc { font-size: var(--text-sm); color: var(--color-text-muted); }
 
-/* ── Info banner ─────────────────────────────────────────────────── */
+/* ─ Info banner ──────────────────────────────────────────────── */
 .info-banner {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
 }
-
 @media (max-width: 900px) {
   .info-banner { grid-template-columns: 1fr; }
 }
-
 .info-card {
   display: flex;
   flex-direction: column;
@@ -195,7 +181,6 @@ onUnmounted(() => store.destroy())
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
-
 .info-card-header {
   display: flex;
   align-items: center;
@@ -204,26 +189,10 @@ onUnmounted(() => store.destroy())
   font-weight: 600;
   color: var(--color-text);
 }
-
-.info-card-header .pi {
-  font-size: 0.875rem;
-  color: var(--color-primary);
-  flex-shrink: 0;
-}
-
-.info-card:last-child .info-card-header .pi {
-  color: var(--color-warning);
-}
-
-.info-card p {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  line-height: 1.65;
-  margin: 0;
-}
-
+.info-card-header .pi { font-size: 0.875rem; color: var(--color-primary); flex-shrink: 0; }
+.info-card:last-child .info-card-header .pi { color: var(--color-warning); }
+.info-card p { font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.65; margin: 0; }
 .info-card p strong { color: var(--color-text); font-weight: 600; }
-
 .info-card p code {
   font-family: var(--font-mono, monospace);
   font-size: 0.75em;
@@ -232,41 +201,23 @@ onUnmounted(() => store.destroy())
   padding: 1px 5px;
   color: var(--color-primary);
 }
+.info-card p em { font-style: normal; font-weight: 600; color: var(--color-text); }
 
-.info-card p em {
-  font-style: normal;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-/* ── Guards ──────────────────────────────────────────────────────── */
+/* ─ Guards ──────────────────────────────────────────────────── */
 .rp-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  color: var(--color-text-muted);
-  padding: var(--space-16);
-  font-size: var(--text-sm);
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--space-3); color: var(--color-text-muted);
+  padding: var(--space-16); font-size: var(--text-sm);
 }
-
-/* Спиннер пока кэш не прогрелся */
 .rp-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  color: var(--color-text-muted);
-  padding: var(--space-12);
-  font-size: var(--text-sm);
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--space-3); color: var(--color-text-muted);
+  padding: var(--space-12); font-size: var(--text-sm);
 }
-
-.rp-guard-msg { width: 100%; }
+.rp-guard-msg  { width: 100%; }
 .rp-guard-body { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
 
-/* ═══════════════════════════════════════
-   TWO-COLUMN WIZARD
-═══════════════════════════════════════ */
+/* ═══ WIZARD ═════════════════════════════════════════════════ */
 .rp-wizard {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -274,10 +225,26 @@ onUnmounted(() => store.destroy())
   flex: 1;
   min-height: 0;
 }
+@media (max-width: 860px) {
+  .rp-wizard {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .rp-sidebar {
+    position: static !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4) !important;
+  }
+  .rp-step-item {
+    grid-template-areas: "ind meta" !important;
+    grid-template-rows: auto !important;
+  }
+  .rp-step-connector { display: none !important; }
+  .rp-step-meta { padding-bottom: 0 !important; }
+}
 
-/* ═══════════════════════════════════════
-   LEFT SIDEBAR — vertical stepper
-═══════════════════════════════════════ */
+/* ─ Sidebar ──────────────────────────────────────────────── */
 .rp-sidebar {
   display: flex;
   flex-direction: column;
@@ -290,18 +257,13 @@ onUnmounted(() => store.destroy())
   position: sticky;
   top: var(--space-4);
 }
-
 .rp-step-item {
   display: grid;
-  grid-template-areas:
-    "ind  meta"
-    "conn meta";
+  grid-template-areas: "ind  meta" "conn meta";
   grid-template-columns: 28px 1fr;
   grid-template-rows: auto 1fr;
   column-gap: var(--space-3);
-  padding: 0;
 }
-
 .rp-step-connector {
   grid-area: conn;
   width: 2px;
@@ -312,7 +274,6 @@ onUnmounted(() => store.destroy())
   transition: background 300ms ease;
 }
 .rp-step--done .rp-step-connector { background: var(--color-primary); }
-
 .rp-step-indicator {
   grid-area: ind;
   width: 28px;
@@ -329,23 +290,19 @@ onUnmounted(() => store.destroy())
   background: var(--color-surface);
   color: var(--color-text-faint);
 }
-
 .rp-step--active .rp-step-indicator {
   border-color: var(--color-primary);
   background: color-mix(in oklch, var(--color-primary) 15%, transparent);
   color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 20%, transparent);
 }
-
 .rp-step--done .rp-step-indicator {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: #fff;
 }
-
 .rp-step-check { display: flex; align-items: center; justify-content: center; }
 .rp-step-check .pi { font-size: 0.7rem; }
-
 .rp-step-meta {
   grid-area: meta;
   display: flex;
@@ -354,9 +311,7 @@ onUnmounted(() => store.destroy())
   padding-bottom: var(--space-6);
   padding-top: 4px;
 }
-
 .rp-step-item:last-child .rp-step-meta { padding-bottom: 0; }
-
 .rp-step-label {
   font-size: var(--text-sm);
   font-weight: 600;
@@ -366,17 +321,10 @@ onUnmounted(() => store.destroy())
 }
 .rp-step--active .rp-step-label { color: var(--color-text); }
 .rp-step--done   .rp-step-label { color: var(--color-primary); }
-
-.rp-step-subdesc {
-  font-size: 0.68rem;
-  color: var(--color-text-faint);
-  line-height: 1.3;
-}
+.rp-step-subdesc { font-size: 0.68rem; color: var(--color-text-faint); line-height: 1.3; }
 .rp-step--active .rp-step-subdesc { color: var(--color-text-muted); }
 
-/* ═══════════════════════════════════════
-   RIGHT CONTENT PANEL
-═══════════════════════════════════════ */
+/* ─ Content panel ────────────────────────────────────────── */
 .rp-content {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -385,20 +333,13 @@ onUnmounted(() => store.destroy())
   min-height: 400px;
   overflow: auto;
 }
+@media (max-width: 600px) {
+  .rp-content { padding: var(--space-4); }
+}
 
-/* ═══════════════════════════════════════
-   STEP TRANSITION — замедлена для VDI
-═══════════════════════════════════════ */
+/* ─ Step transition ───────────────────────────────────────── */
 .step-enter-active,
-.step-leave-active {
-  transition: opacity 280ms ease, transform 280ms ease;
-}
-.step-enter-from {
-  opacity: 0;
-  transform: translateX(12px);
-}
-.step-leave-to {
-  opacity: 0;
-  transform: translateX(-12px);
-}
+.step-leave-active  { transition: opacity 280ms ease, transform 280ms ease; }
+.step-enter-from    { opacity: 0; transform: translateX(12px); }
+.step-leave-to      { opacity: 0; transform: translateX(-12px); }
 </style>
