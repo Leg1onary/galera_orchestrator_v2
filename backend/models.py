@@ -91,6 +91,7 @@ arbitrators = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("name", Text, nullable=False),
     Column("host", Text, nullable=False),
+    Column("port", Integer, nullable=False, server_default="4567"),
     Column("ssh_port", Integer, nullable=False, server_default="22"),
     Column("ssh_user", Text, nullable=False, server_default="root"),
     Column(

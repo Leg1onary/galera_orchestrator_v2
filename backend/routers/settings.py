@@ -500,6 +500,7 @@ class ArbitratorCreate(BaseModel):
     cluster_id: int
     name: str
     host: str
+    port: int = 4567
     ssh_port: int = 22
     ssh_user: str = "root"
     datacenter_id: int | None = None
@@ -513,10 +514,18 @@ class ArbitratorCreate(BaseModel):
             raise ValueError("field cannot be empty")
         return v
 
+    @field_validator("port", "ssh_port")
+    @classmethod
+    def valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError("port must be 1–65535")
+        return v
+
 
 class ArbitratorUpdate(BaseModel):
     name: str
     host: str
+    port: int = 4567
     ssh_port: int = 22
     ssh_user: str = "root"
     datacenter_id: int | None = None
@@ -528,6 +537,13 @@ class ArbitratorUpdate(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("field cannot be empty")
+        return v
+
+    @field_validator("port", "ssh_port")
+    @classmethod
+    def valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError("port must be 1–65535")
         return v
 
 
@@ -536,7 +552,7 @@ async def list_arbitrators_settings(
         cluster_id: int | None = Query(None),
 ) -> list[dict]:
     query = (
-        "SELECT a.id, a.name, a.host, a.ssh_port, a.ssh_user, "
+        "SELECT a.id, a.name, a.host, a.port, a.ssh_port, a.ssh_user, "
         "a.enabled, a.datacenter_id, d.name AS datacenter_name, a.cluster_id "
         "FROM arbitrators a "
         "LEFT JOIN datacenters d ON d.id = a.datacenter_id"
@@ -562,14 +578,15 @@ async def create_arbitrator_settings(body: ArbitratorCreate) -> dict:
             text(
                 """
                 INSERT INTO arbitrators
-                    (name, host, ssh_port, ssh_user, cluster_id, datacenter_id, enabled)
+                    (name, host, port, ssh_port, ssh_user, cluster_id, datacenter_id, enabled)
                 VALUES
-                    (:name, :host, :ssh_port, :ssh_user, :cluster_id, :datacenter_id, :enabled)
+                    (:name, :host, :port, :ssh_port, :ssh_user, :cluster_id, :datacenter_id, :enabled)
                 """
             ),
             {
                 "name":          body.name,
                 "host":          body.host,
+                "port":          body.port,
                 "ssh_port":      body.ssh_port,
                 "ssh_user":      body.ssh_user,
                 "cluster_id":    body.cluster_id,
@@ -582,9 +599,9 @@ async def create_arbitrator_settings(body: ArbitratorCreate) -> dict:
         level="INFO",
         cluster_id=body.cluster_id,
         source="ui",
-        message=f"Arbitrator '{body.name}' ({body.host}) created in cluster {body.cluster_id}",
+        message=f"Arbitrator '{body.name}' ({body.host}:{body.port}) created in cluster {body.cluster_id}",
     )
-    return {"id": new_id, "name": body.name, "host": body.host, "cluster_id": body.cluster_id}
+    return {"id": new_id, "name": body.name, "host": body.host, "port": body.port, "cluster_id": body.cluster_id}
 
 
 @router.patch("/arbitrators/{arb_id}")
@@ -599,6 +616,7 @@ async def update_arbitrator_settings(arb_id: int, body: ArbitratorUpdate) -> dic
                 UPDATE arbitrators SET
                                        name          = :name,
                                        host          = :host,
+                                       port          = :port,
                                        ssh_port      = :ssh_port,
                                        ssh_user      = :ssh_user,
                                        datacenter_id = :datacenter_id,
@@ -609,6 +627,7 @@ async def update_arbitrator_settings(arb_id: int, body: ArbitratorUpdate) -> dic
             {
                 "name":          body.name,
                 "host":          body.host,
+                "port":          body.port,
                 "ssh_port":      body.ssh_port,
                 "ssh_user":      body.ssh_user,
                 "datacenter_id": body.datacenter_id,
@@ -622,7 +641,7 @@ async def update_arbitrator_settings(arb_id: int, body: ArbitratorUpdate) -> dic
         source="ui",
         message=f"Arbitrator id={arb_id} updated",
     )
-    return {"id": arb_id, "name": body.name, "host": body.host}
+    return {"id": arb_id, "name": body.name, "host": body.host, "port": body.port}
 
 
 @router.delete("/arbitrators/{arb_id}", status_code=status.HTTP_204_NO_CONTENT)

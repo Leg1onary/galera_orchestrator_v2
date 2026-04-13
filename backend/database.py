@@ -31,6 +31,7 @@ def init_db() -> None:
 
     with engine.begin() as conn:
         _migrate_system_settings(conn)
+        _migrate_arbitrators(conn)
         _seed_contours(conn)
         _seed_system_settings(conn)
 
@@ -74,6 +75,29 @@ def _migrate_system_settings(conn) -> None:
         if col_name not in existing:
             conn.execute(text(sql))
             logger.info("Migration: added column system_settings.%s", col_name)
+
+
+def _migrate_arbitrators(conn) -> None:
+    """
+    Добавляет колонку port в arbitrators если её нет.
+    Существующие строки получат дефолт 4567 (стандартный порт garbd).
+    """
+    existing = {
+        row[1]
+        for row in conn.execute(text("PRAGMA table_info(arbitrators)")).fetchall()
+    }
+
+    pending = [
+        (
+            "port",
+            "ALTER TABLE arbitrators ADD COLUMN port INTEGER NOT NULL DEFAULT 4567",
+        ),
+    ]
+
+    for col_name, sql in pending:
+        if col_name not in existing:
+            conn.execute(text(sql))
+            logger.info("Migration: added column arbitrators.%s", col_name)
 
 
 # ── Seed helpers ──────────────────────────────────────────────────────────────
