@@ -59,17 +59,17 @@ interface DCGroup {
   arbs: ArbLive[]
 }
 
-// ── Layout constants ───────────────────────────────────────────────────────────
-const DC_W    = 280   // wider DC column → more space between badge centers
-const DC_PAD  = 20   // outer padding left/right
-const B_W     = 110  // badge width
-const B_H     = 66
-const B_ARB_H = 52
-const B_GAP   = 10
-const TOP_OFF = 18
-const SIDE    = 12
-const ARC_EXTRA = 60  // extra SVG height for arc sag
-const DC_GAP  = 60   // gap between DC zones — enough room for inter-DC arcs
+// ── Layout constants (×2.5 vs old) ───────────────────────────────────────────────────
+const DC_W    = 620   // DC zone width
+const DC_PAD  = 24   // outer padding
+const DC_GAP  = 80   // gap between DC zones
+const B_W     = 280  // badge width
+const B_H     = 160  // badge height
+const B_ARB_H = 120  // arbitrator badge height
+const B_GAP   = 20   // gap between badges
+const TOP_OFF = 40   // dc label area
+const SIDE    = 24   // inner padding in DC zone
+const ARC_TOP = 80   // space above badges for arcs
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
@@ -218,17 +218,23 @@ function dcHeight(dc: DCGroup): number {
   const nodeRows = Math.ceil(dc.nodes.length / 2)
   const nodesH   = nodeRows * (B_H + B_GAP)
   const arbsH    = dc.arbs.length * (B_ARB_H + B_GAP)
-  return TOP_OFF + 6 + nodesH + arbsH + SIDE
+  return TOP_OFF + 8 + nodesH + arbsH + SIDE
 }
 
-const svgViewH = computed(() => Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [160])) + 16 + ARC_EXTRA)
-const svgViewW = computed(() => Math.max(dcGroups.value.length * (DC_W + DC_GAP) + DC_PAD * 2, 320))
+// SVG viewBox: ARC_TOP space above DC zones for arcs going upward
+const svgViewH = computed(() =>
+  ARC_TOP + Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [200])) + 24
+)
+const svgViewW = computed(() =>
+  Math.max(dcGroups.value.length * (DC_W + DC_GAP) + DC_PAD * 2, 400)
+)
 
+// All Y positions shifted down by ARC_TOP to leave room for arcs above
 function dcX(di: number)  { return DC_PAD + di * (DC_W + DC_GAP) }
 function badgeX(di: number, ni: number) { return dcX(di) + SIDE + (ni % 2) * (B_W + B_GAP) }
-function badgeY(ni: number) { return TOP_OFF + 10 + Math.floor(ni / 2) * (B_H + B_GAP) }
+function badgeY(ni: number) { return ARC_TOP + TOP_OFF + 10 + Math.floor(ni / 2) * (B_H + B_GAP) }
 function arbBadgeY(dc: DCGroup, ai: number) {
-  return TOP_OFF + 10 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
+  return ARC_TOP + TOP_OFF + 10 + Math.ceil(dc.nodes.length / 2) * (B_H + B_GAP) + ai * (B_ARB_H + B_GAP)
 }
 
 // ── Connection lines ──────────────────────────────────────────────────────────
@@ -245,6 +251,7 @@ interface ConnectionLine {
   style: 'synced' | 'active' | 'offline'
 }
 
+// Anchor: top-center of badge, arc goes UP
 function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
   for (let di = 0; di < dcGroups.value.length; di++) {
     const dc = dcGroups.value[di]
@@ -252,17 +259,21 @@ function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
     if (ni === -1) continue
     return {
       x: badgeX(di, ni) + B_W / 2,
-      y: badgeY(ni) + B_H + 4,
+      y: badgeY(ni) + 4,  // top of badge
     }
   }
   return null
 }
 
+// Arc goes UPWARD — control point is above the badges
 function arcPath(x1: number, y1: number, x2: number, y2: number): string {
-  const mx  = (x1 + x2) / 2
-  const dx  = Math.abs(x2 - x1)
-  const sag = Math.max(30, dx * 0.35)
-  const cy  = Math.max(y1, y2) + sag
+  const mx   = (x1 + x2) / 2
+  const dx   = Math.abs(x2 - x1)
+  const dy   = Math.abs(y2 - y1)
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  const sag  = Math.max(50, dist * 0.4)
+  // control point above the topmost anchor
+  const cy   = Math.min(y1, y2) - sag
   return `M${x1},${y1} Q${mx},${cy} ${x2},${y2}`
 }
 
@@ -395,24 +406,24 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
           >
             <defs>
               <filter id="glow-synced"  x="-60%" y="-60%" width="220%" height="220%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/>
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/>
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
               <filter id="glow-offline" x="-60%" y="-60%" width="220%" height="220%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/>
+                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/>
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
               <filter id="glow-line-synced" x="-40%" y="-200%" width="180%" height="500%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="b"/>
+                <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/>
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
               <filter id="glow-line-active" x="-40%" y="-200%" width="180%" height="500%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="b"/>
+                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/>
                 <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
             </defs>
 
-            <!-- Arcs drawn first, badges on top -->
+            <!-- Arcs drawn first (go upward), badges on top -->
             <g class="conn-layer">
               <path
                 v-for="(line, i) in connectionLines"
@@ -425,8 +436,9 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             </g>
 
             <g v-for="(dc, di) in dcGroups" :key="di">
-              <rect :x="dcX(di)" y="4" :width="DC_W" :height="dcHeight(dc)" rx="8" ry="8" class="dc-zone-rect" />
-              <text :x="dcX(di) + SIDE" :y="14" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
+              <!-- DC zone rect starts at ARC_TOP + a bit -->
+              <rect :x="dcX(di)" :y="ARC_TOP + 4" :width="DC_W" :height="dcHeight(dc)" rx="10" ry="10" class="dc-zone-rect" />
+              <text :x="dcX(di) + SIDE" :y="ARC_TOP + 22" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
 
               <g
                 v-for="(node, ni) in dc.nodes" :key="(node as any).id"
@@ -436,12 +448,14 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 @mouseleave="hideTip"
                 @click="openDrawer((node as any).id)"
               >
-                <rect x="0" y="0" :width="B_W" :height="B_H" rx="5" class="badge-bg" />
-                <rect x="0" y="0" :width="B_W" height="3" rx="2"
+                <rect x="0" y="0" :width="B_W" :height="B_H" rx="10" class="badge-bg" />
+                <!-- color bar top -->
+                <rect x="0" y="0" :width="B_W" height="6" rx="4"
                   :fill="nodeColor(node)"
                   :filter="nodeSSHOk(node) && nodeState(node)?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <circle cx="9" cy="14" r="4" :fill="nodeColor(node)" :filter="!nodeSSHOk(node) ? 'url(#glow-offline)' : undefined">
+                <!-- status dot -->
+                <circle cx="20" cy="34" r="7" :fill="nodeColor(node)" :filter="!nodeSSHOk(node) ? 'url(#glow-offline)' : undefined">
                   <animate
                     v-if="!nodeSSHOk(node)"
                     attributeName="opacity"
@@ -450,15 +464,22 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                     repeatCount="indefinite"
                   />
                 </circle>
-                <text x="17" y="18" class="badge-name">{{ (node as any).name }}</text>
-                <text x="4"  y="30" class="badge-host">{{ (node as any).host }}:{{ (node as any).port }}</text>
-                <text x="4"  y="43" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
-                <rect x="4" y="50" width="22" height="11" rx="2" :fill="nodeRO(node) ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
-                <text x="15" y="58" class="badge-pill" :fill="nodeRO(node) ? 'var(--color-readonly)' : 'var(--color-synced)'">{{ nodeRO(node) ? 'RO' : 'RW' }}</text>
-                <rect v-if="nodeMaint(node)" x="29" y="50" width="28" height="11" rx="2" fill="rgba(249,115,22,.15)" />
-                <text v-if="nodeMaint(node)" x="43" y="58" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
-                <circle v-if="nodeDrift(node)" :cx="B_W - 6" :cy="B_H - 6" r="3" fill="var(--color-offline)" />
-                <text :x="B_W - 6" y="10" class="badge-open-hint">⤢</text>
+                <!-- node name -->
+                <text x="36" y="39" class="badge-name">{{ (node as any).name }}</text>
+                <!-- host -->
+                <text x="12" y="62" class="badge-host">{{ (node as any).host }}:{{ (node as any).port }}</text>
+                <!-- state -->
+                <text x="12" y="90" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
+                <!-- RO/RW pill -->
+                <rect x="12" y="105" width="52" height="24" rx="5" :fill="nodeRO(node) ? 'rgba(234,179,8,.15)' : 'rgba(74,222,128,.12)'" />
+                <text x="38" y="122" class="badge-pill" :fill="nodeRO(node) ? 'var(--color-readonly)' : 'var(--color-synced)'">{{ nodeRO(node) ? 'RO' : 'RW' }}</text>
+                <!-- MAINT pill -->
+                <rect v-if="nodeMaint(node)" x="70" y="105" width="70" height="24" rx="5" fill="rgba(249,115,22,.15)" />
+                <text v-if="nodeMaint(node)" x="105" y="122" class="badge-pill" fill="var(--color-degraded)">MAINT</text>
+                <!-- drift dot -->
+                <circle v-if="nodeDrift(node)" :cx="B_W - 12" :cy="B_H - 12" r="6" fill="var(--color-offline)" />
+                <!-- open hint -->
+                <text :x="B_W - 14" y="24" class="badge-open-hint">⤢</text>
               </g>
 
               <g
@@ -468,13 +489,13 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                 @mouseenter="(e) => showArbTip(e, arb as unknown as ArbNorm)"
                 @mouseleave="hideTip"
               >
-                <rect x="0" y="0" :width="B_W" :height="B_ARB_H" rx="5" class="badge-bg badge-bg--arb" />
-                <rect x="0" y="0" :width="B_W" height="2" rx="2" :fill="arbColor(arb)" />
-                <circle cx="9" cy="14" r="3" :fill="arbColor(arb)" />
-                <text x="3" y="28" class="badge-arb-ico">◈</text>
-                <text x="17" y="18" class="badge-name">{{ (arb as any).name }}</text>
-                <text x="17" y="29" class="badge-host">{{ (arb as any).host }}</text>
-                <text x="4"  y="42" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
+                <rect x="0" y="0" :width="B_W" :height="B_ARB_H" rx="10" class="badge-bg badge-bg--arb" />
+                <rect x="0" y="0" :width="B_W" height="5" rx="4" :fill="arbColor(arb)" />
+                <circle cx="20" cy="34" r="6" :fill="arbColor(arb)" />
+                <text x="36" y="39" class="badge-name">{{ (arb as any).name }}</text>
+                <text x="12" y="60" class="badge-host">{{ (arb as any).host }}</text>
+                <text x="12" y="88" class="badge-state" :fill="arbColor(arb)">{{ arbStatLabel(arb) }}</text>
+                <text x="14" y="58" class="badge-arb-ico">◈ ARB</text>
               </g>
             </g>
           </svg>
@@ -687,27 +708,26 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .topo-svg {
   display: block;
   height: auto;
-  min-height: 180px;
-  /* width: 100% removed — SVG renders at natural size, container scrolls if needed */
+  min-height: 300px;
 }
 
-.dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:.8; }
-.dc-zone-label { fill:var(--color-text-faint); font-size:7px; font-weight:700; letter-spacing:.08em; font-family:var(--font-body,sans-serif); }
+.dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:1; }
+.dc-zone-label { fill:var(--color-text-faint); font-size:13px; font-weight:700; letter-spacing:.08em; font-family:var(--font-body,sans-serif); }
 
 .topo-badge      { cursor:default; }
 .topo-badge--clickable { cursor: pointer; }
-.badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:.6; transition:fill .18s; }
-.topo-badge--clickable:hover .badge-bg { fill:var(--color-surface-dynamic); stroke: var(--color-primary); stroke-width: 1; }
-.badge-bg--arb   { opacity:.8; }
+.badge-bg        { fill:var(--color-surface-offset); stroke:var(--color-border); stroke-width:1; transition:fill .18s; }
+.topo-badge--clickable:hover .badge-bg { fill:var(--color-surface-dynamic); stroke: var(--color-primary); stroke-width: 1.5; }
+.badge-bg--arb   { opacity:.85; }
 
-.badge-name      { fill:var(--color-text);       font-size:7.5px; font-weight:600; font-family:var(--font-body,sans-serif); }
-.badge-host      { fill:var(--color-text-muted); font-size:5.5px; font-family:var(--font-mono,monospace); }
-.badge-state     { font-size:6.5px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
-.badge-pill      { font-size:5px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
-.badge-arb-ico   { fill:var(--color-text-faint); font-size:8px; }
+.badge-name      { fill:var(--color-text);       font-size:17px; font-weight:600; font-family:var(--font-body,sans-serif); }
+.badge-host      { fill:var(--color-text-muted); font-size:12px; font-family:var(--font-mono,monospace); }
+.badge-state     { font-size:15px; font-weight:700; letter-spacing:.05em; font-family:var(--font-body,sans-serif); }
+.badge-pill      { font-size:12px; font-weight:700; letter-spacing:.05em; text-anchor:middle; font-family:var(--font-body,sans-serif); }
+.badge-arb-ico   { fill:var(--color-text-faint); font-size:13px; }
 .badge-open-hint {
   fill: var(--color-text-faint);
-  font-size: 6px;
+  font-size: 14px;
   text-anchor: end;
   opacity: 0;
   transition: opacity .15s;
@@ -720,20 +740,20 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-arc--synced {
   stroke: #4ade80;
-  stroke-width: 1.8;
-  stroke-dasharray: 5 3;
+  stroke-width: 2.5;
+  stroke-dasharray: 8 4;
   opacity: 0.95;
 }
 .topo-arc--active {
   stroke: #facc15;
-  stroke-width: 1.6;
-  stroke-dasharray: 3 3;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
   opacity: 0.85;
 }
 .topo-arc--offline {
   stroke: #64748b;
-  stroke-width: 1.2;
-  stroke-dasharray: 2 4;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
   opacity: 0.5;
 }
 
