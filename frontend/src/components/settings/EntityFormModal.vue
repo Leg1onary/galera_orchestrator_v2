@@ -45,7 +45,7 @@
               :min="field.min"
               :max="field.max"
               :placeholder="field.placeholder ?? ''"
-              :value="form[field.key] as number"
+              :value="(form[field.key] as number) || undefined"
               class="field-input"
               @input="form[field.key] = Number(($event.target as HTMLInputElement).value)"
             />
@@ -148,11 +148,14 @@ const form = reactive<Record<string, unknown>>({})
 
 function initForm() {
   for (const field of props.fields) {
-    form[field.key] = props.initialValues?.[field.key] ?? (
-      field.type === 'number'  ? 0 :
-      field.type === 'toggle'  ? false :
-      ''
-    )
+    const initial = props.initialValues?.[field.key]
+    // Используем initial если он явно задан (включая 0),
+    // иначе дефолт по типу
+    form[field.key] = initial !== undefined && initial !== null
+      ? initial
+      : field.type === 'number'  ? 0
+      : field.type === 'toggle'  ? false
+      : ''
   }
 }
 
@@ -214,6 +217,7 @@ function submit() {
   height: 28px;
   display: flex;
   align-items: center;
+;
   justify-content: center;
   border-radius: var(--radius-md);
   border: none;

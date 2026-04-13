@@ -19,9 +19,6 @@ const toast        = useToast()
 
 const { data, isLoading, refetch } = useClusterStatus(clusterId)
 
-// NodeStatusItem (из /status) использует dc_id/dc_name и не имеет cluster_id.
-// NodeTable/NodeDetailDrawer ожидают NodeListItem (datacenter_id/datacenter_name, cluster_id, live | null).
-// Делаем маппинг здесь, чтобы не трогать дочерние компоненты.
 const nodes = computed<NodeListItem[]>(() =>
   (data.value?.nodes ?? []).map((n: NodeStatusItem) => ({
     id:               n.id,
@@ -67,9 +64,9 @@ const dcOptions = computed(() => [
 const addNodeFields = computed((): FormField[] => [
   { key: 'name',          label: 'Name',        required: true,  placeholder: 'node-01' },
   { key: 'host',          label: 'Host / IP',   required: true,  placeholder: '10.0.0.1' },
-  { key: 'port',          label: 'DB Port',     type: 'number',  min: 1, max: 65535 },
+  { key: 'port',          label: 'DB Port',     type: 'number',  min: 1, max: 65535, placeholder: '3306' },
   { key: 'ssh_user',      label: 'SSH User',    placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',    type: 'number',  min: 1, max: 65535 },
+  { key: 'ssh_port',      label: 'SSH Port',    type: 'number',  min: 1, max: 65535, placeholder: '22' },
   { key: 'db_user',       label: 'DB User',     placeholder: 'monitor_user' },
   { key: 'db_password',   label: 'DB Password', type: 'password', placeholder: '••••••••' },
   { key: 'datacenter_id', label: 'Datacenter',  type: 'select',  options: dcOptions.value, placeholder: '— None —' },
@@ -163,7 +160,6 @@ async function handleAddSubmit(values: Record<string, unknown>) {
       @close="onDrawerClose"
     />
 
-    <!-- Add node modal (UX-улучшение; использует settingsApi.createNode) -->
     <EntityFormModal
       v-if="showAddModal"
       title="Add node"
