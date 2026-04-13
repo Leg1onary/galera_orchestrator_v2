@@ -9,7 +9,6 @@ from pathlib import Path
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Корень проекта = родитель папки backend/
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
@@ -34,8 +33,6 @@ class Settings(BaseSettings):
 
     # Auth
     ADMIN_USERNAME: str = "admin"
-    # Хранить bcrypt-хеш пароля. Генерация:
-    # python -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
     ADMIN_PASSWORD_HASH: str = "changeme"
 
     # JWT
@@ -50,7 +47,7 @@ class Settings(BaseSettings):
     FERNET_SECRET_KEY: str = "change-me-fernet-base64-key"
 
     # SSH
-    SSH_KEY_PATH: str = "/home/nonroot/.ssh/id_rsa"
+    SSH_KEY_PATH: str = "/root/.ssh/id_rsa"
     SSH_CONNECT_TIMEOUT: int = 5
     SSH_COMMAND_TIMEOUT: int = 10
 

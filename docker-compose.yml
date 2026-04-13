@@ -19,8 +19,8 @@ services:
       - orchestrator-data:/data
 
       # SSH ключ — read-only bind mount (ТЗ раздел 3.2)
-      # SEC-004: монтируем в директорию nonroot-пользователя
-      - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/home/nonroot/.ssh/id_rsa:ro
+      # Ключ лежит на хосте (VM), внутри контейнера монтируется в /root/.ssh/
+      - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/root/.ssh/id_rsa:ro
 
     environment:
       # ── Database ────────────────────────────────────────────
@@ -28,26 +28,19 @@ services:
 
       # ── Auth ────────────────────────────────────────────────
       ADMIN_USERNAME:       ${ADMIN_USERNAME:-admin}
-      # bcrypt-хеш пароля. Генерация:
-      # python -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
       ADMIN_PASSWORD_HASH:  ${ADMIN_PASSWORD_HASH}
       JWT_SECRET_KEY:       ${JWT_SECRET_KEY}
 
       # ── Cookie ──────────────────────────────────────────────
-      # True в проде (за TLS-прокси), false только для локальной разработки без HTTPS
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
 
       # ── Encryption ──────────────────────────────────────────
-      # Генерация: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       FERNET_SECRET_KEY: ${FERNET_SECRET_KEY}
 
       # ── SSH ─────────────────────────────────────────────────
-      # SEC-004: путь обновлён под nonroot-пользователя
-      SSH_KEY_PATH: /home/nonroot/.ssh/id_rsa
+      SSH_KEY_PATH: /root/.ssh/id_rsa
 
       # ── App ───────────────────────────────────────────────────
-      # false — выключает /docs, /redoc, /openapi.json в проде (default)
-      # true  — включить только для локальной разработки
       DOCS_ENABLED: ${DOCS_ENABLED:-false}
 
       # ── Timeouts (sec) ──────────────────────────────────────
