@@ -169,13 +169,13 @@ async function submit() {
   opacity: 1;
 }
 
-/* Radial glows */
+/* Radial glows - медленная пульсация, нет резких изменений размера */
 .glow {
   position: absolute;
   border-radius: 50%;
   filter: blur(80px);
-  opacity: 0.18;
-  animation: glow-pulse 8s ease-in-out infinite;
+  opacity: 0.14;
+  animation: glow-pulse 16s ease-in-out infinite;
 }
 .glow-1 {
   width: 600px; height: 600px;
@@ -187,56 +187,56 @@ async function submit() {
   width: 500px; height: 500px;
   background: radial-gradient(circle, #1e40af, transparent 70%);
   bottom: -150px; right: -100px;
-  animation-delay: 3s;
-  opacity: 0.12;
+  animation-delay: -6s;
+  opacity: 0.09;
 }
 .glow-3 {
   width: 300px; height: 300px;
   background: radial-gradient(circle, #2dd4bf, transparent 70%);
   top: 40%; left: 60%;
-  animation-delay: 5s;
-  opacity: 0.08;
+  animation-delay: -10s;
+  opacity: 0.06;
 }
 
+/* Только плавное изменение opacity — никакого scale */
 @keyframes glow-pulse {
-  0%, 100% { transform: scale(1);   opacity: 0.18; }
-  50%       { transform: scale(1.1); opacity: 0.25; }
+  0%, 100% { opacity: 0.14; }
+  50%       { opacity: 0.20; }
 }
 
-/* Floating orbs */
+/* Floating orbs - очень медленный drift, без rotate */
 .orb {
   position: absolute;
   border-radius: 50%;
-  border: 1px solid rgba(45,212,191,0.15);
-  animation: orb-float linear infinite;
+  border: 1px solid rgba(45,212,191,0.1);
+  animation: orb-drift ease-in-out infinite;
 }
 .orb-1 {
   width: 300px; height: 300px;
   top: 10%; left: 5%;
-  animation-duration: 20s;
+  animation-duration: 40s;
   animation-delay: 0s;
 }
 .orb-2 {
   width: 180px; height: 180px;
   bottom: 15%; right: 8%;
-  animation-duration: 15s;
-  animation-delay: -5s;
-  border-color: rgba(45,212,191,0.08);
+  animation-duration: 34s;
+  animation-delay: -12s;
+  border-color: rgba(45,212,191,0.06);
 }
 .orb-3 {
   width: 80px; height: 80px;
   top: 30%; right: 20%;
-  animation-duration: 12s;
-  animation-delay: -8s;
-  border-color: rgba(45,212,191,0.2);
+  animation-duration: 28s;
+  animation-delay: -20s;
+  border-color: rgba(45,212,191,0.14);
 }
 
-@keyframes orb-float {
-  0%   { transform: translate(0, 0) rotate(0deg); }
-  25%  { transform: translate(10px, -15px) rotate(90deg); }
-  50%  { transform: translate(20px, 0px) rotate(180deg); }
-  75%  { transform: translate(10px, 15px) rotate(270deg); }
-  100% { transform: translate(0, 0) rotate(360deg); }
+/* Плавный drift без rotate - движение максимум 6px */
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0,    0);  }
+  33%       { transform: translate(6px,  -8px); }
+  66%       { transform: translate(-4px,  5px); }
 }
 
 /* ====== CARD ====== */
@@ -403,12 +403,9 @@ async function submit() {
 }
 
 /* ====== PRIMEVUE OVERRIDES ====== */
-
-/* Password wrapper */
 :deep(.p-password) { width: 100%; }
 :deep(.p-password .p-inputtext) { width: 100%; }
 
-/* InputText & Password — увеличенный внутренний отступ */
 :deep(.login-input.p-inputtext),
 :deep(.p-password .p-inputtext) {
   padding-block: 0.75rem;
@@ -418,7 +415,6 @@ async function submit() {
   border-radius: 10px;
 }
 
-/* Button — увеличенный padding и высота */
 :deep(.login-submit.p-button) {
   padding-block: 0.8rem;
   padding-inline: 1.5rem;
