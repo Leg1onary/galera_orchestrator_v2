@@ -8,6 +8,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from database import init_db
 from routers import (
@@ -29,10 +32,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    start_poller()   # sync — schedules asyncio.create_task internally
+    start_poller()
     logger.info("Galera Orchestrator v2 started")
     yield
-    stop_poller()    # sync — cancels the task
+    stop_poller()
     logger.info("Galera Orchestrator v2 stopped")
 
 
@@ -45,23 +48,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Rate limiter (slowapi) ────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # ── CORS (dev only) ──────────────────────────────────────────────────────────
-# В prod SPA и API на одном origin — CORS не нужен.
-# В dev Vite на :5173 делает запросы к FastAPI на :8000.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,      # обязательно для httpOnly cookie
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ── API routers ───────────────────────────────────────────────────────────────
-#
-# Стратегия prefix:
-#   - Если роутер уже имеет prefix="/api/..." внутри → include_router БЕЗ prefix
-#   - Если роутер имеет prefix="/clusters", "/auth" и т.д. → include_router с prefix="/api"
-#
 app.include_router(auth_router,        prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
 app.include_router(recovery_router,    prefix="/api")
@@ -70,7 +71,7 @@ app.include_router(clusters_router,    prefix="/api")
 app.include_router(nodes_router,       prefix="/api")
 app.include_router(contours_router,    prefix="/api")
 app.include_router(settings_router,    prefix="/api")
-app.include_router(ws_router)                           # → /ws/clusters/... (не /api)
+app.include_router(ws_router)
 
 # ── Static assets ─────────────────────────────────────────────────────────────
 

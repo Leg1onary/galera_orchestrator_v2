@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from config import settings
 from dependencies import require_auth
@@ -12,6 +15,8 @@ from security import clear_auth_cookie, create_access_token, set_auth_cookie
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ---------------------------------------------------------------------------
@@ -35,20 +40,28 @@ class MessageResponse(BaseModel):
 # POST /api/auth/login
 # ---------------------------------------------------------------------------
 @router.post("/login", response_model=MessageResponse)
-async def login(body: LoginRequest, response: Response) -> MessageResponse:
+@limiter.limit("5/minute")
+async def login(
+    request: Request,
+    body: LoginRequest,
+    response: Response,
+) -> MessageResponse:
     """
-    Authenticate with username + password from env vars.
+    Authenticate with username + password.
+    Rate limited to 5 attempts per minute per IP (SEC-001).
+    Password verified against bcrypt hash stored in ADMIN_PASSWORD_HASH (SEC-003).
     On success, sets a JWT in an httpOnly cookie.
-
-    Gap: single admin account defined via env vars (no users table).
-    This matches the ТЗ specification exactly.
     """
-    is_valid = (
-            body.username == settings.ADMIN_USERNAME
-            and body.password == settings.ADMIN_PASSWORD
-    )
+    username_ok = body.username == settings.ADMIN_USERNAME
+    try:
+        password_ok = bcrypt.checkpw(
+            body.password.encode("utf-8"),
+            settings.ADMIN_PASSWORD_HASH.encode("utf-8"),
+        )
+    except Exception:
+        password_ok = False
 
-    if not is_valid:
+    if not username_ok or not password_ok:
         logger.warning("Failed login attempt for username: %s", body.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -18,7 +18,7 @@ AUTH_COOKIE_NAME = "access_token"
 def create_access_token(username: str) -> str:
     """
     Create a signed JWT for the given username.
-    Expiry is controlled by settings.JWT_EXPIRE_HOURS (default: 24h).
+    Expiry is controlled by settings.JWT_EXPIRE_HOURS (default: 8h).
     """
     now = datetime.now(tz=timezone.utc)
     expire = now + timedelta(hours=settings.JWT_EXPIRE_HOURS)
@@ -68,16 +68,15 @@ def set_auth_cookie(response: Response, token: str) -> None:
 
     - httponly=True  : not accessible from JavaScript
     - samesite="lax" : protects against CSRF while allowing normal navigation
-    - secure=False   : must be True behind HTTPS in production
-                       Gap: ТЗ не специфицирует Secure flag.
-                       Set to False for local/Docker deployment.
+    - secure         : controlled by settings.COOKIE_SECURE (default True).
+                       Set COOKIE_SECURE=false only for local dev without TLS.
     """
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         max_age=settings.JWT_EXPIRE_HOURS * 3600,
         path="/",
     )
@@ -92,6 +91,6 @@ def clear_auth_cookie(response: Response) -> None:
         key=AUTH_COOKIE_NAME,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         path="/",
     )

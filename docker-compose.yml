@@ -27,16 +27,21 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/orchestrator.db}
 
       # ── Auth ────────────────────────────────────────────────
-      ADMIN_USERNAME:  ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD:  ${ADMIN_PASSWORD:-changeme}
-      JWT_SECRET_KEY:  ${JWT_SECRET_KEY:-change-me-jwt-secret-min-32-chars}
+      ADMIN_USERNAME:       ${ADMIN_USERNAME:-admin}
+      # bcrypt-хеш пароля. Генерация:
+      # python -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
+      ADMIN_PASSWORD_HASH:  ${ADMIN_PASSWORD_HASH}
+      JWT_SECRET_KEY:       ${JWT_SECRET_KEY}
+
+      # ── Cookie ──────────────────────────────────────────────
+      # True в проде (за TLS-прокси), false только для локальной разработки без HTTPS
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
 
       # ── Encryption ──────────────────────────────────────────
       # Генерация: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-      FERNET_SECRET_KEY: ${FERNET_SECRET_KEY:-change-me-fernet-key}
+      FERNET_SECRET_KEY: ${FERNET_SECRET_KEY}
 
       # ── SSH ─────────────────────────────────────────────────
-      # Путь внутри контейнера (должен совпадать с target bind mount выше)
       SSH_KEY_PATH: /root/.ssh/id_rsa
 
       # ── Timeouts (sec) ──────────────────────────────────────
