@@ -24,6 +24,7 @@ from routers import (
     nodes_router,
     recovery_router,
     settings_router,
+    version_router,
     ws_router,
 )
 from services.poller import start_poller, stop_poller
@@ -31,7 +32,7 @@ from services.poller import start_poller, stop_poller
 logger = logging.getLogger(__name__)
 
 
-# ── Security Headers Middleware (SEC-005) ────────────────────────────────
+# ── Security Headers Middleware (SEC-005) ─────────────────────────────────────────
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
     Add security headers to every HTTP response.
@@ -41,20 +42,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        # Prevent MIME-type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
-        # Deny framing (clickjacking protection)
         response.headers["X-Frame-Options"] = "DENY"
-        # Legacy XSS filter (defence in depth for old browsers)
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Limit referrer information leakage
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Disable browser features not used by this app
         response.headers["Permissions-Policy"] = (
             "geolocation=(), camera=(), microphone=(), usb=(), payment=()"
         )
-        # CSP: SPA served from same origin; no inline scripts needed in prod
-        # 'unsafe-inline' style for Vite/React CSS-in-JS — tighten after audit of frontend
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self'; "
@@ -64,8 +58,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' ws: wss:; "
             "frame-ancestors 'none'"
         )
-        # HSTS: enforce HTTPS for 1 year (only active when behind TLS proxy)
-        # Set COOKIE_SECURE=true in prod and ensure TLS termination is in place
         if settings.COOKIE_SECURE:
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
@@ -83,7 +75,7 @@ async def lifespan(app: FastAPI):
     logger.info("Galera Orchestrator v2 stopped")
 
 
-# ── FastAPI app (SEC-006: docs disabled in prod by default) ────────────────
+# ── FastAPI app (SEC-006: docs disabled in prod by default) ──────────────────
 app = FastAPI(
     title="Galera Orchestrator v2",
     version="2.0.0",
@@ -93,16 +85,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── Rate limiter (slowapi) ────────────────────────────────────────────────────
+# ── Rate limiter (slowapi) ──────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# ── Security headers ─────────────────────────────────────────────────────────
-# Must be added AFTER exception handlers so headers are set on all responses
+# ── Security headers ──────────────────────────────────────────────────────────
 app.add_middleware(SecurityHeadersMiddleware)
 
-# ── CORS (dev only) ──────────────────────────────────────────────────────────
+# ── CORS (dev only) ─────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -111,7 +102,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── API routers ───────────────────────────────────────────────────────────────
+# ── API routers ─────────────────────────────────────────────────────────────
 app.include_router(auth_router,        prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
 app.include_router(recovery_router,    prefix="/api")
@@ -120,9 +111,10 @@ app.include_router(clusters_router,    prefix="/api")
 app.include_router(nodes_router,       prefix="/api")
 app.include_router(contours_router,    prefix="/api")
 app.include_router(settings_router,    prefix="/api")
+app.include_router(version_router,     prefix="/api")
 app.include_router(ws_router)
 
-# ── Static assets ─────────────────────────────────────────────────────────────
+# ── Static assets ───────────────────────────────────────────────────────────────
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -131,7 +123,7 @@ if STATIC_DIR.is_dir():
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-# ── SPA fallback ──────────────────────────────────────────────────────────────
+# ── SPA fallback ────────────────────────────────────────────────────────────────
 
 _SPA_EXCLUDED_PREFIXES = (
     "/api/",

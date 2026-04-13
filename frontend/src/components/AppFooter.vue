@@ -2,10 +2,13 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useOperationsStore } from '@/stores/operations'
 import { useClusterStore }    from '@/stores/cluster'
+import { useVersionStore }    from '@/stores/version'
 
 const opsStore     = useOperationsStore()
 const clusterStore = useClusterStore()
-const clusterId    = computed(() => clusterStore.selectedCluster?.id ?? 0)
+const versionStore = useVersionStore()
+
+const clusterId = computed(() => clusterStore.selectedCluster?.id ?? 0)
 
 const activeOp = computed(() =>
   clusterId.value ? opsStore.activeOperation(clusterId.value) : null
@@ -21,7 +24,7 @@ const isFinished = computed(() =>
   ['success', 'failed', 'cancelled'].includes(activeOp.value.status)
 )
 
-// ── Auto-dismiss finished op after 10s ───────────────────────────────────────
+// ── Auto-dismiss finished op after 10s ───────────────────────────────────────────────
 const finishedVisible = ref(false)
 let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -39,7 +42,7 @@ watch(isRunning, (val) => {
 })
 onUnmounted(() => { if (dismissTimer) clearTimeout(dismissTimer) })
 
-// ── Live local clock ──────────────────────────────────────────────────────────
+// ── Live local clock ───────────────────────────────────────────────────────────────────
 const nowStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
@@ -53,7 +56,7 @@ function tick() {
 onMounted(() => { tick(); clockTimer = setInterval(tick, 1000) })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 
-// ── Op labels ─────────────────────────────────────────────────────────────────
+// ── Op labels ──────────────────────────────────────────────────────────────────────────
 const OP_LABELS: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
   'recovery-rejoin':    'Rejoin',
@@ -72,7 +75,7 @@ const STATUS_LABEL: Record<string, string> = {
 const opTypeLabel   = computed(() => OP_LABELS[activeOp.value?.type ?? ''] ?? activeOp.value?.type ?? '')
 const opStatusLabel = computed(() => STATUS_LABEL[activeOp.value?.status ?? ''] ?? activeOp.value?.status ?? '')
 
-// ── Elapsed timer ─────────────────────────────────────────────────────────────
+// ── Elapsed timer ──────────────────────────────────────────────────────────────────────
 const elapsedStr = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -86,13 +89,33 @@ function updateElapsed() {
 }
 onMounted(() => { updateElapsed(); elapsedTimer = setInterval(updateElapsed, 1000) })
 onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+
+// ── Version & update check ────────────────────────────────────────────────────────────
+onMounted(async () => {
+  await versionStore.loadVersion()
+  // Fire-and-forget, runs in background, never blocks UI
+  versionStore.checkUpdate()
+})
+
+const showUpdateBadge = computed(() => versionStore.updateAvailable)
 </script>
 
 <template>
   <footer class="app-footer">
 
-    <!-- LEFT: empty / reserved for future use -->
-    <div class="footer-left" />
+    <!-- LEFT: current version + update badge -->
+    <div class="footer-left">
+      <span class="footer-version">{{ versionStore.currentVersion }}</span>
+      <Transition name="fade-badge">
+        <span
+          v-if="showUpdateBadge"
+          class="update-badge"
+          title="New version available — pull the latest image to update"
+        >
+          ↑ update
+        </span>
+      </Transition>
+    </div>
 
     <!-- CENTER: op status -->
     <div class="footer-center">
@@ -151,7 +174,48 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 }
 
 /* ── Left ── */
-.footer-left { flex-shrink: 0; min-width: 80px; }
+.footer-left {
+  flex-shrink: 0;
+  min-width: 80px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.footer-version {
+  font-size: 0.72rem;
+  font-family: var(--font-mono, monospace);
+  color: #3f3f46;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  transition: color 300ms ease;
+}
+.footer-version:hover { color: #71717a; }
+
+.update-badge {
+  font-size: 0.68rem;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.1);
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
+  cursor: default;
+  white-space: nowrap;
+  animation: badge-glow 3s ease-in-out infinite;
+}
+
+@keyframes badge-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(45,212,191,0.2); }
+  50%       { box-shadow: 0 0 8px rgba(45,212,191,0.5); }
+}
+
+.fade-badge-enter-active { transition: opacity 500ms ease, transform 500ms ease; }
+.fade-badge-leave-active { transition: opacity 300ms ease; }
+.fade-badge-enter-from   { opacity: 0; transform: translateY(4px); }
+.fade-badge-leave-to     { opacity: 0; }
 
 /* ── Center ── */
 .footer-center {
@@ -178,10 +242,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 .op-dot--running {
   background: #2dd4bf;
   box-shadow: 0 0 7px rgba(45,212,191,0.75);
-  /*
-   * Замедлено 1.2s → 2.4s: на VDI быстрые CSS-анимации
-   * воспроизводятся с артефактами из-за remote rendering pipeline.
-   */
   animation: blink 2.4s ease-in-out infinite;
 }
 .op-dot--success {
@@ -213,13 +273,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   white-space: nowrap;
 }
 
-/*
- * idle-dot — статичный, без анимации.
- * Оригинальный idle-pulse (3s ease-in-out) давал визуальный флапп на VDI:
- * Chrome на remote desktop воспроизводит короткие opacity-анимации
- * с артефактами (двойной кадр, дёрганье). Декоративный dot
- * не несёт смысловой нагрузки — анимация не нужна.
- */
 .idle-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
@@ -234,7 +287,6 @@ onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   font-family: var(--font-mono, monospace);
 }
 
-/* Fade transition for finished op dismiss */
 .fade-op-enter-active { transition: opacity 400ms ease; }
 .fade-op-leave-active { transition: opacity 600ms ease; }
 .fade-op-enter-from, .fade-op-leave-to { opacity: 0; }

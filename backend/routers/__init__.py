@@ -6,6 +6,7 @@ from .maintenance import router as maintenance_router
 from .nodes       import router as nodes_router
 from .recovery    import router as recovery_router
 from .settings    import router as settings_router
+from .version     import router as version_router
 from .ws          import router as ws_router
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "nodes_router",
     "recovery_router",
     "settings_router",
+    "version_router",
     "ws_router",
 ]
