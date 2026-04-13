@@ -1,33 +1,52 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+interface ArbitratorLive {
+  ssh_ok: boolean
+  garbd_running: boolean
+  ssh_latency_ms: number | null
+  last_check_ts: string | null
+  state: string
+  error: string | null
+}
+
 interface Arbitrator {
   id: number
   name: string
   host: string
-  port: number
-  dc?: { name: string } | null
-  is_reachable?: boolean | null
+  ssh_port?: number
+  dc_name?: string | null
+  live?: ArbitratorLive | null
 }
 
 const props = defineProps<{ arbitrator: Arbitrator }>()
+
+const isReachable = computed(() =>
+  !!(props.arbitrator.live?.ssh_ok && props.arbitrator.live?.garbd_running)
+)
 </script>
 
 <template>
   <article class="arb-card anim-fade-in">
-    <div class="arb-stripe" :class="arbitrator.is_reachable ? 'arb-stripe--ok' : 'arb-stripe--fail'" />
+    <div class="arb-stripe" :class="isReachable ? 'arb-stripe--ok' : 'arb-stripe--fail'" />
     <div class="arb-body">
       <div class="arb-header">
         <div class="arb-title-group">
           <span class="arb-name">{{ arbitrator.name }}</span>
-          <span v-if="arbitrator.dc?.name" class="arb-dc">{{ arbitrator.dc.name }}</span>
+          <span v-if="arbitrator.dc_name" class="arb-dc">{{ arbitrator.dc_name }}</span>
         </div>
-        <div :class="['arb-badge', arbitrator.is_reachable ? 'arb-badge--ok' : 'arb-badge--fail']">
+        <div :class="['arb-badge', isReachable ? 'arb-badge--ok' : 'arb-badge--fail']">
           <span class="arb-dot" />
-          {{ arbitrator.is_reachable ? 'Reachable' : 'Unreachable' }}
+          {{ isReachable ? 'Reachable' : 'Unreachable' }}
         </div>
       </div>
       <div class="arb-host">
-        <span>{{ arbitrator.host }}:{{ arbitrator.port }}</span>
+        <span>{{ arbitrator.host }}:{{ arbitrator.ssh_port ?? 22 }}</span>
         <span class="arb-tag">arbitrator</span>
+      </div>
+      <div v-if="arbitrator.live?.ssh_latency_ms != null" class="arb-latency">
+        <span class="arb-latency-label">SSH latency</span>
+        <span class="arb-latency-val">{{ arbitrator.live.ssh_latency_ms }} ms</span>
       </div>
     </div>
   </article>
@@ -139,5 +158,22 @@ const props = defineProps<{ arbitrator: Arbitrator }>()
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 0 4px;
+}
+
+.arb-latency {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.arb-latency-label {
+  color: var(--color-text-faint);
+}
+
+.arb-latency-val {
+  color: var(--color-text-muted);
 }
 </style>
