@@ -59,17 +59,17 @@ interface DCGroup {
   arbs: ArbLive[]
 }
 
-// ── Layout constants ──────────────────────────────────────────────────────────────
-const DC_W    = 560   // DC zone width
-const DC_PAD  = 24   // outer padding
-const DC_GAP  = 80   // gap between DC zones
-const B_W     = 240  // badge width (slightly narrower)
-const B_H     = 130  // badge height (slightly shorter)
-const B_ARB_H = 100  // arbitrator badge height
-const B_GAP   = 30   // gap between badges (more spacing)
-const TOP_OFF = 40   // dc label area
-const SIDE    = 24   // inner padding in DC zone
-const ARC_TOP = 80   // space above DC zones for arcs
+// ── Layout constants ──────────────────────────────────────────────────────────
+const DC_W    = 560
+const DC_PAD  = 24
+const DC_GAP  = 80
+const B_W     = 240
+const B_H     = 130
+const B_ARB_H = 100
+const B_GAP   = 30
+const TOP_OFF = 40
+const SIDE    = 24
+const ARC_TOP = 80
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
@@ -249,7 +249,6 @@ interface ConnectionLine {
   style: 'synced' | 'active' | 'offline'
 }
 
-// Anchor: top-center of badge
 function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
   for (let di = 0; di < dcGroups.value.length; di++) {
     const dc = dcGroups.value[di]
@@ -263,7 +262,6 @@ function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
   return null
 }
 
-// Arc control point goes UPWARD above the badges
 function arcPath(x1: number, y1: number, x2: number, y2: number): string {
   const mx   = (x1 + x2) / 2
   const dx   = Math.abs(x2 - x1)
@@ -420,7 +418,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               </filter>
             </defs>
 
-            <!-- 1. DC zones and badges FIRST (bottom layer) -->
+            <!-- DC zones и badges (нижний слой) -->
             <g v-for="(dc, di) in dcGroups" :key="di">
               <rect :x="dcX(di)" :y="ARC_TOP + 4" :width="DC_W" :height="dcHeight(dc)" rx="10" ry="10" class="dc-zone-rect" />
               <text :x="dcX(di) + SIDE" :y="ARC_TOP + 22" class="dc-zone-label">{{ dc.dcName.toUpperCase() }}</text>
@@ -438,15 +436,13 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
                   :fill="nodeColor(node)"
                   :filter="nodeSSHOk(node) && nodeState(node)?.toUpperCase() === 'SYNCED' ? 'url(#glow-synced)' : undefined"
                 />
-                <circle cx="18" cy="30" r="6" :fill="nodeColor(node)" :filter="!nodeSSHOk(node) ? 'url(#glow-offline)' : undefined">
-                  <animate
-                    v-if="!nodeSSHOk(node)"
-                    attributeName="opacity"
-                    values="1;0.2;1"
-                    dur="1.6s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
+                <!-- CSS-анимация вместо SVG SMIL <animate> — стабильнее на VDI/Chrome -->
+                <circle
+                  cx="18" cy="30" r="6"
+                  :fill="nodeColor(node)"
+                  :filter="!nodeSSHOk(node) ? 'url(#glow-offline)' : undefined"
+                  :class="{ 'dot-pulse': !nodeSSHOk(node) }"
+                />
                 <text x="32" y="35" class="badge-name">{{ (node as any).name }}</text>
                 <text x="10" y="54" class="badge-host">{{ (node as any).host }}:{{ (node as any).port }}</text>
                 <text x="10" y="76" class="badge-state" :fill="nodeColor(node)">{{ nodeStatLabel(node) }}</text>
@@ -475,7 +471,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
               </g>
             </g>
 
-            <!-- 2. Arcs LAST — rendered on top of everything (SVG z-order = DOM order) -->
+            <!-- Арки ПОСЛЕДНИМИ — поверх DC-зон (SVG z-order = DOM order) -->
             <g class="conn-layer">
               <path
                 v-for="(line, i) in connectionLines"
@@ -722,6 +718,20 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-badge--clickable:hover .badge-open-hint { opacity: 1; }
 
+/*
+ * dot-pulse — CSS-анимация для offline dot в SVG.
+ * Заменяет SVG SMIL <animate>, который некорректно работает
+ * в Chrome на VDI/RDP (ускоренное воспроизведение).
+ */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
+}
+.dot-pulse {
+  animation: dot-pulse 1.8s ease-in-out infinite;
+  /* will-change отключён намеренно — на VDI GPU acceleration нестабильна */
+}
+
 .topo-arc {
   fill: none;
   stroke-linecap: round;
@@ -833,7 +843,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   transition: box-shadow .3s;
 }
 .status-dot--pulse {
-  animation: status-pulse 1.6s ease-in-out infinite;
+  animation: status-pulse 1.8s ease-in-out infinite;
 }
 
 .name-text { font-size:var(--text-sm); font-weight:600; color:var(--color-text); }

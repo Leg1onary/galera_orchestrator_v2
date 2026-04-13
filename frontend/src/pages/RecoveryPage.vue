@@ -8,6 +8,7 @@ import Step1Scan from '@/components/recovery/Step1Scan.vue'
 import Step2Bootstrap from '@/components/recovery/Step2Bootstrap.vue'
 import Step3Rejoin from '@/components/recovery/Step3Rejoin.vue'
 import Step4Done from '@/components/recovery/Step4Done.vue'
+import type { ClusterStatusResponse } from '@/composables/useClusterStatus'
 
 const router       = useRouter()
 const clusterStore = useClusterStore()
@@ -16,13 +17,22 @@ const queryClient  = useQueryClient()
 
 const clusterStatus = computed(() => {
   if (!clusterStore.selectedClusterId) return null
-  return queryClient.getQueryData<{ cluster_status: string }>(
+  return queryClient.getQueryData<ClusterStatusResponse>(
     ['cluster', clusterStore.selectedClusterId, 'status']
   )
 })
 
-const clusterIsHealthy = computed(
-  () => clusterStatus.value?.cluster_status === 'healthy'
+// Guard срабатывает только когда данные реально получены (не undefined).
+// Без этого на VDI при быстрой навигации кэш ещё пустой → status=undefined
+// → clusterIsHealthy=false → виджет мигает между wizard и healthy-banner.
+const clusterIsHealthy = computed(() => {
+  if (clusterStatus.value === undefined || clusterStatus.value === null) return false
+  return clusterStatus.value.status === 'healthy'
+})
+
+// Показываем wizard только когда кэш уже есть
+const statusReady = computed(() =>
+  clusterStatus.value !== undefined && clusterStatus.value !== null
 )
 
 const STEPS = [
@@ -94,6 +104,11 @@ onUnmounted(() => store.destroy())
       <i class="pi pi-server" /><span>No cluster selected</span>
     </div>
 
+    <!-- Пока кэш не прогрелся — показываем spinner вместо мигания wizard/banner -->
+    <div v-else-if="!statusReady" class="rp-loading">
+      <i class="pi pi-spin pi-spinner" /><span>Loading cluster status…</span>
+    </div>
+
     <!-- Guard: healthy -->
     <Message v-else-if="clusterIsHealthy" severity="success" :closable="false" class="rp-guard-msg">
       <div class="rp-guard-body">
@@ -160,7 +175,7 @@ onUnmounted(() => store.destroy())
 .rp-head { display: flex; flex-direction: column; gap: var(--space-1); }
 .rp-desc { font-size: var(--text-sm); color: var(--color-text-muted); }
 
-/* ── Info banner (shared pattern with MaintenancePage) ─────────── */
+/* ── Info banner ─────────────────────────────────────────────────── */
 .info-banner {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -196,7 +211,6 @@ onUnmounted(() => store.destroy())
   flex-shrink: 0;
 }
 
-/* Safety card — иконка предупреждения в amber */
 .info-card:last-child .info-card-header .pi {
   color: var(--color-warning);
 }
@@ -225,7 +239,7 @@ onUnmounted(() => store.destroy())
   color: var(--color-text);
 }
 
-/* ── Guards ─────────────────────────────────────────────────────── */
+/* ── Guards ──────────────────────────────────────────────────────── */
 .rp-empty {
   display: flex;
   align-items: center;
@@ -233,6 +247,17 @@ onUnmounted(() => store.destroy())
   gap: var(--space-3);
   color: var(--color-text-muted);
   padding: var(--space-16);
+  font-size: var(--text-sm);
+}
+
+/* Спиннер пока кэш не прогрелся */
+.rp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  padding: var(--space-12);
   font-size: var(--text-sm);
 }
 
@@ -362,11 +387,11 @@ onUnmounted(() => store.destroy())
 }
 
 /* ═══════════════════════════════════════
-   STEP TRANSITION
+   STEP TRANSITION — замедлена для VDI
 ═══════════════════════════════════════ */
 .step-enter-active,
 .step-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity 280ms ease, transform 280ms ease;
 }
 .step-enter-from {
   opacity: 0;

@@ -40,9 +40,6 @@ export interface ClusterStatusResponse {
 const STATUS_INVALIDATE_EVENTS = new Set([
   'node_state_changed',
   'arbitrator_state_changed',
-  // fix: после завершения операции (stop/start/restart) нода
-  // не меняет wsrep-статус мгновенно — поллер подтянет новое состояние
-  // только когда придёт operation_finished и мы форсируем рефетч
   'operation_finished',
   'operation_started',
 ])
@@ -60,18 +57,28 @@ export function useClusterStatus(clusterId: Ref<number | null>) {
         .then((r) => r.data)
     },
     refetchInterval: computed(() => settingsStore.pollingIntervalSec * 1000),
-    staleTime: 5_000,
+    // Увеличен staleTime — меньше лишних refetch-ов при быстрой навигации на VDI
+    staleTime: 15_000,
     enabled: computed(() => !!clusterId.value),
   })
 
+  // Дебаунс WS-инвалидации 300ms — на VDI события могут прилетать пачками
+  // и вызывать каскадный флап loading→data→loading
+  let invalidateTimer: ReturnType<typeof setTimeout> | null = null
   const unsub = onWsEvent((event) => {
     if (event.cluster_id !== clusterId.value) return
-    if (STATUS_INVALIDATE_EVENTS.has(event.event)) {
+    if (!STATUS_INVALIDATE_EVENTS.has(event.event)) return
+    if (invalidateTimer) clearTimeout(invalidateTimer)
+    invalidateTimer = setTimeout(() => {
       qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'status'] })
-    }
+      invalidateTimer = null
+    }, 300)
   })
 
-  onUnmounted(() => unsub())
+  onUnmounted(() => {
+    unsub()
+    if (invalidateTimer) clearTimeout(invalidateTimer)
+  })
 
   return query
 }
