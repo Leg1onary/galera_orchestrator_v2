@@ -4,13 +4,13 @@ export interface VersionInfo {
   version: string
 }
 
+export type UpdateStatus = 'update_available' | 'up_to_date' | 'registry_unavailable'
+
 export interface UpdateCheckInfo {
-  update_available: boolean
-  current_version:  string
-  latest_digest:    string | null
-  current_digest:   string | null
-  checked_at:       string | null
-  error:            string | null
+  status:          UpdateStatus
+  current_version: string
+  message:         string
+  checked_at:      string | null
 }
 
 export const versionApi = {
@@ -19,6 +19,6 @@ export const versionApi = {
   },
 
   checkUpdate(): Promise<UpdateCheckInfo> {
-    return apiClient.get<UpdateCheckInfo>('/version/check')
+    return apiClient.post<UpdateCheckInfo>('/version/check', {})
   },
 }

@@ -47,7 +47,7 @@ const nowStr = ref('')
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
 function tick() {
-  const d = new Date()
+  const d  = new Date()
   const hh = String(d.getHours()).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
   const ss = String(d.getSeconds()).padStart(2, '0')
@@ -90,37 +90,65 @@ function updateElapsed() {
 onMounted(() => { updateElapsed(); elapsedTimer = setInterval(updateElapsed, 1000) })
 onUnmounted(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
-// ── Version & update check ────────────────────────────────────────────────────────────
-onMounted(async () => {
-  await versionStore.loadVersion()
-  // Fire-and-forget, runs in background, never blocks UI
-  versionStore.checkUpdate()
-})
+// ── Version (load once on mount) ─────────────────────────────────────────────────────
+onMounted(() => versionStore.loadVersion())
 
-const showUpdateBadge = computed(() => versionStore.updateAvailable)
+const checkResult   = computed(() => versionStore.checkResult)
+const checkStatus   = computed(() => checkResult.value?.status ?? null)
+const isChecking    = computed(() => versionStore.checking)
+
+function handleCheckClick() {
+  versionStore.checkUpdate()
+}
 </script>
 
 <template>
   <footer class="app-footer">
 
-    <!-- LEFT: current version + update badge -->
+    <!-- LEFT: version + check button + result text -->
     <div class="footer-left">
       <span class="footer-version">{{ versionStore.currentVersion }}</span>
-      <Transition name="fade-badge">
-        <span
-          v-if="showUpdateBadge"
-          class="update-badge"
-          title="New version available — pull the latest image to update"
+
+      <button
+        class="check-btn"
+        :class="{ 'check-btn--loading': isChecking }"
+        :disabled="isChecking"
+        title="Check for updates"
+        @click="handleCheckClick"
+      >
+        <svg
+          class="check-btn-icon"
+          :class="{ spin: isChecking }"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          ↑ update
-        </span>
+          <path
+            d="M13.65 2.35A8 8 0 1 0 15 8h-1.5A6.5 6.5 0 1 1 8 1.5a6.45 6.45 0 0 1 4.24 1.6L10 5.5h5v-5l-1.35 1.85z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+
+      <Transition name="fade-result">
+        <span
+          v-if="checkStatus === 'update_available'"
+          class="check-result check-result--update"
+        >↑ new version available</span>
+        <span
+          v-else-if="checkStatus === 'up_to_date'"
+          class="check-result check-result--ok"
+        >✓ up to date</span>
+        <span
+          v-else-if="checkStatus === 'registry_unavailable'"
+          class="check-result check-result--warn"
+        >⚠ registry unavailable</span>
       </Transition>
     </div>
 
     <!-- CENTER: op status -->
     <div class="footer-center">
 
-      <!-- Running op -->
       <template v-if="isRunning && activeOp">
         <span class="op-dot op-dot--running" />
         <span class="op-type">{{ opTypeLabel }}</span>
@@ -129,7 +157,6 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
         <span v-if="elapsedStr" class="op-elapsed">{{ elapsedStr }}</span>
       </template>
 
-      <!-- Finished op (auto-dismiss in 10s) -->
       <Transition name="fade-op">
         <template v-if="isFinished && activeOp && finishedVisible">
           <div class="finished-row">
@@ -143,7 +170,6 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
         </template>
       </Transition>
 
-      <!-- Idle -->
       <template v-if="!isRunning && !finishedVisible">
         <span class="idle-dot" />
         <span class="idle-text">idle</span>
@@ -176,7 +202,7 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
 /* ── Left ── */
 .footer-left {
   flex-shrink: 0;
-  min-width: 80px;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -188,34 +214,55 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
   color: #3f3f46;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
-  transition: color 300ms ease;
-}
-.footer-version:hover { color: #71717a; }
-
-.update-badge {
-  font-size: 0.68rem;
-  font-family: var(--font-mono, monospace);
-  font-weight: 600;
-  color: #2dd4bf;
-  background: rgba(45, 212, 191, 0.1);
-  border: 1px solid rgba(45, 212, 191, 0.25);
-  border-radius: 4px;
-  padding: 1px 6px;
-  letter-spacing: 0.04em;
-  cursor: default;
   white-space: nowrap;
-  animation: badge-glow 3s ease-in-out infinite;
 }
 
-@keyframes badge-glow {
-  0%, 100% { box-shadow: 0 0 4px rgba(45,212,191,0.2); }
-  50%       { box-shadow: 0 0 8px rgba(45,212,191,0.5); }
+/* ── Check button ── */
+.check-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #3f3f46;
+  border-radius: 3px;
+  transition: color 200ms ease;
+  flex-shrink: 0;
+}
+.check-btn:hover:not(:disabled) { color: #71717a; }
+.check-btn:disabled { cursor: default; }
+
+.check-btn-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
 }
 
-.fade-badge-enter-active { transition: opacity 500ms ease, transform 500ms ease; }
-.fade-badge-leave-active { transition: opacity 300ms ease; }
-.fade-badge-enter-from   { opacity: 0; transform: translateY(4px); }
-.fade-badge-leave-to     { opacity: 0; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin { animation: spin 0.9s linear infinite; }
+
+/* ── Result text ── */
+.check-result {
+  font-size: 0.70rem;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.check-result--update { color: #2dd4bf; }
+.check-result--ok     { color: #4ade80; }
+.check-result--warn   { color: #f59e0b; }
+
+.fade-result-enter-active { transition: opacity 350ms ease, transform 350ms ease; }
+.fade-result-leave-active { transition: opacity 200ms ease; }
+.fade-result-enter-from   { opacity: 0; transform: translateX(-4px); }
+.fade-result-leave-to     { opacity: 0; }
 
 /* ── Center ── */
 .footer-center {
@@ -228,11 +275,7 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
   position: relative;
 }
 
-.finished-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
+.finished-row { display: flex; align-items: center; gap: var(--space-2); }
 
 .op-dot {
   width: 7px; height: 7px;
@@ -244,14 +287,9 @@ const showUpdateBadge = computed(() => versionStore.updateAvailable)
   box-shadow: 0 0 7px rgba(45,212,191,0.75);
   animation: blink 2.4s ease-in-out infinite;
 }
-.op-dot--success {
-  background: #4ade80;
-  box-shadow: 0 0 6px rgba(74,222,128,0.55);
-}
-.op-dot--error {
-  background: #f87171;
-  box-shadow: 0 0 6px rgba(248,113,113,0.55);
-}
+.op-dot--success { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.55); }
+.op-dot--error   { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.55); }
+
 @keyframes blink {
   0%, 100% { opacity: 1;    box-shadow: 0 0 7px rgba(45,212,191,0.75); }
   50%       { opacity: 0.35; box-shadow: 0 0 2px rgba(45,212,191,0.2);  }

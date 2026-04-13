@@ -1,17 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { versionApi, type UpdateCheckInfo } from '@/api/version'
-
-const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24h
+import { ref } from 'vue'
+import { versionApi, type UpdateCheckInfo, type UpdateStatus } from '@/api/version'
 
 export const useVersionStore = defineStore('version', () => {
-  const currentVersion  = ref<string>('...')
-  const updateInfo      = ref<UpdateCheckInfo | null>(null)
-  const lastChecked     = ref<number | null>(null)
-  const checking        = ref(false)
-
-  const updateAvailable = computed(() => updateInfo.value?.update_available ?? false)
-  const checkError      = computed(() => updateInfo.value?.error ?? null)
+  const currentVersion = ref<string>('...')
+  const checkResult    = ref<UpdateCheckInfo | null>(null)
+  const checking       = ref(false)
 
   async function loadVersion() {
     try {
@@ -22,30 +16,23 @@ export const useVersionStore = defineStore('version', () => {
     }
   }
 
-  async function checkUpdate(force = false) {
-    const now = Date.now()
-    if (!force && lastChecked.value && now - lastChecked.value < UPDATE_CHECK_INTERVAL_MS) {
-      return
-    }
+  async function checkUpdate() {
     if (checking.value) return
     checking.value = true
+    checkResult.value = null
     try {
-      updateInfo.value = await versionApi.checkUpdate()
-      lastChecked.value = now
+      checkResult.value = await versionApi.checkUpdate()
     } catch {
-      // silently ignore — network may be isolated
+      checkResult.value = {
+        status: 'registry_unavailable',
+        current_version: currentVersion.value,
+        message: 'Request failed — backend unreachable',
+        checked_at: new Date().toISOString(),
+      }
     } finally {
       checking.value = false
     }
   }
 
-  return {
-    currentVersion,
-    updateInfo,
-    updateAvailable,
-    checkError,
-    checking,
-    loadVersion,
-    checkUpdate,
-  }
+  return { currentVersion, checkResult, checking, loadVersion, checkUpdate }
 })

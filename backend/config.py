@@ -1,8 +1,6 @@
 from __future__ import annotations
 from cryptography.fernet import Fernet
-import base64
 
-import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -54,9 +52,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:////data/orchestrator.db"
     DB_CONNECT_TIMEOUT: int = 3
-
-    # App
-    APP_VERSION: str = "2.0.0"
 
     # Docs (SEC-006: disabled in prod by default)
     DOCS_ENABLED: bool = False

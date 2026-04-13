@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import subprocess
 from datetime import datetime, timezone
@@ -7,116 +8,125 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from config import settings
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/version", tags=["version"])
 
-# ---------------------------------------------------------------------------
-# Docker image reference — adjust to your registry/image name
-# ---------------------------------------------------------------------------
 DOCKER_IMAGE = "ghcr.io/leg1onary/galera_orchestrator_v2:latest"
 
+
 # ---------------------------------------------------------------------------
-# In-memory cache for update check result (TTL = 24h)
+# Resolve current git SHA once at import time — no user config needed
 # ---------------------------------------------------------------------------
-_cache: dict = {
-    "update_available": False,
-    "latest_digest":    None,
-    "current_digest":   None,
-    "checked_at":       None,
-    "error":            None,
-}
-_cache_lock = asyncio.Lock()
+def _resolve_git_sha() -> str:
+    """Try git, then env fallback APP_VERSION, then 'unknown'."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+            cwd=subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip() or ".",
+        )
+        sha = result.stdout.strip()
+        if result.returncode == 0 and sha:
+            return sha
+    except Exception:
+        pass
+    # Fallback: read APP_VERSION from env (set by Dockerfile ARG GIT_SHA)
+    import os
+    v = os.getenv("APP_VERSION", "").strip()
+    return v if v and v != "2.0.0" else "unknown"
 
 
+CURRENT_VERSION: str = _resolve_git_sha()
+logger.info("Resolved application version: %s", CURRENT_VERSION)
+
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
 class VersionResponse(BaseModel):
     version: str
 
 
 class UpdateCheckResponse(BaseModel):
-    update_available: bool
-    current_version:  str
-    latest_digest:    Optional[str]
-    current_digest:   Optional[str]
-    checked_at:       Optional[str]
-    error:            Optional[str]
+    status: str          # "update_available" | "up_to_date" | "registry_unavailable"
+    current_version: str
+    message: str
+    checked_at: Optional[str]
 
 
-def _get_current_digest() -> Optional[str]:
-    """Get the image ID/digest of the running container via docker inspect."""
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _get_current_image_digest() -> Optional[str]:
+    """Digest of the running container image via `docker inspect`."""
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["docker", "inspect", "--format", "{{.Image}}", "galera-orchestrator"],
             capture_output=True, text=True, timeout=5,
         )
-        if result.returncode == 0:
-            return result.stdout.strip()[:19] or None
+        if r.returncode == 0:
+            val = r.stdout.strip()
+            return val if val else None
     except Exception as exc:
         logger.debug("docker inspect failed: %s", exc)
     return None
 
 
-def _get_latest_digest() -> Optional[str]:
-    """Fetch remote manifest digest without pulling the image."""
+def _get_remote_digest() -> Optional[str]:
+    """Manifest digest of :latest from registry (no pull)."""
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["docker", "manifest", "inspect", "--verbose", DOCKER_IMAGE],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=20,
         )
-        if result.returncode == 0:
-            import json
-            data = json.loads(result.stdout)
-            # manifest inspect --verbose returns a list or a single object
-            if isinstance(data, list):
-                data = data[0]
-            digest = (
-                data.get("Descriptor", {}).get("digest")
-                or data.get("config", {}).get("digest")
-            )
-            return str(digest)[:19] if digest else None
+        if r.returncode != 0:
+            return None
+        data = json.loads(r.stdout)
+        if isinstance(data, list):
+            data = data[0]
+        return (
+            data.get("Descriptor", {}).get("digest")
+            or data.get("config", {}).get("digest")
+        )
     except Exception as exc:
         logger.debug("docker manifest inspect failed: %s", exc)
     return None
 
 
-async def _do_check() -> None:
-    """Run the update check in a thread and populate the cache."""
+async def _run_check() -> UpdateCheckResponse:
     loop = asyncio.get_running_loop()
-    current = await loop.run_in_executor(None, _get_current_digest)
-    latest  = await loop.run_in_executor(None, _get_latest_digest)
+    current_digest = await loop.run_in_executor(None, _get_current_image_digest)
+    remote_digest  = await loop.run_in_executor(None, _get_remote_digest)
+    now = datetime.now(timezone.utc).isoformat()
 
-    error: Optional[str] = None
-    update_available = False
+    if remote_digest is None:
+        return UpdateCheckResponse(
+            status="registry_unavailable",
+            current_version=CURRENT_VERSION,
+            message="Registry unavailable — network may be isolated or docker CLI not accessible",
+            checked_at=now,
+        )
 
-    if latest is None:
-        error = "Could not reach registry — network may be isolated or docker not available"
-    elif current is None:
-        error = "Could not determine current digest (not running in Docker?)"
-    else:
-        update_available = current != latest
+    if current_digest is None or current_digest == remote_digest:
+        # current_digest None means we can't compare — treat as up-to-date
+        # (conservative: don't alarm if we simply can't read local digest)
+        return UpdateCheckResponse(
+            status="up_to_date",
+            current_version=CURRENT_VERSION,
+            message="Your version is up to date",
+            checked_at=now,
+        )
 
-    async with _cache_lock:
-        _cache["update_available"] = update_available
-        _cache["latest_digest"]    = latest
-        _cache["current_digest"]   = current
-        _cache["checked_at"]       = datetime.now(timezone.utc).isoformat()
-        _cache["error"]            = error
-
-    logger.info(
-        "Update check complete: update_available=%s current=%s latest=%s error=%s",
-        update_available, current, latest, error,
+    return UpdateCheckResponse(
+        status="update_available",
+        current_version=CURRENT_VERSION,
+        message="A new version is available — pull the latest image to update",
+        checked_at=now,
     )
-
-
-def _cache_is_fresh() -> bool:
-    """Return True if cache was populated less than 24 hours ago."""
-    if not _cache["checked_at"]:
-        return False
-    checked = datetime.fromisoformat(_cache["checked_at"])
-    age = (datetime.now(timezone.utc) - checked).total_seconds()
-    return age < 86_400  # 24 h
 
 
 # ---------------------------------------------------------------------------
@@ -124,39 +134,22 @@ def _cache_is_fresh() -> bool:
 # ---------------------------------------------------------------------------
 @router.get("", response_model=VersionResponse)
 async def get_version() -> VersionResponse:
-    """
-    Returns the current application version (git SHA injected at build time
-    via APP_VERSION env var, e.g. '59c14f8').
-    """
-    return VersionResponse(version=settings.APP_VERSION)
+    """Returns current git SHA resolved at startup."""
+    return VersionResponse(version=CURRENT_VERSION)
 
 
 # ---------------------------------------------------------------------------
-# GET /api/version/check
+# POST /api/version/check   (POST — explicit user action, not cacheable)
 # ---------------------------------------------------------------------------
-@router.get("/check", response_model=UpdateCheckResponse)
+@router.post("/check", response_model=UpdateCheckResponse)
 async def check_update() -> UpdateCheckResponse:
     """
-    Check whether a newer Docker image is available.
-
-    Uses `docker manifest inspect` to fetch the remote digest without
-    pulling the image — works even without internet access if the
-    internal registry (GHCR / private) is reachable.
-
-    Result is cached for 24 hours. Subsequent calls return the cached
-    value immediately.
-
-    On error (registry unreachable, Docker not available) returns
-    update_available=False and an error message — never raises 5xx.
+    Triggered by user clicking 'Check updates'.
+    Runs `docker manifest inspect` against the registry.
+    Always performs a fresh check — no server-side caching.
+    Returns one of three statuses:
+      - update_available
+      - up_to_date
+      - registry_unavailable
     """
-    if not _cache_is_fresh():
-        await _do_check()
-
-    return UpdateCheckResponse(
-        update_available=_cache["update_available"],
-        current_version=settings.APP_VERSION,
-        latest_digest=_cache["latest_digest"],
-        current_digest=_cache["current_digest"],
-        checked_at=_cache["checked_at"],
-        error=_cache["error"],
-    )
+    return await _run_check()
