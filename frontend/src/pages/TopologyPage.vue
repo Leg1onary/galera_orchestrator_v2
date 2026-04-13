@@ -61,14 +61,15 @@ interface DCGroup {
 
 // ── Layout constants ───────────────────────────────────────────────────────────
 const DC_W    = 280   // wider DC column → more space between badge centers
-const DC_PAD  = 20   // gap between DC columns
-const B_W     = 110  // wider badge
+const DC_PAD  = 20   // outer padding left/right
+const B_W     = 110  // badge width
 const B_H     = 66
 const B_ARB_H = 52
 const B_GAP   = 10
 const TOP_OFF = 18
 const SIDE    = 12
-const ARC_EXTRA = 40  // extra SVG height for arc sag
+const ARC_EXTRA = 60  // extra SVG height for arc sag
+const DC_GAP  = 60   // gap between DC zones — enough room for inter-DC arcs
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId!)
@@ -221,9 +222,9 @@ function dcHeight(dc: DCGroup): number {
 }
 
 const svgViewH = computed(() => Math.max(...(dcGroups.value.length ? dcGroups.value.map(dcHeight) : [160])) + 16 + ARC_EXTRA)
-const svgViewW = computed(() => Math.max(dcGroups.value.length * (DC_W + DC_PAD) + DC_PAD, 320))
+const svgViewW = computed(() => Math.max(dcGroups.value.length * (DC_W + DC_GAP) + DC_PAD * 2, 320))
 
-function dcX(di: number)  { return DC_PAD + di * (DC_W + DC_PAD) }
+function dcX(di: number)  { return DC_PAD + di * (DC_W + DC_GAP) }
 function badgeX(di: number, ni: number) { return dcX(di) + SIDE + (ni % 2) * (B_W + B_GAP) }
 function badgeY(ni: number) { return TOP_OFF + 10 + Math.floor(ni / 2) * (B_H + B_GAP) }
 function arbBadgeY(dc: DCGroup, ai: number) {
@@ -260,7 +261,6 @@ function nodeBadgeAnchor(nodeId: number): { x: number; y: number } | null {
 function arcPath(x1: number, y1: number, x2: number, y2: number): string {
   const mx  = (x1 + x2) / 2
   const dx  = Math.abs(x2 - x1)
-  // Deeper sag: minimum 30px, ensures arc is visible even for close badges
   const sag = Math.max(30, dx * 0.35)
   const cy  = Math.max(y1, y2) + sag
   return `M${x1},${y1} Q${mx},${cy} ${x2},${y2}`
@@ -389,6 +389,8 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             class="topo-svg"
             xmlns="http://www.w3.org/2000/svg"
             :viewBox="`0 0 ${svgViewW} ${svgViewH}`"
+            :width="svgViewW"
+            :height="svgViewH"
             preserveAspectRatio="xMinYMin meet"
           >
             <defs>
@@ -684,9 +686,9 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 .topo-svg {
   display: block;
-  width: 100%;
   height: auto;
   min-height: 180px;
+  /* width: 100% removed — SVG renders at natural size, container scrolls if needed */
 }
 
 .dc-zone-rect  { fill:var(--color-surface-2); stroke:var(--color-border); stroke-width:.8; }
