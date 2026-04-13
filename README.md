@@ -79,6 +79,7 @@ No agents on nodes. No complex setup. Just a Docker container, your SSH key, and
 | 🔑 | [SSH Key Setup](#-ssh-key-setup) |
 | 🖥️ | [Pages & Features](#%EF%B8%8F-pages--features) |
 | 🔄 | [Real-time & WebSocket](#-real-time--websocket) |
+| 🔃 | [Version & Updates](#-version--updates) |
 | 🏗️ | [Architecture](#%EF%B8%8F-architecture) |
 | 📁 | [Project Structure](#-project-structure) |
 | 💾 | [Data Persistence & Backup](#-data-persistence--backup) |
@@ -186,8 +187,9 @@ docker compose up -d
 
 1. Открой **Settings → Clusters** → создай кластер
 2. **Settings → Datacenters** → создай датацентр(ы)
-3. **Settings → Nodes** → добавь узлы (host, SSH-порт, DB-credentials)
-4. Выбери кластер в топбаре → наблюдай как **Overview** оживает 🎉
+3. **Settings → Contours** → создай контуры (если нужно)
+4. **Settings → Nodes** → добавь узлы (host, SSH-порт, DB-credentials)
+5. Выбери кластер в топбаре → наблюдай как **Overview** оживает 🎉
 
 ---
 
@@ -201,7 +203,7 @@ All configuration via `.env` file. Sensible defaults for everything except secre
 | `ADMIN_PASSWORD_HASH` | — | **✅ обязательно** | bcrypt-хэш пароля. Генерируется installer'ом автоматически. Вручную: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt(12)).decode())"` |
 | `JWT_SECRET_KEY` | — | **✅ обязательно** | JWT signing secret, минимум 32 символа. Генерировать: `openssl rand -hex 32` |
 | `FERNET_SECRET_KEY` | — | **✅ обязательно** | Fernet key — шифрует пароли узлов в SQLite. Генерировать: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path к SSH-ключу (bind-mounted `:ro` в `/root/.ssh/id_rsa`) |
+| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path к SSH-ключу (bind-mounted `:ro` в контейнер) |
 | `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | Не менять — `/data` монтируется как named volume |
 | `HOST_PORT` | `8000` | — | Host port для панели |
 | `COOKIE_SECURE` | `true` | — | `true` — JWT-cookie отправляется только по HTTPS (recommended). `false` — только для dev/тест без TLS |
@@ -239,7 +241,7 @@ The key is **bind-mounted read-only** into the container — never stored in the
 ```yaml
 # docker-compose.ghcr.yml (already configured)
 volumes:
-  - ${SSH_KEY_PATH}:/root/.ssh/id_rsa:ro
+  - ${SSH_KEY_PATH}:/home/nonroot/.ssh/id_rsa:ro
 ```
 
 ✅ Проверь доступ перед запуском:
@@ -342,6 +344,52 @@ WS /ws/clusters/{cluster_id}
 
 ---
 
+## 🔃 Version & Updates
+
+### Как определяется версия
+
+Версия приложения **не задаётся вручную в `.env`** — она определяется автоматически при старте контейнера:
+
+| Источник | Когда используется |
+|---|---|
+| `git rev-parse --short HEAD` | Сборка из исходников (`Option C`) — показывает короткий SHA коммита |
+| `APP_VERSION` (env, задаётся `Dockerfile`) | Образ собран через CI/CD — SHA коммита передаётся как `ARG GIT_SHA` при сборке |
+| `unknown` | Fallback, если git и env недоступны |
+
+Текущая версия всегда видна в **левом нижнем углу** футера панели в формате `abc1234`.
+
+### Проверка наличия обновлений
+
+Рядом с версией в футере находится кнопка **🔃** (Check updates).
+Она выполняет проверку **вручную по запросу** — автоматических фоновых запросов нет
+(важно для изолированных сетей).
+
+После нажатия рядом с кнопкой появляется один из трёх статусов:
+
+| Статус | Значение |
+|---|---|
+| `↑ new version available` | Digest запущенного образа отличается от `:latest` в реестре — доступно обновление |
+| `✓ up to date` | Образ актуален |
+| `⚠ registry unavailable` | Реестр недоступен (изолированная сеть, нет `docker` CLI, timeout) |
+
+> Проверка использует `docker manifest inspect ghcr.io/leg1onary/galera_orchestrator_v2:latest`
+> без скачивания образа. Требует доступа к `ghcr.io` с хоста, где запущен контейнер.
+
+### Как обновить
+
+```bash
+# Если использовал install.sh
+bash ~/galera-orchestrator/update.sh
+
+# Вручную
+docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml pull
+docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml up -d
+```
+
+> ⚠️ Перед обновлением сделай бэкап БД — см. [Data Persistence & Backup](#-data-persistence--backup).
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -362,7 +410,7 @@ WS /ws/clusters/{cluster_id}
 │                     │   SQLite /data   │   │
 │                     └──────────────────┘   │
 │                                            │
-│  /root/.ssh/id_rsa  (bind-mount :ro)       │
+│  /home/nonroot/.ssh/id_rsa  (bind :ro)     │
 └────────────────────────────────────────────┘
          │ SSH + MariaDB
          ▼
@@ -375,6 +423,7 @@ WS /ws/clusters/{cluster_id}
 - **DB:** SQLite (single file, named Docker volume)
 - **Auth:** JWT в `httpOnly` cookie, проверка через `GET /api/auth/me`
 - **Realtime:** WebSocket `/ws/clusters/{cluster_id}` + 5s polling fallback
+- **Process:** runs as `nonroot` (uid 1001) — no root inside container
 
 ---
 
@@ -396,7 +445,7 @@ galera_orchestrator_v2/
 │   ├── src/
 │   │   ├── pages/           # Overview, Nodes, Topology, Recovery, Settings
 │   │   ├── components/      # NodeCard, Sparkline, Drawer, etc.
-│   │   ├── stores/          # Pinia — clusters, nodes, ws
+│   │   ├── stores/          # Pinia — clusters, nodes, ws, version
 │   │   └── api/             # Axios client
 │   └── vite.config.ts
 ├── Dockerfile
@@ -478,6 +527,7 @@ docker compose exec backend pytest tests/ -v
 | 🌐 **Security headers** | Каждый ответ содержит: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`. |
 | 📄 **OpenAPI schema** | `/docs`, `/redoc`, `/openapi.json` отключены по умолчанию (`DOCS_ENABLED=false`). |
 | 🔒 **Secure cookie** | `COOKIE_SECURE=true` по умолчанию — cookie не отправляется по HTTP. |
+| 👤 **Non-root process** | Контейнер запускается от `nonroot` (uid 1001) — компрометация процесса не даёт root на хосте. |
 | ⚠️ **No mock mode** | Все SSH / SQL операции **реальные** — используй тестовый кластер для экспериментов. |
 | 🌐 **CORS** | В проде SPA и API на одном origin — CORS middleware активен только в dev. |
 
@@ -565,6 +615,20 @@ sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=<новый_хэш>|" ~/ga
 
 # Перезапусти контейнер
 docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml restart
+```
+</details>
+
+<details>
+<summary>🔃 Кнопка «Check updates» показывает «registry unavailable»</summary>
+
+Возможные причины:
+- Сервер без доступа в интернет (изолированная сеть) — это ожидаемое поведение
+- Docker CLI недоступен внутри контейнера — проверь что `docker.sock` не нужен (по умолчанию не монтируется)
+- `ghcr.io` заблокирован файрволом
+
+Для обновления в изолированной сети используй `update.sh` с хоста:
+```bash
+bash ~/galera-orchestrator/update.sh
 ```
 </details>
 
