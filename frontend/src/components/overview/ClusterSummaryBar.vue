@@ -49,7 +49,10 @@ const meterValues = computed(() => {
 })
 
 // ── Flow control ──────────────────────────────────────────────────────────────
-const flowWarn = computed(() => (props.flowControlPaused ?? 0) > 0)
+const flowWarn         = computed(() => (props.flowControlPaused ?? 0) > 0)
+const flowDisplay      = computed(() =>
+  props.flowControlPaused !== null ? props.flowControlPaused.toFixed(3) : '\u2014'
+)
 
 // ── Recv queue ────────────────────────────────────────────────────────────────
 const recvQueueWarn    = computed(() => (props.maxRecvQueue ?? 0) > 0)
@@ -58,7 +61,8 @@ const recvQueueDisplay = computed(() =>
 )
 
 // ── Active operation ──────────────────────────────────────────────────────────
-const activeOp = computed(() => opsStore.activeOperation(props.clusterId))
+// activeOperation — без аргумента: стор сам знает selectedClusterId
+const activeOp = computed(() => opsStore.activeOperation)
 
 const OP_LABEL: Record<string, string> = {
   'recovery-bootstrap': 'Bootstrap',
@@ -139,7 +143,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
       <div v-if="props.isLoading"><Skeleton height="1rem" width="60px" /></div>
       <Tag
         v-else
-        :value="flowControlPaused !== null ? flowControlPaused.toFixed(3) : '\u2014'"
+        :value="flowDisplay"
         :severity="flowWarn ? 'warn' : 'secondary'"
         :icon="flowWarn ? 'pi pi-exclamation-triangle' : undefined"
         class="csb-tag csb-tag--mono"
@@ -173,9 +177,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
       </div>
     </div>
 
-    <!-- 8. Active operation — появляется только когда есть операция.
-         div.csb-op-wrap — единственный child для <Transition>,
-         содержит divider + item чтобы не плодить лишний DOM-элемент -->
+    <!-- 8. Active operation -->
     <Transition name="csb-op-slide">
       <div v-if="showOp" class="csb-op-wrap">
         <div class="csb-divider" />
@@ -271,11 +273,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
 .csb-maint--active .csb-val { color: var(--color-warning); }
 
 /* ── Active Operation ── */
-
-/* Обёртка — flex-ряд чтобы divider и item лежали в одну линию с остальными элементами бара */
-.csb-op-wrap {
-  display: contents;
-}
+.csb-op-wrap { display: contents; }
 
 .csb-op {
   display: flex;
@@ -305,7 +303,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
 .csb-op--running .csb-op-icon   { color: var(--color-primary); }
 .csb-op--running .csb-op-status { color: var(--color-primary); }
 
-.csb-op--done .csb-op-icon   { color: var(--color-success); }
+.csb-op--done .csb-op-icon   { color: var(--color-synced); }
 .csb-op--done .csb-op-status { color: var(--color-text-faint); }
 
 /* ── Slide-in transition ── */

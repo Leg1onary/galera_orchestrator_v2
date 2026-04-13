@@ -8,12 +8,11 @@
       </div>
       <Skeleton height="0.75rem" width="10rem" />
       <div class="ncs-metrics">
-        <Skeleton v-for="i in 3" :key="i" height="2.2rem" />
+        <Skeleton v-for="i in 4" :key="i" height="2.2rem" />
       </div>
       <Skeleton height="0.7rem" width="5rem" />
       <div class="ncs-actions">
-        <Skeleton height="2rem" width="2rem" border-radius="50%" />
-        <Skeleton height="2rem" width="100%" />
+        <Skeleton v-for="i in 4" :key="'btn-' + i" height="2rem" />
       </div>
     </div>
   </div>
@@ -28,7 +27,7 @@
   display: flex;
 }
 .ncs-stripe {
-  width: 3px;
+  width: 4px;
   background: var(--color-surface-3);
   flex-shrink: 0;
 }

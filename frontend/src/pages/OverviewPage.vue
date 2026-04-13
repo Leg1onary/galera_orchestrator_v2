@@ -33,7 +33,6 @@ const firstLive = computed(() =>
   nodes.value.find((n) => n.live?.ssh_ok)?.live ?? null
 )
 
-// max recv_queue по всем живым нодам
 const maxRecvQueue = computed(() => {
   const values = nodes.value
     .map((n) => n.live?.wsrep_local_recv_queue ?? null)
@@ -68,8 +67,11 @@ const maxRecvQueue = computed(() => {
         :is-loading="isLoading"
       />
 
-      <section class="overview-section">
-        <div class="section-title">Nodes</div>
+      <section class="overview-section anim-fade-in">
+        <div class="section-header">
+          <span class="section-title">Nodes</span>
+          <span class="section-count">{{ nodes.length }}</span>
+        </div>
         <div class="nodes-grid">
           <template v-if="isLoading">
             <NodeCardSkeleton v-for="i in 3" :key="'sk-' + i" />
@@ -84,8 +86,11 @@ const maxRecvQueue = computed(() => {
         </div>
       </section>
 
-      <section v-if="arbitrators.length" class="overview-section">
-        <div class="section-title">Arbitrators</div>
+      <section v-if="arbitrators.length" class="overview-section anim-fade-in">
+        <div class="section-header">
+          <span class="section-title">Arbitrators</span>
+          <span class="section-count">{{ arbitrators.length }}</span>
+        </div>
         <div class="arb-grid">
           <ArbitratorCard
             v-for="arb in arbitrators"
@@ -95,8 +100,8 @@ const maxRecvQueue = computed(() => {
         </div>
       </section>
 
-      <section class="overview-section">
-        <EventLog :events="events" :is-loading="isLogLoading" :cluster-id="clusterId"/>
+      <section class="overview-section anim-fade-in">
+        <EventLog :events="events" :is-loading="isLogLoading" :cluster-id="clusterId!"/>
       </section>
 
     </template>
@@ -109,6 +114,7 @@ const maxRecvQueue = computed(() => {
   flex-direction: column;
   gap: var(--space-6);
 }
+
 .pg-empty {
   display: flex;
   align-items: center;
@@ -118,16 +124,37 @@ const maxRecvQueue = computed(() => {
   justify-content: center;
   font-size: var(--text-sm);
 }
+
 .overview-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.section-count {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  line-height: 1.6;
+}
+
 .nodes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-4);
 }
+
 .arb-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

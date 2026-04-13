@@ -46,8 +46,8 @@ const stateInfo = computed(() => STATE_MAP[nodeState.value] ?? STATE_MAP.UNKNOWN
 
 const isNodeOffline = computed(() => nodeState.value === 'OFFLINE')
 
-const clusterStatus    = computed(() => props.node.live.wsrep_cluster_status ?? null)
-const isNonPrimary     = computed(() =>
+const clusterStatus = computed(() => props.node.live.wsrep_cluster_status ?? null)
+const isNonPrimary  = computed(() =>
   clusterStatus.value !== null && clusterStatus.value.toLowerCase() !== 'primary'
 )
 
@@ -71,7 +71,7 @@ const flowWarn      = computed(() => (props.node.live.wsrep_flow_control_paused 
 const pingResultText = computed(() => {
   if (!pingResult.value) return ''
   const r = pingResult.value
-  const lat = r.ssh_latency_ms != null ? `${r.ssh_latency_ms}ms` : '—'
+  const lat = r.ssh_latency_ms != null ? `${r.ssh_latency_ms}ms` : '\u2014'
   return `SSH: ${r.ssh_ok ? 'OK' : 'FAIL'} | DB: ${r.db_ok ? 'OK' : 'FAIL'} | ${lat}`
 })
 
@@ -79,12 +79,24 @@ const pingResultOk = computed(() =>
   !!pingResult.value?.ssh_ok && !!pingResult.value?.db_ok
 )
 
-// ── Last check timestamp ──────────────────────────────────────────────────
 const lastCheckLabel = computed(() => {
   const ts = props.node.live.last_check_ts
   if (!ts) return null
   try {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ts
+  }
+})
+
+const lastCheckFull = computed(() => {
+  const ts = props.node.live.last_check_ts
+  if (!ts) return null
+  try {
+    return new Date(ts).toLocaleString([], {
+      year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    })
   } catch {
     return ts
   }
@@ -139,13 +151,26 @@ function confirmDestructive(action: NodeAction, label: string) {
       <div class="nc-header">
         <div class="nc-title-group">
           <span class="nc-name">{{ node.name }}</span>
-          <span v-if="node.dc_name" class="nc-dc">{{ node.dc_name }}</span>
+          <span
+            v-if="node.dc_name"
+            class="nc-dc"
+            v-tooltip.top="'Datacenter: ' + node.dc_name"
+          >{{ node.dc_name }}</span>
         </div>
-        <Tag
-          :value="stateInfo.label"
-          :severity="stateInfo.severity"
-          class="nc-state-tag"
-        />
+        <div class="nc-badges">
+          <span
+            v-if="node.maintenance"
+            class="nc-maint-badge"
+            v-tooltip.top="'Maintenance mode active'"
+          >
+            <i class="pi pi-wrench" />
+          </span>
+          <Tag
+            :value="stateInfo.label"
+            :severity="stateInfo.severity"
+            class="nc-state-tag"
+          />
+        </div>
       </div>
 
       <!-- HOST + MODE -->
@@ -266,7 +291,11 @@ function confirmDestructive(action: NodeAction, label: string) {
       </div>
 
       <!-- LAST CHECK -->
-      <div v-if="lastCheckLabel" class="nc-last-check">
+      <div
+        v-if="lastCheckLabel"
+        class="nc-last-check"
+        v-tooltip.top="lastCheckFull ?? undefined"
+      >
         <i class="pi pi-clock nc-last-check-icon" />
         <span>{{ lastCheckLabel }}</span>
       </div>
@@ -363,11 +392,33 @@ function confirmDestructive(action: NodeAction, label: string) {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-weight: 600;
+  cursor: default;
 }
 
 /* ═══════════════════════════════════════
-   STATE TAG
+   BADGES (state tag + maintenance)
 ═══════════════════════════════════════ */
+.nc-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.nc-maint-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 30%, transparent);
+  color: var(--color-warning);
+  cursor: default;
+}
+.nc-maint-badge .pi { font-size: 0.6rem; }
+
 .nc-state-tag { flex-shrink: 0; }
 
 :deep(.nc-state-tag.p-tag) {
@@ -590,6 +641,7 @@ function confirmDestructive(action: NodeAction, label: string) {
   color: var(--color-text-faint);
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-divider);
+  cursor: default;
 }
 .nc-last-check-icon { font-size: 0.65rem; }
 </style>

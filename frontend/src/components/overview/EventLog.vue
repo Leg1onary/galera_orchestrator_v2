@@ -5,7 +5,6 @@ import { useToast }   from 'primevue/usetoast'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { api } from '@/api/client'
 
-// Реальная схема от API
 interface ClusterEvent {
   id: number
   ts: string
@@ -50,10 +49,10 @@ const { mutate: clearLog, isPending: isClearing } = useMutation({
 
 function confirmClear(event: MouseEvent) {
   confirm.require({
-    target:  event.currentTarget as HTMLElement,
-    message: 'Delete all log entries for this cluster?',
-    icon:    'pi pi-exclamation-triangle',
-    accept:  () => clearLog(),
+    target:      event.currentTarget as HTMLElement,
+    message:     'Delete all log entries for this cluster?',
+    icon:        'pi pi-exclamation-triangle',
+    accept:      () => clearLog(),
     acceptLabel: 'Clear',
     rejectLabel: 'Cancel',
     acceptClass: 'p-button-danger p-button-sm',
@@ -66,58 +65,41 @@ function normLevel(level: string): string {
 }
 
 const LEVEL_CFG: Record<string, { icon: string; severity: string }> = {
-  info:     { icon: 'pi pi-info-circle',          severity: 'info' },
-  warning:  { icon: 'pi pi-exclamation-triangle', severity: 'warn' },
-  error:    { icon: 'pi pi-times-circle',         severity: 'danger' },
-  critical: { icon: 'pi pi-exclamation-circle',   severity: 'danger' },
+  info:     { icon: 'pi pi-info-circle',          severity: 'info'    },
+  warning:  { icon: 'pi pi-exclamation-triangle', severity: 'warn'    },
+  error:    { icon: 'pi pi-times-circle',         severity: 'danger'  },
+  critical: { icon: 'pi pi-exclamation-circle',   severity: 'danger'  },
 }
 
 function cfg(level: string) {
   return LEVEL_CFG[normLevel(level)] ?? LEVEL_CFG.info
 }
 
-// Python datetime.isoformat() → "2026-04-11T21:56:33.123456+00:00"
-// SQLite CURRENT_TIMESTAMP    → "2026-04-11 21:56:33" (space, no tz)
 function parseTs(ts: string): Date {
   if (!ts) return new Date(NaN)
-
-  // 1. Space separator → T
   let s = ts.trim().replace(' ', 'T')
-
-  // 2. Normalise UTC offsets (+00:00 / -00:00 / +0000) → Z
   s = s.replace(/[+-]00:?00$/, 'Z')
-
-  // 3. No timezone marker → assume UTC
   if (!/Z$/i.test(s)) s += 'Z'
-
   return new Date(s)
 }
 
 function formatTs(ts: string): { date: string; time: string } {
   const d = parseTs(ts)
-  if (isNaN(d.getTime())) return { date: '', time: '—' }
-
+  if (isNaN(d.getTime())) return { date: '', time: '\u2014' }
   const time = d.toLocaleTimeString('en-GB', {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
-
   const today = new Date()
   const isToday =
     d.getUTCFullYear() === today.getUTCFullYear() &&
     d.getUTCMonth()    === today.getUTCMonth() &&
     d.getUTCDate()     === today.getUTCDate()
-
   const date = isToday
     ? ''
     : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-
   return { date, time }
 }
 
-// Сортируем по полному datetime DESC.
-// Без этого события, пришедшие через WS или смешанные из разных дней,
-// могут оказаться не в хронологическом порядке — потому что API сортирует
-// только initial fetch, а WS вставляет события без гарантии порядка.
 const sortedEvents = computed(() =>
   [...props.events].sort((a, b) => parseTs(b.ts).getTime() - parseTs(a.ts).getTime())
 )
@@ -126,24 +108,21 @@ const sortedEvents = computed(() =>
 <template>
   <div class="event-log">
     <div class="event-log-header">
-      <span class="section-title">Event Log</span>
-
-      <div class="el-header-right">
-        <span v-if="props.events.length" class="el-count">
-          {{ props.events.length }} events
-        </span>
-        <Button
-          v-if="props.events.length"
-          label="Clear"
-          icon="pi pi-trash"
-          size="small"
-          severity="secondary"
-          text
-          :loading="isClearing"
-          class="el-clear-btn"
-          @click="confirmClear"
-        />
+      <div class="el-title-group">
+        <span class="section-title">Event Log</span>
+        <span v-if="props.events.length" class="el-count">{{ props.events.length }}</span>
       </div>
+      <Button
+        v-if="props.events.length"
+        label="Clear"
+        icon="pi pi-trash"
+        size="small"
+        severity="secondary"
+        text
+        :loading="isClearing"
+        class="el-clear-btn"
+        @click="confirmClear"
+      />
     </div>
 
     <ConfirmPopup />
@@ -180,10 +159,16 @@ const sortedEvents = computed(() =>
             <span class="el-time">
               <template v-if="formatTs(item.ts).date">
                 <span class="el-date">{{ formatTs(item.ts).date }}</span>
-                <span class="el-sep"> · </span>
+                <span class="el-sep"> &middot; </span>
               </template>
               {{ formatTs(item.ts).time }}
             </span>
+            <Tag
+              v-if="item.source"
+              :value="item.source"
+              severity="secondary"
+              class="el-source-tag"
+            />
             <Tag
               v-if="item.node_id"
               :value="'node #' + item.node_id"
@@ -210,6 +195,7 @@ const sortedEvents = computed(() =>
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
+
 .event-log-header {
   display: flex;
   align-items: center;
@@ -217,19 +203,29 @@ const sortedEvents = computed(() =>
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-border);
 }
-.el-header-right {
+
+.el-title-group {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
+
 .el-count {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--color-text-faint);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  line-height: 1.6;
 }
+
 .el-clear-btn {
   margin-right: calc(var(--space-2) * -1);
 }
+
 .el-skeleton {
   display: flex;
   flex-direction: column;
@@ -238,6 +234,7 @@ const sortedEvents = computed(() =>
 }
 .el-sk-row { display: flex; align-items: center; gap: var(--space-3); }
 .el-sk-lines { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
+
 .el-empty {
   display: flex;
   align-items: center;
@@ -248,11 +245,13 @@ const sortedEvents = computed(() =>
   justify-content: center;
 }
 .el-empty i { color: var(--color-synced); font-size: 0.9rem; }
+
 .el-timeline {
   padding: var(--space-3) var(--space-4);
   max-height: 360px;
   overflow-y: auto;
 }
+
 :deep(.p-timeline-event) {
   display: flex;
   align-items: flex-start;
@@ -284,6 +283,7 @@ const sortedEvents = computed(() =>
   min-width: 0;
   padding: 0 0 var(--space-2) 0;
 }
+
 .el-marker {
   display: flex;
   align-items: center;
@@ -294,10 +294,11 @@ const sortedEvents = computed(() =>
   font-size: 0.7rem;
   flex-shrink: 0;
 }
-.el-marker--info     { background: rgba(96,165,250,0.12);  color: #60a5fa; }
-.el-marker--warning  { background: rgba(251,146,60,0.12);  color: var(--color-degraded); }
-.el-marker--error    { background: rgba(248,113,113,0.12); color: var(--color-offline); }
-.el-marker--critical { background: rgba(248,113,113,0.15); color: var(--color-offline); }
+.el-marker--info     { background: color-mix(in oklch, #60a5fa 12%, transparent); color: #60a5fa; }
+.el-marker--warning  { background: color-mix(in oklch, var(--color-degraded) 12%, transparent); color: var(--color-degraded); }
+.el-marker--error    { background: color-mix(in oklch, var(--color-offline) 12%, transparent); color: var(--color-offline); }
+.el-marker--critical { background: color-mix(in oklch, var(--color-offline) 15%, transparent); color: var(--color-offline); }
+
 .el-item {
   display: flex;
   flex-direction: column;
@@ -319,6 +320,8 @@ const sortedEvents = computed(() =>
 }
 .el-date { color: var(--color-text-muted); }
 .el-sep  { color: var(--color-text-faint); opacity: 0.5; }
+
+.el-source-tag,
 .el-node-tag,
 .el-level-tag {
   font-size: 0.6rem !important;
@@ -326,6 +329,7 @@ const sortedEvents = computed(() =>
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
 .el-msg {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
