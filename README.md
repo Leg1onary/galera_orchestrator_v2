@@ -97,6 +97,7 @@ No agents on nodes. No complex setup. Just a Docker container, your SSH key, and
 |---|---|
 | 🐳 Docker | 24+ |
 | 🐳 Docker Compose | v2 plugin |
+| 🐍 Python 3 | 3.8+ (для installer — генерация Fernet-ключа и bcrypt-хэша) |
 | 🔑 SSH private key | RSA / Ed25519, passwordless, access to all Galera nodes |
 
 ---
@@ -111,13 +112,15 @@ curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/ma
 ```
 
 Что происходит внутри:
-1. Проверяет наличие Docker и Docker Compose
-2. Создаёт папку `~/galera-orchestrator`
-3. Скачивает `docker-compose.ghcr.yml`
-4. Интерактивно спрашивает: логин, пароль, путь к SSH-ключу, порт
-5. **Автоматически генерирует** `JWT_SECRET_KEY` и `FERNET_SECRET_KEY`
-6. Пишет `.env` с `chmod 600`
-7. Тянет образ с GHCR и запускает
+1. Проверяет наличие Docker, Docker Compose и Python 3
+2. Устанавливает `bcrypt` через pip (если не установлен)
+3. Создаёт папку `~/galera-orchestrator`
+4. Скачивает `docker-compose.ghcr.yml`
+5. Интерактивно спрашивает: логин, пароль, SSH-ключ, порт, COOKIE_SECURE
+6. **Хэширует пароль через bcrypt** — в `.env` пишется `ADMIN_PASSWORD_HASH`, plaintext не сохраняется
+7. **Автоматически генерирует** `JWT_SECRET_KEY` (hex 32 байта) и `FERNET_SECRET_KEY` (Fernet)
+8. Пишет `.env` с `chmod 600` и `DOCS_ENABLED=false`
+9. Тянет образ с GHCR и запускает
 
 После запуска скрипт покажет:
 ```
@@ -125,6 +128,9 @@ curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/ma
   👤 Login:   admin
   📁 Dir:     ~/galera-orchestrator
 ```
+
+> ⚠️ Если выбрал `COOKIE_SECURE=true` — панель доступна **только через HTTPS**.
+> Для HTTP-доступа (dev/тест) ответь `n` на вопрос о COOKIE_SECURE.
 
 ---
 
@@ -156,7 +162,7 @@ bash ~/galera-orchestrator/update.sh
 curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/docker-compose.ghcr.yml -o docker-compose.ghcr.yml
 curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/.env.example -o .env
 
-# 2. Заполнить .env
+# 2. Заполнить .env (см. Configuration Reference ниже)
 nano .env
 
 # 3. Запустить (образ скачается автоматически с GHCR)
@@ -192,17 +198,36 @@ All configuration via `.env` file. Sensible defaults for everything except secre
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `ADMIN_USERNAME` | `admin` | — | Admin login username |
-| `ADMIN_PASSWORD` | `changeme` | **✅ change** | Admin password |
-| `JWT_SECRET_KEY` | `change-me-jwt-secret` | **✅ change** | JWT signing secret (min 32 chars) |
-| `FERNET_SECRET_KEY` | `change-me-fernet-secret` | **✅ change** | Fernet key — encrypts node DB passwords in SQLite |
-| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path to SSH private key (bind-mounted `:ro`) |
+| `ADMIN_PASSWORD_HASH` | — | **✅ обязательно** | bcrypt-хэш пароля. Генерируется installer'ом автоматически. Вручную: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt(12)).decode())"` |
+| `JWT_SECRET_KEY` | — | **✅ обязательно** | JWT signing secret, минимум 32 символа. Генерировать: `openssl rand -hex 32` |
+| `FERNET_SECRET_KEY` | — | **✅ обязательно** | Fernet key — шифрует пароли узлов в SQLite. Генерировать: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path к SSH-ключу (bind-mounted `:ro` в `/root/.ssh/id_rsa`) |
 | `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | Не менять — `/data` монтируется как named volume |
-| `HOST_PORT` | `8000` | — | Host port to expose |
-| `SSH_CONNECT_TIMEOUT` | `5` | — | SSH connect timeout, seconds |
-| `SSH_COMMAND_TIMEOUT` | `10` | — | SSH command timeout, seconds |
-| `DB_CONNECT_TIMEOUT` | `3` | — | MariaDB connect timeout, seconds |
+| `HOST_PORT` | `8000` | — | Host port для панели |
+| `COOKIE_SECURE` | `true` | — | `true` — JWT-cookie отправляется только по HTTPS (recommended). `false` — только для dev/тест без TLS |
+| `DOCS_ENABLED` | `false` | — | `true` — включает `/docs`, `/redoc`, `/openapi.json`. **Только для dev**, в проде держать `false` |
+| `SSH_CONNECT_TIMEOUT` | `5` | — | SSH connect timeout, секунды |
+| `SSH_COMMAND_TIMEOUT` | `10` | — | SSH command timeout, секунды |
+| `DB_CONNECT_TIMEOUT` | `3` | — | MariaDB connect timeout, секунды |
 
-> ⚠️ `JWT_SECRET_KEY` и `FERNET_SECRET_KEY` должны быть **разными** значениями.
+> ⚠️ **`JWT_SECRET_KEY` и `FERNET_SECRET_KEY` должны быть разными значениями.**
+> Сервер откажется стартовать если они совпадают или содержат дефолтные `change-me-*` значения.
+
+---
+
+## 🔒 Production Security Defaults
+
+При деплое на прод убедись что выполнено:
+
+| # | Что сделать | Как проверить |
+|---|---|---|
+| 1 | `ADMIN_PASSWORD_HASH` — bcrypt-хэш, не plaintext | `grep ADMIN_PASSWORD .env` — не должно быть `ADMIN_PASSWORD=` |
+| 2 | `JWT_SECRET_KEY` ≥ 32 символов, уникальный | `wc -c <<< "$JWT_SECRET_KEY"` → 65+ (с \n) |
+| 3 | `FERNET_SECRET_KEY` — валидный Fernet-ключ, отличается от JWT | начинается с `gASV` или аналогичного base64url |
+| 4 | `COOKIE_SECURE=true` | панель за TLS/reverse-proxy |
+| 5 | `DOCS_ENABLED=false` | `/docs` → `404` |
+| 6 | `.env` — `chmod 600` | `ls -la .env` → `-rw-------` |
+| 7 | SSH-ключ без passphrase, доступен только из контейнера | `ls -la $SSH_KEY_PATH` → `600` |
 
 ---
 
@@ -280,115 +305,76 @@ Step 2 — Select bootstrap node
   └─ Highlights the safe-to-bootstrap candidate
   └─ Manual override with explicit confirmation
 
-Step 3 — Bootstrap & rejoin
-  └─ Executes bootstrap on selected node
-  └─ Monitors SYNCED state before rejoining next node
-  └─ Real-time progress log via WebSocket
-
-Step 4 — Done
-  └─ Cluster health confirmation
-  └─ Link back to Overview
+Step 3 — Bootstrap
+  └─ Runs bootstrap sequence on selected node
+  └─ Monitors join progress on remaining nodes
+  └─ Cluster lock held for duration (409 on concurrent ops)
 ```
 
-> 🛡️ **Cluster lock**: only one recovery operation at a time. Concurrent attempts → `409 Conflict`.
+### 🔄 Maintenance
 
-### 🔧 Maintenance
-
-Controlled maintenance operations without cluster downtime.
-
-- **Enter / Exit Maintenance** — sets `read_only = ON/OFF` per node via SSH + MariaDB
-- **Rolling Restart Wizard** — restarts MariaDB node-by-node:
-  1. Choose restart order (drag to reorder)
-  2. Each node: enter maintenance → `systemctl restart mariadb` → wait for `SYNCED` → next
-  3. Zero downtime for the cluster as a whole
-- Live progress log, abort at any step
-
-> ⚠️ Never put **all nodes** into maintenance simultaneously — the cluster will lose quorum.
-
-### 🔍 Diagnostics
-
-SSH-powered cluster health inspection without leaving the browser.
-
-- **Config diff** — compare `my.cnf` / `galera.cnf` across all nodes, highlight differences
-- **Variable check** — verify critical Galera variables match across the cluster
-- **Resource probe** — disk usage, memory, open file handles via SSH
-- Per-node execution — run diagnostics on selected subset of nodes
+- **Rolling Restart** — restarts nodes one-by-one, waiting for sync before proceeding
+- **Node Maintenance State** — toggle `read_only` without restart
+- All destructive ops require explicit confirmation
+- Cluster-level lock prevents concurrent recovery + maintenance
 
 ### ⚙️ Settings
 
-Full CRUD management of all cluster entities.
-
-| Entity | Fields |
-|---|---|
-| **Clusters** | Name, description, contour |
-| **Datacenters** | Name, cluster association |
-| **Nodes** | Host, ports, SSH user, DB credentials (Fernet-encrypted), datacenter |
-| **Arbitrators** | Host, SSH port, datacenter |
-| **System** | Polling interval, SSH/DB timeouts |
+- **Clusters** — CRUD, polling interval per cluster
+- **Datacenters** — logical groupings for Topology view
+- **Contours** — environment tags (prod/staging/etc.)
+- **Nodes** — SSH + DB credentials per node (passwords encrypted at rest via Fernet)
+- **Global settings** — SSH/DB timeouts
 
 ---
 
 ## 🔄 Real-time & WebSocket
 
-All live data flows through a single WebSocket per cluster:
-
 ```
 WS /ws/clusters/{cluster_id}
 ```
 
-Authentication via the same `httpOnly` JWT cookie — no separate WS token needed.
-
-| Event | Payload | Triggered by |
-|---|---|---|
-| `node_state_changed` | Updated node live-fields | Poller detects state change |
-| `arbitrator_state_changed` | Updated arbitrator state | Poller detects arb change |
-| `operation_started` | Operation id, type, target | Recovery / Maintenance start |
-| `operation_progress` | Step log line, timestamp | Mid-operation execution |
-| `operation_finished` | Final status, duration | Operation completes or fails |
-| `log_entry` | New event_log record | Any cluster event |
-
-**Poller** runs as an asyncio background task, polling every `polling_interval_sec` seconds (default: 5s, configurable in Settings). Interval is read from DB on every cycle — Settings changes take effect on next tick without restart.
+- One WebSocket per cluster, per browser tab
+- Auth via `httpOnly` JWT cookie — same cookie as REST API
+- Emits events: `node_state`, `cluster_state`, `event_log`, `operation_progress`
+- Frontend reconnects automatically with exponential backoff
+- Connection status indicator in the SPA footer
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  🐳 Docker Container                                              │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  ⚡ FastAPI + Uvicorn                                     │    │
-│  │   ├─ REST API         /api/clusters/{id}/...             │    │
-│  │   ├─ Auth             /api/auth/...  (JWT httpOnly)      │    │
-│  │   ├─ WebSocket        /ws/clusters/{id}                  │    │
-│  │   ├─ SPA fallback     /* → /backend/static/index.html    │    │
-│  │   └─ Background       asyncio Poller (5s interval)       │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  🗄️ SQLite  /data/orchestrator.db  ──── Docker named volume    │
-│  🔑 SSH key /root/.ssh/id_rsa      ──── bind-mount :ro         │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│           Docker Container                 │
+│                                            │
+│  ┌─────────────┐    ┌──────────────────┐   │
+│  │  Vue 3 SPA  │    │   FastAPI App    │   │
+│  │  (static)   │◄───│                  │   │
+│  └─────────────┘    │  /api/...        │   │
+│                     │  /ws/...         │   │
+│                     │                  │   │
+│                     │  Background      │   │
+│                     │  Poller (asyncio)│   │
+│                     └──────┬───────────┘   │
+│                            │               │
+│                     ┌──────▼───────────┐   │
+│                     │   SQLite /data   │   │
+│                     └──────────────────┘   │
+│                                            │
+│  /root/.ssh/id_rsa  (bind-mount :ro)       │
+└────────────────────────────────────────────┘
+         │ SSH + MariaDB
+         ▼
+   Galera Nodes
 ```
 
-### Tech Stack
-
-| Layer | Technologies |
-|---|---|
-| 🐍 **Backend** | Python 3.11+, FastAPI, Uvicorn, SQLAlchemy Core, paramiko, pymysql, PyJWT, cryptography (Fernet) |
-| 💻 **Frontend** | Vue 3, Vite 5, Pinia, Vue Router 4, TanStack Query (Vue Query), PrimeVue, VueUse |
-| 🗄️ **Database** | SQLite (via named Docker volume — survives upgrades) |
-| 🐳 **Deploy** | Docker multi-stage build, Docker Compose, single container |
-
-### Node Status Color Model
-
-| Color | State | Meaning |
-|---|---|---|
-| 🟢 **Green** | `SYNCED` | Fully operational, R/W |
-| 🟡 **Yellow** | `SYNCED` + read_only | Synced but in maintenance / read-only mode |
-| 🔵 **Blue** | `DONOR` / `JOINER` / `DESYNCED` | Sync in progress — temporary |
-| 🟠 **Orange** | `wsrep_ready = OFF` | Node degraded, cluster unstable |
-| 🔴 **Red** | `OFFLINE` | No SSH / MariaDB down / unreachable |
+**Stack:**
+- **Backend:** FastAPI 0.110+, SQLAlchemy 2.0 (async), Pydantic v2, paramiko, python-jose, bcrypt, cryptography (Fernet)
+- **Frontend:** Vue 3, Vite 5, Pinia, Vue Router, TypeScript
+- **DB:** SQLite (single file, named Docker volume)
+- **Auth:** JWT в `httpOnly` cookie, проверка через `GET /api/auth/me`
+- **Realtime:** WebSocket `/ws/clusters/{cluster_id}` + 5s polling fallback
 
 ---
 
@@ -396,181 +382,86 @@ Authentication via the same `httpOnly` JWT cookie — no separate WS token neede
 
 ```
 galera_orchestrator_v2/
-│
-├── 🐍 backend/
-│   ├── main.py                  FastAPI app, SPA fallback, lifespan hooks
-│   ├── config.py                pydantic-settings — all env vars in one place
-│   ├── database.py              SQLAlchemy Core engine + init_db()
-│   ├── models.py                8 table definitions (clusters, nodes, arbs, ops…)
-│   ├── auth.py                  JWT helpers, Fernet encrypt/decrypt
-│   ├── ssh_client.py            paramiko wrapper, global key, timeouts
-│   ├── db_client.py             pymysql wrapper, Fernet-decrypt passwords
-│   ├── dependencies.py          FastAPI Depends (get_current_user, get_cluster…)
-│   ├── requirements.txt
-│   │
-│   ├── services/
-│   │   ├── poller.py            asyncio background polling loop
-│   │   └── ws_manager.py        WebSocket connection manager + broadcast
-│   │
-│   └── routers/
-│       ├── auth.py              POST /login, /logout · GET /me
-│       ├── clusters.py          GET clusters, status, event log
-│       ├── nodes.py             GET/PATCH nodes, actions, test-connection
-│       ├── contours.py          GET contours for cluster
-│       ├── recovery.py          GET/POST recovery wizard steps
-│       ├── maintenance.py       GET/POST maintenance + rolling restart
-│       ├── diagnostics.py       GET/POST SSH diagnostics
-│       └── settings.py          CRUD: clusters / nodes / arbs / DC / system
-│
-├── 💻 frontend/
+├── backend/
+│   ├── main.py              # FastAPI app, middleware, routes
+│   ├── auth.py              # JWT + bcrypt login, cookie management
+│   ├── models.py            # SQLAlchemy models
+│   ├── schemas.py           # Pydantic schemas
+│   ├── ssh_client.py        # paramiko wrapper
+│   ├── galera_client.py     # MariaDB/wsrep queries
+│   ├── poller.py            # Background polling loop
+│   ├── operations/          # Recovery, rolling restart, maintenance
+│   └── config.py            # Settings from .env
+├── frontend/
 │   ├── src/
-│   │   ├── main.ts
-│   │   ├── App.vue
-│   │   ├── router/index.ts
-│   │   │
-│   │   ├── stores/              Pinia stores: auth, cluster, ws, recovery
-│   │   ├── api/                 Axios client + typed API modules per domain
-│   │   ├── data/docs.ts         Static built-in docs content
-│   │   │
-│   │   ├── pages/               9 page components
-│   │   │   ├── OverviewPage.vue
-│   │   │   ├── NodesPage.vue
-│   │   │   ├── TopologyPage.vue
-│   │   │   ├── RecoveryPage.vue
-│   │   │   ├── MaintenancePage.vue
-│   │   │   ├── DiagnosticsPage.vue
-│   │   │   ├── SettingsPage.vue
-│   │   │   ├── DocsPage.vue
-│   │   │   └── LoginPage.vue
-│   │   │
-│   │   ├── layouts/             AppLayout (sidebar, topbar, ws-footer)
-│   │   └── components/          Feature components grouped by page
-│   │
-│   ├── index.html
-│   ├── vite.config.ts           Vite + proxy /api & /ws → :8000
-│   └── package.json
-│
-├── 🧪 tests/
-│   └── e2e/
-│       └── test_critical_paths.py   Full E2E coverage (no real Galera needed)
-│
-├── 🐳 Dockerfile                Multi-stage: Node (build) → Python (runtime)
-├── 🐳 docker-compose.yml        Build from source
-├── 🐳 docker-compose.ghcr.yml   Pull from GHCR (no source needed)
-├── 🚀 install.sh                One-line installer
-├── 🔄 update.sh                 One-line updater
-├── 📝 .env.example
-├── 🚫 .gitignore
-└── 📚 README.md
+│   │   ├── pages/           # Overview, Nodes, Topology, Recovery, Settings
+│   │   ├── components/      # NodeCard, Sparkline, Drawer, etc.
+│   │   ├── stores/          # Pinia — clusters, nodes, ws
+│   │   └── api/             # Axios client
+│   └── vite.config.ts
+├── Dockerfile
+├── docker-compose.yml        # Dev (build from source)
+├── docker-compose.ghcr.yml   # Prod (pull from GHCR)
+├── .env.example
+├── install.sh
+└── update.sh
 ```
 
 ---
 
 ## 💾 Data Persistence & Backup
 
-SQLite живёт в `/data/orchestrator.db` внутри контейнера, за которым стоит named Docker volume `orchestrator-data`. **Данные переживают перезапуск контейнера и обновления образа.**
-
-### Backup
+All persistent data lives in a single SQLite file inside a named Docker volume:
 
 ```bash
-docker run --rm \
-  -v orchestrator-data:/data \
-  -v "$(pwd)":/backup \
-  alpine \
-  tar czf /backup/orchestrator-db-$(date +%Y%m%d-%H%M%S).tar.gz /data
+# Backup
+docker exec galera-orchestrator sqlite3 /data/orchestrator.db ".backup /data/backup.db"
+docker cp galera-orchestrator:/data/backup.db ./orchestrator-backup-$(date +%Y%m%d).db
+
+# Restore
+docker cp ./orchestrator-backup-YYYYMMDD.db galera-orchestrator:/data/orchestrator.db
+docker compose restart orchestrator
 ```
 
-### Restore
-
-```bash
-docker compose down
-docker run --rm \
-  -v orchestrator-data:/data \
-  -v "$(pwd)":/backup \
-  alpine \
-  sh -c "cd / && tar xzf /backup/orchestrator-db-YYYYMMDD-HHMMSS.tar.gz"
-docker compose up -d
-```
-
-### Upgrade
-
-```bash
-# Рекомендуемый способ — через update.sh
-bash ~/galera-orchestrator/update.sh
-
-# Или вручную (Option A/B)
-cd ~/galera-orchestrator
-docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
-
-# Option C (из исходников)
-git pull && docker compose build --no-cache && docker compose up -d
-```
+> ⚠️ После смены `FERNET_SECRET_KEY` все зашифрованные пароли узлов станут нечитаемыми.
+> Всегда делай бэкап перед ротацией ключей.
 
 ---
 
 ## 👨‍💻 Development
 
-### Backend (hot-reload)
-
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+git clone https://github.com/Leg1onary/galera_orchestrator_v2.git
+cd galera_orchestrator_v2
+cp .env.example .env
+
+# В .env для dev:
+#   COOKIE_SECURE=false
+#   DOCS_ENABLED=true
+#   ADMIN_PASSWORD_HASH=<bcrypt-хэш>
+
+docker compose up -d
+# Frontend: http://localhost:5173  (Vite dev server, HMR)
+# Backend:  http://localhost:8000
+# API docs: http://localhost:8000/docs  (только если DOCS_ENABLED=true)
 ```
 
-### Frontend (Vite dev server)
-
+Генерация bcrypt-хэша для dev `.env`:
 ```bash
-cd frontend
-npm install
-npm run dev   # :5173, proxies /api and /ws → :8000
-```
-
-Vite proxy is pre-configured in `vite.config.ts` — backend on `:8000`, frontend on `:5173`, cookies work cross-port in dev.
-
-### Full stack via Docker
-
-```bash
-docker compose up --build
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'admin', bcrypt.gensalt(12)).decode())"
 ```
 
 ---
 
 ## 🧪 E2E Tests
 
-Tests run against a live container. **No real Galera cluster required** — all checks are API-contract level.
-
 ```bash
-# Install
-pip install pytest httpx pytest-asyncio websockets
+# Запуск всех тестов
+docker compose -f docker-compose.test.yml up --abort-on-container-exit
 
-# Run all
-E2E_BASE_URL=http://localhost:8000 \
-ADMIN_USERNAME=admin \
-ADMIN_PASSWORD=your-password \
-pytest tests/e2e/ -v
-
-# Run a specific group
-pytest tests/e2e/ -v -k "TestAuth"
-pytest tests/e2e/ -v -k "TestWebSocket"
-pytest tests/e2e/ -v -k "TestRecovery"
+# Только backend unit-тесты
+docker compose exec backend pytest tests/ -v
 ```
-
-### Coverage
-
-| Group | What's tested |
-|---|---|
-| ✅ **Auth** | Login, logout, httpOnly cookie, wrong credentials, `/me` |
-| ✅ **Clusters** | CRUD, status structure, event log pagination |
-| ✅ **Nodes** | Schema, test-connection, actions, state validation |
-| ✅ **Recovery** | Endpoint contracts, wizard step sequence |
-| ✅ **Maintenance** | Enter/exit, rolling restart contracts |
-| ✅ **Diagnostics** | Config diff, variable check, resource probe |
-| ✅ **Settings** | Full CRUD: cluster / datacenter / node / arb / system |
-| ✅ **Cluster Lock** | `409 Conflict` on concurrent operations |
-| ✅ **WebSocket** | Auth, connection, event structure |
-| ✅ **Security** | CORS headers, SPA fallback, OpenAPI schema |
 
 ---
 
@@ -578,14 +469,17 @@ pytest tests/e2e/ -v -k "TestRecovery"
 
 | Concern | Mitigation |
 |---|---|
-| 🔑 **Admin password** | Change `ADMIN_PASSWORD` before first deploy — default is `changeme` |
-| 🎫 **JWT secret** | Generate with `openssl rand -hex 32`; `.env` only, never commit |
-| 🔐 **Node DB passwords** | Encrypted at rest with Fernet — changing `FERNET_SECRET_KEY` invalidates all stored passwords |
-| 💻 **SSH key** | Mounted `:ro` — container cannot modify or exfiltrate it |
-| 🍪 **JWT in browser** | Lives only in `httpOnly` cookie — inaccessible to JavaScript, XSS-safe |
-| 🔇 **Dual secrets** | `JWT_SECRET_KEY` и `FERNET_SECRET_KEY` **must** be different values |
-| ⚠️ **No mock mode** | All SSH / SQL operations are **real** — use a test cluster for experiments |
-| 🌐 **CORS** | In production, SPA and API are on the same origin — CORS middleware active in dev only |
+| 🔑 **Admin password** | Хранится как `bcrypt` хэш (`ADMIN_PASSWORD_HASH`). Plaintext в `.env` никогда не записывается. |
+| 🎫 **JWT secret** | Минимум 32 символа. Генерировать: `openssl rand -hex 32`. Сервер не стартует с дефолтным значением. |
+| 🔐 **Node DB passwords** | Зашифрованы в SQLite через Fernet. Смена `FERNET_SECRET_KEY` инвалидирует все пароли. |
+| 💻 **SSH key** | Монтируется `:ro` — контейнер не может изменить или украсть ключ. |
+| 🍪 **JWT в браузере** | Только в `httpOnly` cookie — недоступен JavaScript, защита от XSS. |
+| 🔇 **Dual secrets** | `JWT_SECRET_KEY` и `FERNET_SECRET_KEY` **обязаны** быть разными значениями. |
+| 🌐 **Security headers** | Каждый ответ содержит: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`. |
+| 📄 **OpenAPI schema** | `/docs`, `/redoc`, `/openapi.json` отключены по умолчанию (`DOCS_ENABLED=false`). |
+| 🔒 **Secure cookie** | `COOKIE_SECURE=true` по умолчанию — cookie не отправляется по HTTP. |
+| ⚠️ **No mock mode** | Все SSH / SQL операции **реальные** — используй тестовый кластер для экспериментов. |
+| 🌐 **CORS** | В проде SPA и API на одном origin — CORS middleware активен только в dev. |
 
 ---
 
@@ -605,6 +499,8 @@ docker compose ps                   # verify container is running
 
 Make sure you access the panel on the **same host and port** configured in `HOST_PORT`.
 `httpOnly` cookies are not sent cross-origin — accessing via IP when configured for hostname (or vice versa) will break auth.
+
+Также убедись что `COOKIE_SECURE=false` если доступаешься по HTTP (без TLS).
 </details>
 
 <details>
@@ -655,6 +551,21 @@ This releases `read_only` without requiring a full restart.
 
 Polling interval and SSH/DB timeouts are read from the database on every poll cycle.
 No restart needed — changes take effect on the next tick (within `polling_interval_sec` seconds).
+</details>
+
+<details>
+<summary>🔑 Как сменить пароль admin</summary>
+
+```bash
+# Генерируй новый bcrypt-хэш
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'newpassword', bcrypt.gensalt(12)).decode())"
+
+# Обнови в .env
+sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=<новый_хэш>|" ~/galera-orchestrator/.env
+
+# Перезапусти контейнер
+docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml restart
+```
 </details>
 
 ---
