@@ -93,7 +93,6 @@ const wsLabel   = computed(() => {
 // ─── User / logout ───────────────────────────────────────────────────────────
 const username = computed(() => authStore.username ?? 'user')
 const initials = computed(() => username.value.slice(0, 2).toUpperCase())
-// role не хранится в authStore (ТЗ не предусматривает роли) — fallback 'Administrator'
 const userRole = computed(() => 'Administrator')
 const userOpen = ref(false)
 
@@ -143,12 +142,13 @@ async function logout() {
 
       <div class="header-divider" />
 
-      <!-- ── Cluster + contour block ───────────────────────────────── -->
+      <!-- ── Cluster + contour inline ──────────────────────────────── -->
       <div class="cluster-block">
-        <!-- Contour breadcrumb -->
+
+        <!-- Contour crumb — слева от dropdown в одну строку -->
         <div v-if="selectedContour" class="contour-crumb">
-          <span class="contour-crumb__label">Contour:</span>
           <span class="contour-crumb__name">{{ selectedContour.name }}</span>
+          <span class="contour-crumb__sep">/</span>
         </div>
 
         <!-- Cluster dropdown -->
@@ -411,34 +411,37 @@ async function logout() {
 .health-label { line-height: 1; }
 
 /* ════════════════════════════════════════════════════════
-   CLUSTER BLOCK (contour crumb + dropdown)
+   CLUSTER BLOCK — contour crumb + dropdown в одну строку
 ════════════════════════════════════════════════════════ */
 .cluster-block {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
 }
 
+/* Contour crumb слева от dropdown */
 .contour-crumb {
   display: flex;
   align-items: center;
-  gap: 4px;
-  line-height: 1;
-}
-.contour-crumb__label {
-  font-size: 0.62rem;
-  color: var(--color-text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
+  gap: 5px;
+  flex-shrink: 0;
 }
 .contour-crumb__name {
-  font-size: 0.62rem;
-  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
   font-family: var(--font-mono, monospace);
   font-weight: 600;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.contour-crumb__sep {
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+  opacity: 0.4;
+  margin: 0 2px;
+  user-select: none;
 }
 
 .cluster-dropdown { position: relative; }
