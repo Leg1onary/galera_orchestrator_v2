@@ -43,7 +43,43 @@
         class="info-banner"
     >
       <i class="pi pi-info-circle" />
-      <span><strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>OFF</strong> on this node. Enable it with <code>SET GLOBAL slow_query_log = ON</code>.</span>
+      <span>
+        <strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>OFF</strong>
+        <span class="banner-hint">&mdash; runtime only, resets on node/MariaDB restart</span>
+      </span>
+      <Button
+          label="Enable"
+          icon="pi pi-play"
+          size="small"
+          severity="warn"
+          :loading="togglingNodeId === n.node_id"
+          :disabled="togglingNodeId !== null"
+          class="toggle-btn"
+          @click="toggleSlowLog(n.node_id, true)"
+      />
+    </div>
+
+    <!-- slow_query_log=ON banner (per node) -->
+    <div
+        v-for="n in enabledNodes"
+        :key="'on-' + n.node_id"
+        class="success-banner"
+    >
+      <i class="pi pi-check-circle" />
+      <span>
+        <strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>ON</strong>
+        <span class="banner-hint">&mdash; runtime only, resets on node/MariaDB restart</span>
+      </span>
+      <Button
+          label="Disable"
+          icon="pi pi-stop-circle"
+          size="small"
+          severity="secondary"
+          :loading="togglingNodeId === n.node_id"
+          :disabled="togglingNodeId !== null"
+          class="toggle-btn"
+          @click="toggleSlowLog(n.node_id, false)"
+      />
     </div>
 
     <div class="table-wrap">
@@ -91,7 +127,6 @@
           </template>
         </Column>
 
-        <!-- Sort by numeric seconds field, display original HH:MM:SS string -->
         <Column field="_query_time_sec" header="Query time" style="width: 110px" :sortable="true">
           <template #body="{ data }">
             <span class="cell-time-warn">{{ data.query_time }}</span>
@@ -122,14 +157,14 @@
               <i class="pi pi-database" style="font-size: 9px; opacity: 0.7" />
               {{ data.db }}
             </span>
-            <span v-else class="cell-dash">—</span>
+            <span v-else class="cell-dash">&mdash;</span>
           </template>
         </Column>
 
         <Column field="sql_text" header="Query">
           <template #body="{ data }">
             <span class="cell-query" :title="data.sql_text">
-              {{ data.sql_text?.slice(0, 120) }}{{ data.sql_text?.length > 120 ? '…' : '' }}
+              {{ data.sql_text?.slice(0, 120) }}{{ data.sql_text?.length > 120 ? '\u2026' : '' }}
             </span>
           </template>
         </Column>
@@ -146,11 +181,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useQuery }      from '@tanstack/vue-query'
+import { ref, computed }  from 'vue'
+import { useQuery }       from '@tanstack/vue-query'
+import { useToast }       from 'primevue/usetoast'
 import DataTable  from 'primevue/datatable'
 import Column     from 'primevue/column'
 import Select     from 'primevue/select'
+import Button     from 'primevue/button'
 import { useClusterStore }                            from '@/stores/cluster'
 import { diagnosticsApi, type SlowQueryNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                  from './PanelToolbar.vue'
@@ -160,6 +197,9 @@ import { useNodeOptions }                            from '@/composables/useNode
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
 const selectedNodeId = ref<number | undefined>(undefined)
+const toast          = useToast()
+const togglingNodeId = ref<number | null>(null)
+
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
@@ -175,10 +215,6 @@ const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
-/**
- * Convert "HH:MM:SS" to total seconds for correct numeric sorting.
- * Falls back to 0 if the format is unexpected.
- */
 function hmsToSec(hms: string | null | undefined): number {
   if (!hms) return 0
   const parts = hms.split(':').map(Number)
@@ -186,24 +222,23 @@ function hmsToSec(hms: string | null | undefined): number {
   return parts[0] * 3600 + parts[1] * 60 + parts[2]
 }
 
-/** Format large numbers with locale-aware thousand separators. */
 function fmtNum(val: number | null | undefined): string {
-  if (val == null) return '—'
+  if (val == null) return '\u2014'
   return Number(val).toLocaleString()
 }
 
-// Nodes where slow_query_log is explicitly OFF
 const disabledNodes = computed(() =>
     (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === false)
 )
 
-// Nodes that returned an SSH/DB error (slow_log_enabled === null and error present)
+const enabledNodes = computed(() =>
+    (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === true)
+)
+
 const errorNodes = computed(() =>
     (data.value ?? []).filter((n: SlowQueryNodeResult) => !!n.error)
 )
 
-// Flatten rows from all nodes that are enabled and error-free, annotate with
-// node_name and pre-computed numeric sort fields.
 const allRows = computed(() =>
     (data.value ?? [])
         .filter((n: SlowQueryNodeResult) => n.slow_log_enabled !== false && !n.error)
@@ -213,12 +248,36 @@ const allRows = computed(() =>
                 node_name:       n.node_name,
                 node_id:         n.node_id,
                 _key:            `${n.node_id}-${ni}-${ri}`,
-                // Numeric seconds for correct sort (HH:MM:SS strings sort wrong for values >= 10h)
                 _query_time_sec: hmsToSec(r.query_time),
                 _lock_time_sec:  hmsToSec(r.lock_time),
             }))
         )
 )
+
+async function toggleSlowLog(nodeId: number, enable: boolean) {
+  togglingNodeId.value = nodeId
+  try {
+    await diagnosticsApi.setSlowQueryLog(clusterStore.selectedClusterId!, nodeId, enable)
+    toast.add({
+      severity: 'success',
+      summary: `slow_query_log ${enable ? 'enabled' : 'disabled'}`,
+      detail: `Changes are runtime only and will reset on node/MariaDB restart.`,
+      life: 5000,
+    })
+    await refetch()
+  } catch (err: any) {
+    const status = err?.response?.status
+    const detail = err?.response?.data?.detail ?? err?.message ?? 'Unknown error'
+    toast.add({
+      severity: 'error',
+      summary: status === 403 ? 'Insufficient privileges' : 'Failed to change slow_query_log',
+      detail,
+      life: 8000,
+    })
+  } finally {
+    togglingNodeId.value = null
+  }
+}
 </script>
 
 <style scoped>
@@ -260,6 +319,31 @@ const allRows = computed(() =>
 }
 .info-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
 .info-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
+
+.success-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--color-success) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-success) 25%, transparent);
+  color: var(--color-success);
+  font-size: var(--text-sm);
+}
+.success-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
+.success-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
+
+.banner-hint {
+  font-size: var(--text-xs);
+  opacity: 0.7;
+  margin-left: var(--space-1);
+}
+
+.toggle-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 
 .table-wrap {
   border: 1px solid var(--color-border);
