@@ -115,6 +115,20 @@ export interface NodePatch {
     maintenance?: boolean
 }
 
+// POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin (вне MVP)
+export interface WsrepSnapshot {
+    wsrep_cluster_status:      string | null
+    wsrep_connected:           string | null
+    wsrep_local_state_comment: string | null
+}
+
+export interface RejoinNodeResponse {
+    ok:      boolean
+    node_id: number
+    before:  WsrepSnapshot
+    after:   WsrepSnapshot
+}
+
 export const nodesApi = {
     list: (clusterId: number) =>
         api.get<NodeListItem[]>(`/api/clusters/${clusterId}/nodes`).then((r) => r.data),
@@ -162,6 +176,15 @@ export const nodesApi = {
             .get<NodeLogEntry[]>(
                 `/api/clusters/${clusterId}/log`,
                 { params: { node_id: nodeId, limit } }
+            )
+            .then((r) => r.data),
+
+    // POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin (вне MVP)
+    // Быстрый rejoin одной выпавшей ноды: systemctl restart mariadb + wsrep snapshot до/после
+    rejoin: (clusterId: number, nodeId: number) =>
+        api
+            .post<RejoinNodeResponse>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/rejoin`
             )
             .then((r) => r.data),
 }
