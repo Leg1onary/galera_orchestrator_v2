@@ -82,9 +82,73 @@
       />
     </div>
 
+    <!-- ── Filters ── -->
+    <div class="filters-bar">
+      <div class="filter-group">
+        <label class="filter-label">Query time &ge;</label>
+        <div class="filter-input-wrap">
+          <InputNumber
+              v-model="filterMinSec"
+              :min="0"
+              :max="3600"
+              :step="0.5"
+              :min-fraction-digits="0"
+              :max-fraction-digits="1"
+              size="small"
+              class="filter-number"
+              suffix=" s"
+          />
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Database</label>
+        <MultiSelect
+            v-model="filterDbs"
+            :options="dbOptions"
+            placeholder="All"
+            size="small"
+            class="filter-multiselect"
+            :max-selected-labels="2"
+            show-clear
+        />
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">User / Host</label>
+        <InputText
+            v-model="filterUser"
+            placeholder="contains…"
+            size="small"
+            class="filter-text"
+        />
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Query text</label>
+        <InputText
+            v-model="filterQuery"
+            placeholder="contains…"
+            size="small"
+            class="filter-text"
+        />
+      </div>
+
+      <Button
+          v-if="isFiltered"
+          label="Reset"
+          icon="pi pi-times"
+          size="small"
+          severity="secondary"
+          text
+          class="reset-btn"
+          @click="resetFilters"
+      />
+    </div>
+
     <div class="table-wrap">
       <DataTable
-          :value="allRows"
+          :value="filteredRows"
           :loading="isLoading"
           dataKey="_key"
           size="small"
@@ -102,9 +166,12 @@
               <i class="pi pi-clock" />
               Slow queries
             </span>
-            <span v-if="allRows.length" class="row-count">
+            <span v-if="filteredRows.length" class="row-count">
               <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
-              {{ allRows.length }}
+              {{ filteredRows.length }}
+              <template v-if="filteredRows.length !== allRows.length">
+                <span class="row-count-total">/ {{ allRows.length }}</span>
+              </template>
             </span>
           </div>
         </template>
@@ -172,7 +239,7 @@
         <template #empty>
           <div class="empty-row">
             <i class="pi pi-check-circle" />
-            <span>No slow queries found</span>
+            <span>{{ allRows.length ? 'No rows match current filters' : 'No slow queries found' }}</span>
           </div>
         </template>
       </DataTable>
@@ -184,10 +251,13 @@
 import { ref, computed }  from 'vue'
 import { useQuery }       from '@tanstack/vue-query'
 import { useToast }       from 'primevue/usetoast'
-import DataTable  from 'primevue/datatable'
-import Column     from 'primevue/column'
-import Select     from 'primevue/select'
-import Button     from 'primevue/button'
+import DataTable   from 'primevue/datatable'
+import Column      from 'primevue/column'
+import Select      from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
+import Button      from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
+import InputText   from 'primevue/inputtext'
 import { useClusterStore }                            from '@/stores/cluster'
 import { diagnosticsApi, type SlowQueryNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                  from './PanelToolbar.vue'
@@ -200,6 +270,29 @@ const selectedNodeId = ref<number | undefined>(undefined)
 const toast          = useToast()
 const togglingNodeId = ref<number | null>(null)
 
+// ── Filters ──────────────────────────────────────────────────────────────────
+const filterMinSec = ref<number>(1)
+const filterDbs    = ref<string[]>([])
+const filterUser   = ref('')
+const filterQuery  = ref('')
+
+const DEFAULT_MIN_SEC = 1
+
+const isFiltered = computed(() =>
+    filterMinSec.value !== DEFAULT_MIN_SEC ||
+    filterDbs.value.length > 0 ||
+    filterUser.value.trim() !== '' ||
+    filterQuery.value.trim() !== ''
+)
+
+function resetFilters() {
+  filterMinSec.value = DEFAULT_MIN_SEC
+  filterDbs.value    = []
+  filterUser.value   = ''
+  filterQuery.value  = ''
+}
+
+// ── Data ─────────────────────────────────────────────────────────────────────
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
@@ -254,6 +347,31 @@ const allRows = computed(() =>
         )
 )
 
+// Unique DB list for multiselect — derived from loaded data
+const dbOptions = computed(() => {
+  const set = new Set<string>()
+  for (const row of allRows.value) {
+    if (row.db) set.add(row.db)
+  }
+  return [...set].sort()
+})
+
+const filteredRows = computed(() => {
+  const minSec    = filterMinSec.value ?? 0
+  const dbs       = filterDbs.value
+  const userTerm  = filterUser.value.trim().toLowerCase()
+  const queryTerm = filterQuery.value.trim().toLowerCase()
+
+  return allRows.value.filter((row) => {
+    if (row._query_time_sec < minSec) return false
+    if (dbs.length && !dbs.includes(row.db ?? '')) return false
+    if (userTerm  && !row.user_host?.toLowerCase().includes(userTerm))  return false
+    if (queryTerm && !row.sql_text?.toLowerCase().includes(queryTerm))  return false
+    return true
+  })
+})
+
+// ── Toggle slow_query_log ─────────────────────────────────────────────────────
 async function toggleSlowLog(nodeId: number, enable: boolean) {
   togglingNodeId.value = nodeId
   try {
@@ -261,7 +379,7 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
     toast.add({
       severity: 'success',
       summary: `slow_query_log ${enable ? 'enabled' : 'disabled'}`,
-      detail: `Changes are runtime only and will reset on node/MariaDB restart.`,
+      detail: 'Changes are runtime only and will reset on node/MariaDB restart.',
       life: 5000,
     })
     await refetch()
@@ -293,6 +411,7 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   flex-shrink: 0;
 }
 
+/* ── Banners ── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -317,8 +436,8 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   color: var(--color-warning);
   font-size: var(--text-sm);
 }
-.info-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
-.info-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
+.info-banner .pi  { font-size: var(--text-base); flex-shrink: 0; }
+.info-banner code { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
 
 .success-banner {
   display: flex;
@@ -331,8 +450,8 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   color: var(--color-success);
   font-size: var(--text-sm);
 }
-.success-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
-.success-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
+.success-banner .pi  { font-size: var(--text-base); flex-shrink: 0; }
+.success-banner code { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
 
 .banner-hint {
   font-size: var(--text-xs);
@@ -340,11 +459,43 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   margin-left: var(--space-1);
 }
 
-.toggle-btn {
-  margin-left: auto;
-  flex-shrink: 0;
+.toggle-btn { margin-left: auto; flex-shrink: 0; }
+
+/* ── Filters bar ── */
+.filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.filter-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.filter-number     { width: 110px; }
+.filter-multiselect { width: 180px; }
+.filter-text       { width: 180px; }
+
+.reset-btn { margin-left: auto; align-self: flex-end; }
+
+/* ── Table ── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -388,6 +539,10 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   border-radius: var(--radius-full);
   padding: 2px var(--space-3);
 }
+.row-count-total {
+  color: var(--color-text-faint);
+  opacity: 0.6;
+}
 
 :deep(.diag-table .p-datatable-table) { width: 100%; table-layout: fixed; }
 
@@ -424,11 +579,11 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   border-color: var(--color-primary-glow);
 }
 
-.cell-node    { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; }
-.cell-mono    { font-family: var(--font-mono); }
+.cell-node     { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; }
+.cell-mono     { font-family: var(--font-mono); }
 .cell-muted-sm { font-size: var(--text-xs); color: var(--color-text-muted); }
-.cell-dim     { font-size: var(--text-xs); color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
-.cell-dash    { color: var(--color-text-faint); font-size: var(--text-xs); }
+.cell-dim      { font-size: var(--text-xs); color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
+.cell-dash     { color: var(--color-text-faint); font-size: var(--text-xs); }
 
 .cell-time-warn {
   font-size: var(--text-sm);
