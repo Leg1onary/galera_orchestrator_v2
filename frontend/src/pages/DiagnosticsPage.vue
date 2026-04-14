@@ -11,6 +11,7 @@ import ProcessListPanel      from '@/components/diagnostics/ProcessListPanel.vue
 import SlowQueryPanel        from '@/components/diagnostics/SlowQueryPanel.vue'
 import ErrorLogPanel         from '@/components/diagnostics/ErrorLogPanel.vue'
 import PurgeBinaryLogsPanel  from '@/components/diagnostics/PurgeBinaryLogsPanel.vue'
+import SstStatusPanel        from '@/components/diagnostics/SstStatusPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -31,6 +32,7 @@ const TABS = [
   { value: 'slow-query',   label: 'Slow Queries',        icon: 'pi-clock' },
   { value: 'error-log',    label: 'Error Log',           icon: 'pi-exclamation-triangle' },
   { value: 'purge-binlog', label: 'Purge Binary Logs',   icon: 'pi-trash' },
+  { value: 'sst-status',   label: 'SST Status',          icon: 'pi-sync' },
 ]
 </script>
 
@@ -90,6 +92,9 @@ const TABS = [
         </TabPanel>
         <TabPanel value="purge-binlog">
           <PurgeBinaryLogsPanel />
+        </TabPanel>
+        <TabPanel value="sst-status">
+          <SstStatusPanel :active="activeTab === 'sst-status'" />
         </TabPanel>
       </TabPanels>
     </Tabs>
