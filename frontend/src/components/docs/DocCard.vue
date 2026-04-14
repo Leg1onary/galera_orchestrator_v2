@@ -11,7 +11,7 @@
 
     <div v-if="props.code" class="doc-card__code-block">
       <div class="doc-card__code-toolbar">
-        <span class="doc-card__code-lang">bash</span>
+        <span class="doc-card__code-lang">{{ props.codeLang ?? 'bash' }}</span>
         <Button
             :icon="copied ? 'pi pi-check' : 'pi pi-copy'"
             text
@@ -35,7 +35,6 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Button } from 'primevue'
 import { type DocBadge } from '@/data/docs'
 
 const props = defineProps<{
@@ -43,24 +42,38 @@ const props = defineProps<{
   badge: DocBadge
   description: string
   code?: string
+  codeLang?: string
   note?: string
 }>()
 
 const copied = ref(false)
 
-async function handleCopy() {
-  if (!props.code) return
+function legacyCopy(text: string) {
   try {
-    await navigator.clipboard.writeText(props.code)
-  } catch {
     const el = document.createElement('textarea')
-    el.value = props.code
+    el.value = text
     el.style.position = 'fixed'
     el.style.opacity = '0'
     document.body.appendChild(el)
     el.select()
-    document.execCommand('copy')
+    document.execCommand?.('copy')
     document.body.removeChild(el)
+  } catch {
+    // no-op
+  }
+}
+
+async function handleCopy() {
+  if (!props.code) return
+  const text = props.code
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      legacyCopy(text)
+    }
+  } else {
+    legacyCopy(text)
   }
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
@@ -70,19 +83,18 @@ async function handleCopy() {
 <style scoped>
 .doc-card {
   background: var(--color-surface);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-5) var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  transition: box-shadow 200ms ease, border-color 200ms ease, transform 200ms ease;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.3);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+  box-shadow: var(--shadow-sm);
 }
 .doc-card:hover {
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.3);
-  border-color: rgba(45,212,191,0.15);
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border-hover);
 }
 
 /* ── Header ── */
@@ -106,7 +118,7 @@ async function handleCopy() {
   align-items: center;
   padding: 3px 10px;
   border-radius: var(--radius-full);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -114,23 +126,23 @@ async function handleCopy() {
 }
 
 .doc-card__badge--safe {
-  background: rgba(68,215,128,0.12);
-  color: #4ade80;
-  border: 1px solid rgba(68,215,128,0.25);
+  background: var(--color-synced-dim);
+  color: var(--color-synced);
+  border: 1px solid var(--color-synced-glow);
 }
 .doc-card__badge--danger {
-  background: rgba(248,113,113,0.12);
-  color: #f87171;
-  border: 1px solid rgba(248,113,113,0.25);
+  background: var(--color-offline-dim);
+  color: var(--color-offline);
+  border: 1px solid var(--color-offline-glow);
 }
 .doc-card__badge--warning {
-  background: rgba(251,191,36,0.12);
-  color: #fbbf24;
+  background: var(--color-readonly-dim);
+  color: var(--color-readonly);
   border: 1px solid rgba(251,191,36,0.25);
 }
 .doc-card__badge--action {
-  background: rgba(45,212,191,0.1);
-  color: #2dd4bf;
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
   border: 1px solid rgba(45,212,191,0.22);
 }
 .doc-card__badge--info {
@@ -149,8 +161,8 @@ async function handleCopy() {
 
 /* ── Code block ── */
 .doc-card__code-block {
-  background: #0d0e12;
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -159,8 +171,8 @@ async function handleCopy() {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-4);
 }
 .doc-card__code-lang {
   font-size: var(--text-xs);
@@ -178,7 +190,7 @@ async function handleCopy() {
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-xs);
   font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-  color: #a5f3fc;
+  color: var(--color-info);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.7;
@@ -192,8 +204,8 @@ async function handleCopy() {
   gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  background: rgba(45,212,191,0.04);
-  border: 1px solid rgba(45,212,191,0.1);
+  background: var(--color-primary-dim);
+  border: 1px solid var(--color-border-hover);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
   line-height: 1.5;
