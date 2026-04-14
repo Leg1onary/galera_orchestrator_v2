@@ -297,4 +297,12 @@ export const diagnosticsApi = {
                 { params: { lines } },
             )
             .then((r) => r.data),
+
+    setSlowQueryLog: (clusterId: number, nodeId: number, enabled: boolean) =>
+        api
+            .post<{ ok: boolean; slow_query_log: string }>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/set-slow-query-log`,
+                { enabled },
+            )
+            .then((r) => r.data),
 }
