@@ -15,6 +15,7 @@ PATCH /api/clusters/{cluster_id}/nodes/{node_id}              — enable/disable
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
 POST /api/clusters/{cluster_id}/nodes/{node_id}/actions
+POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs
 
 GET  /api/clusters/{cluster_id}/operations/active
 POST /api/clusters/{cluster_id}/operations/cancel
@@ -81,6 +82,27 @@ class NodeActionRequest(BaseModel):
 class NodePatchRequest(BaseModel):
     enabled:     bool | None = None
     maintenance: bool | None = None
+
+
+class PurgeBinaryLogsRequest(BaseModel):
+    mode: str  # 'date' | 'days' — informational only, before_date is always provided
+    before_date: str  # 'YYYY-MM-DD HH:MM:SS'
+
+    @field_validator("before_date")
+    @classmethod
+    def validate_before_date(cls, v: str) -> str:
+        try:
+            datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            raise ValueError("before_date must be in format 'YYYY-MM-DD HH:MM:SS'")
+        return v
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in ("date", "days"):
+            raise ValueError("mode must be 'date' or 'days'")
+        return v
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -598,3 +620,58 @@ async def cancel_operation(cluster_id: int) -> dict:
         "payload":    {"operation_id": op["id"]},
     })
     return {"accepted": True, "operation": op}
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs ────────────
+
+@router.post("/{cluster_id}/nodes/{node_id}/purge-binary-logs")
+async def purge_binary_logs(
+        cluster_id: int,
+        node_id: int,
+        body: PurgeBinaryLogsRequest,
+) -> dict:
+    """
+    Execute PURGE BINARY LOGS BEFORE '<before_date>' on the target node.
+
+    This is a destructive but non-clustered action — it only affects binary
+    logs on the given node and does NOT require a cluster_operations lock.
+    The caller must ensure that the date is safe (i.e. all replicas have
+    already consumed the logs up to that point).
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    sql = f"PURGE BINARY LOGS BEFORE '{body.before_date}'"
+
+    db = DBClient(
+        host=node["host"],
+        port=int(node["port"] or 3306),
+        user=node["db_user"] or "root",
+        encrypted_password=node["db_password"] or "",
+    )
+    try:
+        await asyncio.to_thread(db.connect)
+        await asyncio.to_thread(db.execute, sql)
+    except DBError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"PURGE BINARY LOGS failed on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(db.close)
+
+    write_event(
+        level="WARN",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=(
+            f"Node '{node['name']}': {sql} "
+            f"(mode={body.mode})"
+        ),
+    )
+
+    return {
+        "ok":            True,
+        "query_executed": sql,
+        "node_name":     node["name"],
+    }
