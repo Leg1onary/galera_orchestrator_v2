@@ -10,6 +10,7 @@ Async actions (cluster_operations, lock required):
   start | stop | restart | rejoin-force
 
 GET  /api/clusters/{cluster_id}/nodes                          — список нод кластера
+GET  /api/clusters/{cluster_id}/nodes/sst-status              — (вне MVP) SST stuck detection  ← MUST be before /{node_id}
 GET  /api/clusters/{cluster_id}/nodes/{node_id}               — конфиг + live state
 PATCH /api/clusters/{cluster_id}/nodes/{node_id}              — enable/disable
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
@@ -20,8 +21,6 @@ POST /api/clusters/{cluster_id}/nodes/{node_id}/desync
 POST /api/clusters/{cluster_id}/nodes/{node_id}/resync
 POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs
 POST /api/clusters/{cluster_id}/nodes/{node_id}/flush         — (вне MVP) FLUSH LOGS / FTWRL / UNLOCK
-
-GET  /api/clusters/{cluster_id}/nodes/sst-status              — (вне MVP) SST stuck detection
 POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst   — (вне MVP) restart stuck SST
 
 GET  /api/clusters/{cluster_id}/operations/active
@@ -207,6 +206,50 @@ async def list_nodes(cluster_id: int) -> list[dict]:
     return result
 
 
+# ── GET /api/clusters/{cluster_id}/nodes/sst-status (вне MVP) ──────────────────────────
+# ВАЖНО: этот роут зарегистрирован ДО /{node_id}, иначе FastAPI
+# трактует строку "sst-status" как int node_id и возвращает 422.
+
+@router.get("/{cluster_id}/nodes/sst-status")
+async def get_sst_status(cluster_id: int) -> list[dict]:
+    """
+    (вне MVP) SST Stuck Detector.
+    Возвращает список нод в SST_STUCK_STATES,
+    указывая сколько секунд они застряли и превышают ли порог.
+    """
+    _assert_cluster_exists(cluster_id)
+    now = datetime.now(timezone.utc)
+    cluster_states = live_node_states.get(cluster_id, {})
+
+    result = []
+    for node_id, live in cluster_states.items():
+        if not live.wsrep_local_state_comment:
+            continue
+        state_upper = live.wsrep_local_state_comment.upper()
+        if state_upper not in SST_STUCK_STATES:
+            continue
+
+        stuck_for_sec: float | None = None
+        is_stuck = False
+
+        if live.state_since_ts is not None:
+            since = live.state_since_ts
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            stuck_for_sec = (now - since).total_seconds()
+            is_stuck = stuck_for_sec >= SST_STUCK_THRESHOLD_SEC
+
+        result.append({
+            "node_id":        node_id,
+            "state":          live.wsrep_local_state_comment,
+            "state_since_ts": live.state_since_ts.isoformat() if live.state_since_ts else None,
+            "stuck_for_sec":  round(stuck_for_sec, 1) if stuck_for_sec is not None else None,
+            "is_stuck":       is_stuck,
+        })
+
+    return result
+
+
 # ── GET /api/clusters/{cluster_id}/nodes/{node_id} ───────────────────────────────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}")
@@ -377,7 +420,6 @@ async def node_action(
 
 
 # ── POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin ───────────────────────────────
-# Вне MVP. Standalone быстрый rejoin для одной выпавшей ноды при живом кластере.
 
 @router.post("/{cluster_id}/nodes/{node_id}/rejoin")
 async def rejoin_node(cluster_id: int, node_id: int) -> dict:
@@ -442,10 +484,6 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
 
 @router.post("/{cluster_id}/nodes/{node_id}/desync")
 async def desync_node(cluster_id: int, node_id: int) -> dict:
-    """
-    SET GLOBAL wsrep_desync = ON на целевой ноде.
-    Нода выводится из Galera flow control — тяжёлые операции не тормозят кластер.
-    """
     node = _fetch_node(cluster_id, node_id)
 
     if not bool(node["enabled"]):
@@ -476,10 +514,6 @@ async def desync_node(cluster_id: int, node_id: int) -> dict:
 
 @router.post("/{cluster_id}/nodes/{node_id}/resync")
 async def resync_node(cluster_id: int, node_id: int) -> dict:
-    """
-    SET GLOBAL wsrep_desync = OFF на целевой ноде.
-    Нода возвращается в нормальный режим Galera flow control.
-    """
     node = _fetch_node(cluster_id, node_id)
 
     if not bool(node["enabled"]):
@@ -506,8 +540,215 @@ async def resync_node(cluster_id: int, node_id: int) -> dict:
     return {"ok": True, "node_id": node_id, "wsrep_desync": False}
 
 
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs ────────────────────
+
+@router.post("/{cluster_id}/nodes/{node_id}/purge-binary-logs")
+async def purge_binary_logs(
+        cluster_id: int,
+        node_id: int,
+        body: PurgeBinaryLogsRequest,
+) -> dict:
+    node = _fetch_node(cluster_id, node_id)
+
+    sql = f"PURGE BINARY LOGS BEFORE '{body.before_date}'"
+
+    db = DBClient(
+        host=node["host"],
+        port=int(node["port"] or 3306),
+        user=node["db_user"] or "root",
+        encrypted_password=node["db_password"] or "",
+    )
+    try:
+        await asyncio.to_thread(db.connect)
+        await asyncio.to_thread(db.execute, sql)
+    except DBError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"PURGE BINARY LOGS failed on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(db.close)
+
+    write_event(
+        level="WARN",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=(
+            f"Node '{node['name']}': {sql} "
+            f"(mode={body.mode})"
+        ),
+    )
+
+    return {
+        "ok":             True,
+        "query_executed": sql,
+        "node_name":      node["name"],
+    }
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/flush (вне MVP) ───────────────────────
+
+@router.post("/{cluster_id}/nodes/{node_id}/flush")
+async def flush_node(
+        cluster_id: int,
+        node_id: int,
+        body: FlushRequest,
+) -> dict:
+    """
+    (вне MVP) Выполняет FLUSH-операцию на целевой ноде.
+
+    operation:
+      - 'logs'             → FLUSH LOGS
+      - 'tables_read_lock' → FLUSH TABLES WITH READ LOCK
+      - 'unlock_tables'    → UNLOCK TABLES
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    sql = FLUSH_SQL_MAP[body.operation]
+
+    db = DBClient(
+        host=node["host"],
+        port=int(node["port"] or 3306),
+        user=node["db_user"] or "root",
+        encrypted_password=node["db_password"] or "",
+    )
+    try:
+        await asyncio.to_thread(db.connect)
+        await asyncio.to_thread(db.execute, sql)
+    except DBError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{sql} failed on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(db.close)
+
+    log_level = "WARN" if body.operation in ("tables_read_lock", "unlock_tables") else "INFO"
+    write_event(
+        level=log_level,
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=f"Node '{node['name']}': {sql}",
+    )
+
+    return {
+        "ok":             True,
+        "node_id":        node_id,
+        "node_name":      node["name"],
+        "operation":      body.operation,
+        "query_executed": sql,
+    }
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst (вне MVP) ─────────────────
+
+@router.post("/{cluster_id}/nodes/{node_id}/restart-sst")
+async def restart_sst(
+        cluster_id: int,
+        node_id: int,
+) -> dict:
+    """
+    (вне MVP) Перезапуск MariaDB через SSH для разблокировки застрявшего SST.
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    live = live_node_states.get(cluster_id, {}).get(node_id)
+    if live is None or (live.wsrep_local_state_comment or "").upper() not in SST_STUCK_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Node '{node['name']}' is not in an SST state "
+                f"(current: {live.wsrep_local_state_comment if live else 'unknown'})"
+            ),
+        )
+
+    ssh = SSHClient(
+        host=node["host"],
+        port=int(node["ssh_port"] or 22),
+        username=node["ssh_user"] or "root",
+    )
+    try:
+        await asyncio.to_thread(ssh.connect)
+        await asyncio.to_thread(ssh.execute, "systemctl restart mariadb", True)
+    except SSHError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"SSH error on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(ssh.close)
+
+    write_event(
+        level="WARN",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=(
+            f"Node '{node['name']}': restart-sst executed "
+            f"(state was {live.wsrep_local_state_comment})"
+        ),
+    )
+
+    asyncio.create_task(
+        poll_single_node(cluster_id, node),
+        name=f"poll_after_restart_sst_{node_id}",
+    )
+
+    return {
+        "ok":      True,
+        "node_id": node_id,
+        "message": f"systemctl restart mariadb executed on '{node['name']}'",
+    }
+
+
+# ── GET /api/clusters/{cluster_id}/operations/active ────────────────────────────────────────────
+
+@router.get("/{cluster_id}/operations/active")
+async def get_active_op(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+    active = await asyncio.to_thread(get_active_operation, cluster_id)
+    return {"operation": active}
+
+
+# ── POST /api/clusters/{cluster_id}/operations/cancel ───────────────────────────────────────────
+
+@router.post("/{cluster_id}/operations/cancel")
+async def cancel_operation(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+    op = await asyncio.to_thread(request_cancel, cluster_id)
+    write_event(
+        level="INFO",
+        cluster_id=cluster_id,
+        operation_id=op["id"],
+        source="ui",
+        message=f"Cancel requested for operation id={op['id']} type={op['type']}",
+    )
+    await ws_manager.broadcast(cluster_id, {
+        "event":      "operation_cancel_requested",
+        "cluster_id": cluster_id,
+        "ts":         datetime.now(timezone.utc).isoformat(),
+        "payload":    {"operation_id": op["id"]},
+    })
+    return {"accepted": True, "operation": op}
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────────────
+
 async def _get_wsrep_snapshot(node: dict) -> dict:
-    """snapshot wsrep_cluster_status + wsrep_connected. При ошибке возвращает None-поля."""
     db = DBClient(
         host=node["host"],
         port=int(node["port"] or 3306),
@@ -536,8 +777,6 @@ async def _get_wsrep_snapshot(node: dict) -> dict:
     finally:
         await asyncio.to_thread(db.close)
 
-
-# ── Sync action executor ──────────────────────────────────────────────────────────────
 
 async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
     node_id = node["id"]
@@ -612,8 +851,6 @@ async def _db_exec(node: dict, sql: str) -> None:
         await asyncio.to_thread(db.close)
 
 
-# ── Async action launcher ────────────────────────────────────────────────────────────
-
 async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
@@ -668,7 +905,6 @@ async def _execute_node_action(
         action: str,
         op_id: int,
 ) -> None:
-    """Background task: execute SSH-based async node action."""
     node_id   = node["id"]
     node_name = node["name"]
 
@@ -763,260 +999,10 @@ async def _broadcast_op_finished(
         error: str | None = None,
 ) -> None:
     payload: dict = {"operation_id": op_id, "status": final_status}
-    if error:
-        payload["error"] = error
+    error and payload.update({"error": error})
     await ws_manager.broadcast(cluster_id, {
         "event":      "operation_finished",
         "cluster_id": cluster_id,
         "ts":         datetime.now(timezone.utc).isoformat(),
         "payload":    payload,
     })
-
-
-# ── GET /api/clusters/{cluster_id}/operations/active ────────────────────────────────────────────
-
-@router.get("/{cluster_id}/operations/active")
-async def get_active_op(cluster_id: int) -> dict:
-    _assert_cluster_exists(cluster_id)
-    active = await asyncio.to_thread(get_active_operation, cluster_id)
-    return {"operation": active}
-
-
-# ── POST /api/clusters/{cluster_id}/operations/cancel ───────────────────────────────────────────
-
-@router.post("/{cluster_id}/operations/cancel")
-async def cancel_operation(cluster_id: int) -> dict:
-    _assert_cluster_exists(cluster_id)
-    op = await asyncio.to_thread(request_cancel, cluster_id)
-    write_event(
-        level="INFO",
-        cluster_id=cluster_id,
-        operation_id=op["id"],
-        source="ui",
-        message=f"Cancel requested for operation id={op['id']} type={op['type']}",
-    )
-    await ws_manager.broadcast(cluster_id, {
-        "event":      "operation_cancel_requested",
-        "cluster_id": cluster_id,
-        "ts":         datetime.now(timezone.utc).isoformat(),
-        "payload":    {"operation_id": op["id"]},
-    })
-    return {"accepted": True, "operation": op}
-
-
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs ────────────────────
-
-@router.post("/{cluster_id}/nodes/{node_id}/purge-binary-logs")
-async def purge_binary_logs(
-        cluster_id: int,
-        node_id: int,
-        body: PurgeBinaryLogsRequest,
-) -> dict:
-    node = _fetch_node(cluster_id, node_id)
-
-    sql = f"PURGE BINARY LOGS BEFORE '{body.before_date}'"
-
-    db = DBClient(
-        host=node["host"],
-        port=int(node["port"] or 3306),
-        user=node["db_user"] or "root",
-        encrypted_password=node["db_password"] or "",
-    )
-    try:
-        await asyncio.to_thread(db.connect)
-        await asyncio.to_thread(db.execute, sql)
-    except DBError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"PURGE BINARY LOGS failed on '{node['name']}': {exc}",
-        )
-    finally:
-        await asyncio.to_thread(db.close)
-
-    write_event(
-        level="WARN",
-        cluster_id=cluster_id,
-        node_id=node_id,
-        source="ui",
-        message=(
-            f"Node '{node['name']}': {sql} "
-            f"(mode={body.mode})"
-        ),
-    )
-
-    return {
-        "ok":             True,
-        "query_executed": sql,
-        "node_name":      node["name"],
-    }
-
-
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/flush (вне MVP) ───────────────────────
-# FLUSH LOGS | FLUSH TABLES WITH READ LOCK | UNLOCK TABLES
-
-@router.post("/{cluster_id}/nodes/{node_id}/flush")
-async def flush_node(
-        cluster_id: int,
-        node_id: int,
-        body: FlushRequest,
-) -> dict:
-    """
-    (вне MVP) Выполняет FLUSH-операцию на целевой ноде.
-
-    operation:
-      - 'logs'             → FLUSH LOGS                        (ротация бинлогов)
-      - 'tables_read_lock' → FLUSH TABLES WITH READ LOCK       (блокировка перед бэкапом)
-      - 'unlock_tables'    → UNLOCK TABLES                     (снятие блокировки)
-    """
-    node = _fetch_node(cluster_id, node_id)
-
-    if not bool(node["enabled"]):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Node {node_id} is disabled",
-        )
-
-    sql = FLUSH_SQL_MAP[body.operation]
-
-    db = DBClient(
-        host=node["host"],
-        port=int(node["port"] or 3306),
-        user=node["db_user"] or "root",
-        encrypted_password=node["db_password"] or "",
-    )
-    try:
-        await asyncio.to_thread(db.connect)
-        await asyncio.to_thread(db.execute, sql)
-    except DBError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"{sql} failed on '{node['name']}': {exc}",
-        )
-    finally:
-        await asyncio.to_thread(db.close)
-
-    log_level = "WARN" if body.operation in ("tables_read_lock", "unlock_tables") else "INFO"
-    write_event(
-        level=log_level,
-        cluster_id=cluster_id,
-        node_id=node_id,
-        source="ui",
-        message=f"Node '{node['name']}': {sql}",
-    )
-
-    return {
-        "ok":             True,
-        "node_id":        node_id,
-        "node_name":      node["name"],
-        "operation":      body.operation,
-        "query_executed": sql,
-    }
-
-
-# ── GET /api/clusters/{cluster_id}/nodes/sst-status (вне MVP) ──────────────────────────
-# IMPORTANT: роут /nodes/sst-status нужно зарегистрировать до /{node_id},
-# чтобы FastAPI не трактовал "sst-status" как node_id.
-
-@router.get("/{cluster_id}/nodes/sst-status")
-async def get_sst_status(cluster_id: int) -> list[dict]:
-    """
-    (вне MVP) SST Stuck Detector.
-    Возвращает список нод в SST_STUCK_STATES,
-    указывая сколько секунд они застряли и превышают ли порог.
-    """
-    _assert_cluster_exists(cluster_id)
-    now = datetime.now(timezone.utc)
-    cluster_states = live_node_states.get(cluster_id, {})
-
-    result = []
-    for node_id, live in cluster_states.items():
-        state_upper = live.wsrep_local_state_comment.upper()
-        if state_upper not in SST_STUCK_STATES:
-            continue
-
-        stuck_for_sec: float | None = None
-        is_stuck = False
-
-        if live.state_since_ts is not None:
-            since = live.state_since_ts
-            if since.tzinfo is None:
-                since = since.replace(tzinfo=timezone.utc)
-            stuck_for_sec = (now - since).total_seconds()
-            is_stuck = stuck_for_sec >= SST_STUCK_THRESHOLD_SEC
-
-        result.append({
-            "node_id":        node_id,
-            "state":          live.wsrep_local_state_comment,
-            "state_since_ts": live.state_since_ts.isoformat() if live.state_since_ts else None,
-            "stuck_for_sec":  round(stuck_for_sec, 1) if stuck_for_sec is not None else None,
-            "is_stuck":       is_stuck,
-        })
-
-    return result
-
-
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst (вне MVP) ─────────────────
-
-@router.post("/{cluster_id}/nodes/{node_id}/restart-sst")
-async def restart_sst(
-        cluster_id: int,
-        node_id: int,
-) -> dict:
-    """
-    (вне MVP) Перезапуск MariaDB через SSH для разблокировки застрявшего SST.
-    """
-    node = _fetch_node(cluster_id, node_id)
-
-    if not bool(node["enabled"]):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Node {node_id} is disabled",
-        )
-
-    live = live_node_states.get(cluster_id, {}).get(node_id)
-    if live is None or live.wsrep_local_state_comment.upper() not in SST_STUCK_STATES:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Node '{node['name']}' is not in an SST state "
-                f"(current: {live.wsrep_local_state_comment if live else 'unknown'})"
-            ),
-        )
-
-    ssh = SSHClient(
-        host=node["host"],
-        port=int(node["ssh_port"] or 22),
-        username=node["ssh_user"] or "root",
-    )
-    try:
-        await asyncio.to_thread(ssh.connect)
-        await asyncio.to_thread(ssh.execute, "systemctl restart mariadb", True)
-    except SSHError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"SSH error on '{node['name']}': {exc}",
-        )
-    finally:
-        await asyncio.to_thread(ssh.close)
-
-    write_event(
-        level="WARN",
-        cluster_id=cluster_id,
-        node_id=node_id,
-        source="ui",
-        message=(
-            f"Node '{node['name']}': restart-sst executed "
-            f"(state was {live.wsrep_local_state_comment})"
-        ),
-    )
-
-    asyncio.create_task(
-        poll_single_node(cluster_id, node),
-        name=f"poll_after_restart_sst_{node_id}",
-    )
-
-    return {
-        "ok":      True,
-        "node_id": node_id,
-        "message": f"systemctl restart mariadb executed on '{node['name']}'",
-    }
