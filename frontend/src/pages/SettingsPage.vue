@@ -72,7 +72,6 @@ const TABS = [
 .settings-page__tabbar-wrap {
   overflow-x: auto;
   overflow-y: hidden;
-  /* hide scrollbar but keep functionality */
   scrollbar-width: none;
   -ms-overflow-style: none;
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -100,14 +99,15 @@ const TABS = [
   cursor: pointer;
   white-space: nowrap;
   transition: color 150ms ease, border-color 150ms ease;
-  margin-bottom: -1px; /* sit on the wrap border */
+  margin-bottom: -1px;
 }
 .settings-page__tab:hover {
   color: var(--color-text);
 }
+/* fix #5: was hardcoded #2dd4bf */
 .settings-page__tab--active {
-  color: #2dd4bf;
-  border-bottom-color: #2dd4bf;
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 .settings-page__tab-icon {

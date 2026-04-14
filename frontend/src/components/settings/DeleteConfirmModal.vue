@@ -5,7 +5,8 @@
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="emit('cancel')">
-      <div class="modal" role="dialog" aria-labelledby="delete-modal-title">
+      <!-- fix #12: role=alertdialog for destructive confirm -->
+      <div class="modal" role="alertdialog" aria-labelledby="delete-modal-title" aria-modal="true">
 
         <!-- Header -->
         <div class="modal__header">

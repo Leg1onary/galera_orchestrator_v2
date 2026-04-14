@@ -74,20 +74,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import EntityFormModal, { type FormField } from './EntityFormModal.vue'
 import DeleteConfirmModal from './DeleteConfirmModal.vue'
 import { settingsApi, type Datacenter } from '@/api/settings'
 import { extractApiError } from '@/utils/api'
-import { useClusterStore } from '@/stores/cluster'
 
-const qc           = useQueryClient()
-const toast        = useToast()
-const clusterStore = useClusterStore()
-const contourId    = computed(() => clusterStore.selectedContourId)
+const qc    = useQueryClient()
+const toast = useToast()
 
+// fix #1: datacenters are global — remove contourId guard that silently blocked saves
 const { data: items, isLoading } = useQuery({
   queryKey: ['datacenters'],
   queryFn:  () => settingsApi.listDatacenters(),
@@ -122,12 +120,11 @@ function openDelete(dc: Datacenter) { deleteTarget.value = dc }
 function closeModal() { modal.value = { open: false, mode: 'create' } }
 
 async function handleSubmit(values: Record<string, unknown>) {
-  if (!contourId.value) { apiError.value = 'No contour selected'; return }
   saving.value = true; apiError.value = null
   try {
     const description = (values.description as string)?.trim() || undefined
     if (modal.value.mode === 'create') {
-      await settingsApi.createDatacenter({ name: values.name as string, contour_id: contourId.value, description })
+      await settingsApi.createDatacenter({ name: values.name as string, description })
     } else {
       await settingsApi.updateDatacenter(modal.value.id!, { name: values.name as string, description })
     }

@@ -38,6 +38,7 @@
             />
 
             <!-- number -->
+            <!-- fix #4: store null for empty number, not 0 -->
             <input
               v-else-if="field.type === 'number'"
               :id="field.key"
@@ -45,9 +46,11 @@
               :min="field.min"
               :max="field.max"
               :placeholder="field.placeholder ?? ''"
-              :value="(form[field.key] as number) || undefined"
+              :value="(form[field.key] as number | null) ?? ''"
               class="field-input"
-              @input="form[field.key] = Number(($event.target as HTMLInputElement).value)"
+              @input="form[field.key] = ($event.target as HTMLInputElement).value === ''
+                ? null
+                : Number(($event.target as HTMLInputElement).value)"
             />
 
             <!-- select -->
@@ -60,7 +63,7 @@
               <option v-if="field.placeholder" value="" disabled>{{ field.placeholder }}</option>
               <option
                 v-for="opt in field.options ?? []"
-                :key="opt.value"
+                :key="String(opt.value)"
                 :value="opt.value"
               >{{ opt.label }}</option>
             </select>
@@ -91,6 +94,9 @@
             />
 
             <p v-if="field.hint" class="field-hint">{{ field.hint }}</p>
+
+            <!-- fix #15: inline required validation error -->
+            <p v-if="validationErrors[field.key]" class="field-error">{{ validationErrors[field.key] }}</p>
           </div>
 
           <!-- API error -->
@@ -114,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 
 export type FormField = {
   key:          string
@@ -125,7 +131,7 @@ export type FormField = {
   disabled?:    boolean
   hint?:        string
   toggleLabel?: string
-  options?:     { label: string; value: string | number | boolean }[]
+  options?:     { label: string; value: string | number | boolean | null }[]
   min?:         number
   max?:         number
 }
@@ -144,25 +150,42 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-const form = reactive<Record<string, unknown>>({})
+const form             = reactive<Record<string, unknown>>({})
+const validationErrors = ref<Record<string, string>>({})
 
 function initForm() {
+  // fix #3: re-init on fields change too
   for (const field of props.fields) {
     const initial = props.initialValues?.[field.key]
-    // Используем initial если он явно задан (включая 0),
-    // иначе дефолт по типу
     form[field.key] = initial !== undefined && initial !== null
       ? initial
-      : field.type === 'number'  ? 0
+      : field.type === 'number'  ? null
       : field.type === 'toggle'  ? false
       : ''
   }
+  validationErrors.value = {}
 }
 
 initForm()
+// fix #3: watch both initialValues and fields
 watch(() => props.initialValues, initForm, { deep: true })
+watch(() => props.fields,        initForm, { deep: true })
+
+function validate(): boolean {
+  const errors: Record<string, string> = {}
+  for (const field of props.fields) {
+    if (!field.required) continue
+    const val = form[field.key]
+    if (val === null || val === undefined || val === '') {
+      errors[field.key] = `${field.label} is required`
+    }
+  }
+  validationErrors.value = errors
+  return Object.keys(errors).length === 0
+}
 
 function submit() {
+  if (!validate()) return
   emit('submit', { ...form })
 }
 </script>
@@ -212,12 +235,12 @@ function submit() {
   color: var(--color-text);
   line-height: 1.3;
 }
+/* fix #8: removed stray semicolon in original */
 .modal__close {
   width: 28px;
   height: 28px;
   display: flex;
   align-items: center;
-;
   justify-content: center;
   border-radius: var(--radius-md);
   border: none;
@@ -362,6 +385,13 @@ select option { background: #1a1b22; color: var(--color-text); }
   color: var(--color-text-faint);
   line-height: 1.5;
   max-width: none;
+}
+
+/* ── Field validation error ── */
+.field-error {
+  font-size: var(--text-xs);
+  color: #f87171;
+  line-height: 1.4;
 }
 
 /* ── API error banner ── */

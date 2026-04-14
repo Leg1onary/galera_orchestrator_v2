@@ -34,6 +34,21 @@
         />
       </div>
 
+      <!-- fix #16: add rolling_restart_timeout_sec field — present in store/API but was missing from UI -->
+      <div class="field-group">
+        <label for="rolling-restart-timeout" class="field-label">
+          Rolling restart timeout (seconds)
+          <span class="field-hint">Maximum wait time per node during a rolling restart operation</span>
+        </label>
+        <input
+          id="rolling-restart-timeout"
+          type="number"
+          v-model.number="form.rolling_restart_timeout_sec"
+          :min="30" :max="3600"
+          class="field-input"
+        />
+      </div>
+
       <div v-if="apiError" class="error-alert">
         <i class="pi pi-exclamation-circle" />
         {{ apiError }}
@@ -73,14 +88,16 @@ const { data, isLoading } = useQuery({
 })
 
 const form = reactive({
-  polling_interval_sec: 30,
-  event_log_limit:      1000,
+  polling_interval_sec:        30,
+  event_log_limit:             1000,
+  rolling_restart_timeout_sec: 300,
 })
 
 watch(data, (val) => {
   if (!val) return
-  form.polling_interval_sec = val.polling_interval_sec
-  form.event_log_limit      = val.event_log_limit
+  form.polling_interval_sec        = val.polling_interval_sec
+  form.event_log_limit             = val.event_log_limit
+  form.rolling_restart_timeout_sec = val.rolling_restart_timeout_sec
 }, { immediate: true })
 
 const saving   = ref(false)
@@ -95,8 +112,9 @@ async function save() {
   saving.value = true; apiError.value = null
   try {
     await settingsApi.patchSystem({
-      polling_interval_sec: form.polling_interval_sec,
-      event_log_limit:      form.event_log_limit,
+      polling_interval_sec:        form.polling_interval_sec,
+      event_log_limit:             form.event_log_limit,
+      rolling_restart_timeout_sec: form.rolling_restart_timeout_sec,
     })
     await settingsStore.reload()
     await qc.invalidateQueries({ queryKey: ['system-settings'] })
@@ -159,7 +177,8 @@ async function save() {
 .btn-save:hover:not(:disabled) { background: #5eead4; }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.system-meta { padding-top: var(--space-4); border-top: 1px solid var(--color-divider); }
+/* fix #13: was --color-divider, now --color-border for consistency */
+.system-meta { padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 .meta-text   { font-size: var(--text-xs); color: var(--color-text-muted); }
 
 .error-alert {

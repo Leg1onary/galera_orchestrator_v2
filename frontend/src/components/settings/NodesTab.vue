@@ -125,16 +125,20 @@ function dcName(id: number | null) {
   return datacenters.value?.find((d) => d.id === id)?.name ?? '—'
 }
 
+// fix #2: nodeFields is fully computed — dcOptions.value is evaluated fresh every time
+// datacenters load, so the select dropdown is always populated correctly
 const nodeFields = computed((): FormField[] => [
-  { key: 'name',          label: 'Name',       required: true, placeholder: 'node-01' },
+  { key: 'name',          label: 'Name',       required: true, placeholder: 'db-01' },
   { key: 'host',          label: 'Host / IP',  required: true, placeholder: '10.0.0.1' },
-  { key: 'port',          label: 'DB Port',    type: 'number', min: 1, max: 65535 },
+  { key: 'port',          label: 'MySQL Port', type: 'number', min: 1, max: 65535, placeholder: '3306' },
   { key: 'ssh_user',      label: 'SSH User',   placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535 },
-  { key: 'db_user',       label: 'DB User',    placeholder: 'monitor_user' },
-  { key: 'db_password',   label: 'DB Password', type: 'password', placeholder: '••••••••' },
-  { key: 'datacenter_id', label: 'Datacenter', type: 'select', options: dcOptions.value },
-  { key: 'enabled',       label: 'Enabled',    type: 'toggle', toggleLabel: 'Monitor this node' },
+  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535, placeholder: '22' },
+  {
+    key: 'datacenter_id', label: 'Datacenter', type: 'select',
+    // options is evaluated inside computed — reactive to dcOptions changes
+    options: dcOptions.value,
+  },
+  { key: 'enabled', label: 'Enabled', type: 'toggle', toggleLabel: 'Monitor this node' },
 ])
 
 const modal = ref<{
@@ -159,8 +163,6 @@ function openEdit(node: NodeSetting) {
       port:          node.port,
       ssh_user:      node.ssh_user,
       ssh_port:      node.ssh_port,
-      db_user:       node.db_user,
-      // db_password намеренно не предзаполняем — бэкенд сохраняет старый если не передан
       datacenter_id: node.datacenter_id,
       enabled:       node.enabled,
     },
@@ -180,7 +182,6 @@ async function handleSubmit(values: Record<string, unknown>) {
       await settingsApi.updateNode(modal.value.id!, values as any)
     }
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
-    await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
     toast.add({ severity: 'success', summary: 'Saved', life: 2500 })
     closeModal()
   } catch (err) {
@@ -196,7 +197,6 @@ async function handleDelete() {
   try {
     await settingsApi.deleteNode(deleteTarget.value.id)
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
-    await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes'] })
     toast.add({ severity: 'success', summary: 'Deleted', life: 2500 })
     deleteTarget.value = null
   } catch (err) {
@@ -224,7 +224,7 @@ async function handleDelete() {
 
 .s-table-wrap { border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-lg); overflow: hidden; background: #13141a; }
 .s-table      { width: 100%; border-collapse: collapse; }
-.s-table__th  { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-faint); border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; user-select: none; }
+.s-table__th  { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-faint); border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
 .s-table__th--actions { width: 72px; }
 .s-table__sort-icon   { font-size: 0.65rem; opacity: 0.5; margin-left: 4px; }
 .s-table__row { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 120ms ease; }
