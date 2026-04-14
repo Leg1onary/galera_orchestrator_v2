@@ -128,21 +128,6 @@ function dcName(id: number | null) {
   return datacenters.value?.find((d) => d.id === id)?.name ?? '—'
 }
 
-const nodeFields = computed((): FormField[] => [
-  { key: 'name',          label: 'Name',          required: true, placeholder: 'db-01' },
-  { key: 'host',          label: 'Host / IP',      required: true, placeholder: '10.0.0.1' },
-  { key: 'port',          label: 'MySQL Port',     type: 'number', min: 1, max: 65535, placeholder: '3306' },
-  { key: 'ssh_user',      label: 'SSH User',       placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',       type: 'number', min: 1, max: 65535, placeholder: '22' },
-  { key: 'db_user',       label: 'DB User',        required: true, placeholder: 'monitor' },
-  { key: 'db_password',   label: 'DB Password',    type: 'password', required: true, placeholder: '••••••••' },
-  {
-    key: 'datacenter_id', label: 'Datacenter',     type: 'select',
-    options: dcOptions.value,
-  },
-  { key: 'enabled', label: 'Enabled', type: 'toggle', toggleLabel: 'Monitor this node' },
-])
-
 type ModalMode = 'create' | 'edit' | 'clone'
 
 const modal = ref<{
@@ -151,6 +136,33 @@ const modal = ref<{
   id?:      number
   initial?: Record<string, unknown>
 }>({ open: false, mode: 'create' })
+
+// db_password hint differs by mode: edit = keep existing if empty, create/clone = required
+const nodeFields = computed((): FormField[] => [
+  { key: 'name',          label: 'Name',          required: true, placeholder: 'db-01' },
+  { key: 'host',          label: 'Host / IP',      required: true, placeholder: '10.0.0.1' },
+  { key: 'port',          label: 'MySQL Port',     type: 'number', min: 1, max: 65535, placeholder: '3306' },
+  { key: 'ssh_user',      label: 'SSH User',       placeholder: 'root' },
+  { key: 'ssh_port',      label: 'SSH Port',       type: 'number', min: 1, max: 65535, placeholder: '22' },
+  { key: 'db_user',       label: 'DB User',        required: true, placeholder: 'monitor' },
+  {
+    key:          'db_password',
+    label:        'DB Password',
+    type:         'password',
+    required:     modal.value.mode === 'create',
+    placeholder:  modal.value.mode === 'edit' ? 'leave empty to keep current' : '••••••••',
+    hint:         modal.value.mode === 'edit'
+                    ? 'Leave empty to keep the existing password.'
+                    : modal.value.mode === 'clone'
+                    ? 'Cannot be copied for security reasons. Enter password for the new node.'
+                    : undefined,
+  },
+  {
+    key: 'datacenter_id', label: 'Datacenter',     type: 'select',
+    options: dcOptions.value,
+  },
+  { key: 'enabled', label: 'Enabled', type: 'toggle', toggleLabel: 'Monitor this node' },
+])
 
 const modalTitle = computed(() => {
   if (modal.value.mode === 'edit')  return 'Edit node'
@@ -178,7 +190,7 @@ function openEdit(node: NodeSetting) {
       ssh_user:      node.ssh_user,
       ssh_port:      node.ssh_port,
       db_user:       node.db_user,
-      db_password:   node.db_password,
+      db_password:   '',
       datacenter_id: node.datacenter_id,
       enabled:       node.enabled,
     },
@@ -187,8 +199,8 @@ function openEdit(node: NodeSetting) {
 }
 
 // Clone: prefill name as "Copy of <original>", host from original so user can adjust,
-// all other params copied as-is. db_password is intentionally empty — the backend
-// does not expose passwords in GET /api/settings/nodes response.
+// all other params copied as-is. db_password is intentionally empty —
+// the backend does not expose passwords in GET /api/settings/nodes response.
 function openClone(node: NodeSetting) {
   modal.value = {
     open: true, mode: 'clone',
