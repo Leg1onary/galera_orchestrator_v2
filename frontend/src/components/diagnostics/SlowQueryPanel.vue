@@ -8,6 +8,7 @@
         @refresh="refetch()"
         @toggle-auto="autoRefresh = $event"
     >
+      <!-- Node selector -->
       <Select
           v-model="selectedNodeId"
           :options="nodeOptions"
@@ -18,6 +19,27 @@
           class="node-select"
           show-clear
       />
+
+      <!-- min_query_time filter (variant B: compact inline in toolbar) -->
+      <div class="mqt-filter">
+        <label class="mqt-label" for="mqt-input">
+          <i class="pi pi-stopwatch" />
+          Min time, s
+        </label>
+        <InputNumber
+            id="mqt-input"
+            v-model="minQueryTime"
+            :min="0"
+            :max="86400"
+            :step="0.5"
+            :min-fraction-digits="0"
+            :max-fraction-digits="1"
+            size="small"
+            class="mqt-input"
+            :allow-empty="false"
+            @keydown.enter="refetch()"
+        />
+      </div>
     </PanelToolbar>
 
     <!-- Network / query-level error -->
@@ -180,10 +202,11 @@
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
-import DataTable from 'primevue/datatable'
-import Column    from 'primevue/column'
-import Select    from 'primevue/select'
-import Button    from 'primevue/button'
+import DataTable  from 'primevue/datatable'
+import Column     from 'primevue/column'
+import Select     from 'primevue/select'
+import Button     from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
 import { useClusterStore }                            from '@/stores/cluster'
 import { diagnosticsApi, type SlowQueryNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                  from './PanelToolbar.vue'
@@ -202,9 +225,20 @@ const queryClient = useQueryClient()
 // Track nodes currently being toggled to show spinner and prevent double-click
 const togglingNodeIds = ref<Set<number>>(new Set())
 
+// min_query_time filter — 0 means no filter (backend default)
+const minQueryTime = ref<number>(0)
+
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-  queryKey: computed(() => ['diag-slow', clusterStore.selectedClusterId, selectedNodeId.value]),
-  queryFn:  () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, selectedNodeId.value),
+  queryKey: computed(() => [
+    'diag-slow',
+    clusterStore.selectedClusterId,
+    selectedNodeId.value,
+    minQueryTime.value,
+  ]),
+  queryFn: () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, {
+    nodeId:       selectedNodeId.value,
+    minQueryTime: minQueryTime.value > 0 ? minQueryTime.value : undefined,
+  }),
   enabled:  computed(() => props.active && !!clusterStore.selectedClusterId),
   refetchInterval,
   staleTime: 0,
@@ -322,6 +356,38 @@ const allRows = computed(() =>
   flex-shrink: 0;
 }
 
+/* ── min_query_time filter ────────────────────────────────────────────────── */
+.mqt-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.mqt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+}
+.mqt-label .pi { font-size: var(--text-xs); opacity: 0.7; }
+
+.mqt-input {
+  width: 80px;
+}
+:deep(.mqt-input .p-inputtext) {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: var(--space-1) var(--space-2);
+}
+
+/* ── alerts ───────────────────────────────────────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -370,6 +436,7 @@ const allRows = computed(() =>
   margin-left: auto;
 }
 
+/* ── table ────────────────────────────────────────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
