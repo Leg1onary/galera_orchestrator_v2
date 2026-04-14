@@ -40,6 +40,7 @@ class LiveNodeState:
     # ── Extra live fields ─────────────────────────────────────────────────────
     readonly: bool = False          # SHOW GLOBAL VARIABLES LIKE 'read_only'
     maintenance_drift: bool = False # node.maintenance=True AND readonly=False in DB
+    wsrep_desync: bool = False      # SHOW GLOBAL VARIABLES LIKE 'wsrep_desync'
 
     # ── Connection health ─────────────────────────────────────────────────────
     ssh_ok: bool = False
@@ -77,6 +78,7 @@ class LiveNodeState:
             "wsrep_incoming_addresses":  self.wsrep_incoming_addresses,
             "readonly":                  self.readonly,
             "maintenance_drift":         self.maintenance_drift,
+            "wsrep_desync":              self.wsrep_desync,
             "ssh_ok":                    self.ssh_ok,
             "db_ok":                     self.db_ok,
             "ssh_latency_ms":            self.ssh_latency_ms,
