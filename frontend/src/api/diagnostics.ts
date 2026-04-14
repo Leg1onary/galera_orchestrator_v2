@@ -80,6 +80,12 @@ export type SlowQueryNodeResult = {
     error: string | null
 }
 
+export type SlowQueryParams = {
+    nodeId?: number
+    minQueryTime?: number  // seconds, 0 = no filter
+    limit?: number         // default 200
+}
+
 export type InnodbStatusResult = {
     node_id: number
     node_name: string
@@ -161,12 +167,20 @@ export const diagnosticsApi = {
             })
             .then((r) => r.data),
 
-    getSlowQueries: (clusterId: number, nodeId?: number): Promise<SlowQueryNodeResult[]> =>
-        api
+    getSlowQueries: (
+        clusterId: number,
+        params?: SlowQueryParams,
+    ): Promise<SlowQueryNodeResult[]> => {
+        const p: Record<string, unknown> = {}
+        if (params?.nodeId)         p.node_id         = params.nodeId
+        if (params?.minQueryTime)   p.min_query_time  = params.minQueryTime
+        if (params?.limit)          p.limit           = params.limit
+        return api
             .get<SlowQueryNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/slow-queries`, {
-                params: nodeId ? { node_id: nodeId } : undefined,
+                params: Object.keys(p).length ? p : undefined,
             })
-            .then((r) => r.data),
+            .then((r) => r.data)
+    },
 
     getInnodbStatus: (clusterId: number, nodeId: number): Promise<InnodbStatusResult> =>
         api

@@ -10,11 +10,14 @@
 #   GET  /api/clusters/{cluster_id}/diagnostics/galera-status
 #   GET  /api/clusters/{cluster_id}/diagnostics/process-list
 #   GET  /api/clusters/{cluster_id}/diagnostics/slow-queries
+#     ?node_id=N  — filter by node
+#     ?min_query_time=N  — minimum query time in seconds (default 0)
+#     ?limit=N  — max rows per node (default 200, max 2000)
 #   GET  /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
 #   GET  /api/clusters/{cluster_id}/nodes/{node_id}/error-log
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/test-connection
 #   GET  /api/clusters/{cluster_id}/arbitrators/{arb_id}/log
-#   POST /api/clusters/{cluster_id}/diagnostics/nodes/{node_id}/slow-query-log/toggle  ← NEW
+#   POST /api/clusters/{cluster_id}/diagnostics/nodes/{node_id}/slow-query-log/toggle
 
 from __future__ import annotations
 
@@ -85,26 +88,21 @@ def _check_node(node: dict) -> dict:
             user=node["db_user"],
             encrypted_password=node["db_password"],
         ) as client:
-            # wsrep_cluster_status
             rows = client.query("SHOW STATUS LIKE 'wsrep_cluster_status'")
             checks["wsrep_cluster_status"] = rows[0]["Value"] if rows else None
 
-            # wsrep_local_state_comment
             rows = client.query("SHOW STATUS LIKE 'wsrep_local_state_comment'")
             checks["wsrep_local_state_comment"] = rows[0]["Value"] if rows else None
 
-            # wsrep_cluster_size
             rows = client.query("SHOW STATUS LIKE 'wsrep_cluster_size'")
             checks["wsrep_cluster_size"] = int(rows[0]["Value"]) if rows else None
 
-            # Replication lag (seconds_behind_master)
             sl = client.query("SHOW SLAVE STATUS")
             if sl:
                 checks["seconds_behind_master"] = sl[0].get("Seconds_Behind_Master")
             else:
                 checks["seconds_behind_master"] = None
 
-            # Max connections vs current
             mc = client.query("SHOW VARIABLES LIKE 'max_connections'")
             tc = client.query("SHOW STATUS LIKE 'Threads_connected'")
             checks["max_connections"] = int(mc[0]["Value"]) if mc else None
@@ -427,7 +425,7 @@ async def diagnostics_process_list(
 # GET /diagnostics/slow-queries
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _fetch_slow_queries(node: dict) -> dict:
+def _fetch_slow_queries(node: dict, min_query_time: float, limit: int) -> dict:
     rows: list[dict] = []
     error: str | None = None
     slow_log_enabled: bool | None = None
@@ -438,7 +436,6 @@ def _fetch_slow_queries(node: dict) -> dict:
             user=node["db_user"],
             encrypted_password=node["db_password"],
         ) as client:
-            # Check if slow_query_log is enabled
             var_rows = client.query("SHOW GLOBAL VARIABLES LIKE 'slow_query_log'")
             if var_rows:
                 slow_log_enabled = var_rows[0]["Value"].upper() == "ON"
@@ -446,19 +443,32 @@ def _fetch_slow_queries(node: dict) -> dict:
                 slow_log_enabled = False
 
             if slow_log_enabled:
-                raw = client.query(
-                    "SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 200"
-                )
+                # Build query with optional min_query_time filter.
+                # SEC_TO_TIME converts float seconds to TIME type for comparison.
+                if min_query_time > 0:
+                    sql = (
+                        f"SELECT * FROM mysql.slow_log "
+                        f"WHERE query_time >= SEC_TO_TIME({min_query_time}) "
+                        f"ORDER BY start_time DESC "
+                        f"LIMIT {limit}"
+                    )
+                else:
+                    sql = (
+                        f"SELECT * FROM mysql.slow_log "
+                        f"ORDER BY start_time DESC "
+                        f"LIMIT {limit}"
+                    )
+                raw = client.query(sql)
                 rows = [
                     {
-                        "start_time":   str(r.get("start_time", "")),
-                        "user_host":    r.get("user_host", ""),
-                        "query_time":   str(r.get("query_time", "")),
-                        "lock_time":    str(r.get("lock_time", "")),
-                        "rows_sent":    r.get("rows_sent"),
-                        "rows_examined":r.get("rows_examined"),
-                        "db":           r.get("db", ""),
-                        "sql_text":     r.get("sql_text", ""),
+                        "start_time":    str(r.get("start_time", "")),
+                        "user_host":     r.get("user_host", ""),
+                        "query_time":    str(r.get("query_time", "")),
+                        "lock_time":     str(r.get("lock_time", "")),
+                        "rows_sent":     r.get("rows_sent"),
+                        "rows_examined": r.get("rows_examined"),
+                        "db":            r.get("db", ""),
+                        "sql_text":      r.get("sql_text", ""),
                     }
                     for r in raw
                 ]
@@ -468,11 +478,11 @@ def _fetch_slow_queries(node: dict) -> dict:
         error = str(exc)
 
     return {
-        "node_id":         node["id"],
-        "node_name":       node["name"],
-        "slow_log_enabled":slow_log_enabled,
-        "rows":            rows,
-        "error":           error,
+        "node_id":          node["id"],
+        "node_name":        node["name"],
+        "slow_log_enabled": slow_log_enabled,
+        "rows":             rows,
+        "error":            error,
     }
 
 
@@ -480,13 +490,25 @@ def _fetch_slow_queries(node: dict) -> dict:
 async def diagnostics_slow_queries(
         cluster_id: int,
         node_id: Optional[int] = Query(None),
+        min_query_time: float = Query(
+            0.0,
+            ge=0.0,
+            le=86400.0,
+            description="Minimum query time in seconds (e.g. 1.0). Default 0 = no filter.",
+        ),
+        limit: int = Query(
+            200,
+            ge=10,
+            le=2000,
+            description="Max rows returned per node. Default 200.",
+        ),
 ) -> list[dict]:
     _assert_cluster_exists(cluster_id)
     nodes = _get_active_nodes(cluster_id)
     if node_id:
         nodes = [n for n in nodes if n["id"] == node_id]
     results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_slow_queries, n) for n in nodes
+        asyncio.to_thread(_fetch_slow_queries, n, min_query_time, limit) for n in nodes
     ])
     return list(results)
 
@@ -717,14 +739,12 @@ def _fetch_arb_log_ssh(arb: dict, ssh_key_path: str, lines: int) -> dict:
             key_path=ssh_key_path,
             port=int(arb.get("ssh_port") or 22),
         ) as ssh:
-            # Try known paths
             for path in GARB_LOG_PATHS:
                 test = ssh.execute(f"test -f {path} && echo yes || echo no").strip()
                 if test == "yes":
                     content = ssh.execute(f"tail -n {lines} {path}")
                     break
             if content is None:
-                # Fallback: journalctl
                 content = ssh.execute(f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null || echo 'Log not found'")
     except SSHError as exc:
         error = str(exc)
