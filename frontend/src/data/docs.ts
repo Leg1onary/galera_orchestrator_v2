@@ -140,6 +140,27 @@ export const DOCS: DocCard[] = [
             'Минимальный набор SQL-запросов для ручной диагностики состояния ноды и кластера прямо в консоли.',
         code: "SHOW STATUS LIKE 'wsrep_cluster_status';\nSHOW STATUS LIKE 'wsrep_local_state_comment';\nSHOW STATUS LIKE 'wsrep_cluster_size';\nSHOW STATUS LIKE 'wsrep_connected';\nSHOW STATUS LIKE 'wsrep_ready';",
     },
+    {
+        id: 'svc-journal',
+        tab: 'service',
+        section: 'Diagnostics',
+        title: 'Просмотр логов MariaDB',
+        badge: 'Info',
+        description:
+            'Просмотр системного журнала MariaDB через journald. Незаменимо при диагностике проблем старта, SST и ошибок репликации.',
+        code: '# Последние 100 строк:\njournalctl -u mariadb -n 100 --no-pager\n\n# Живой поток:\njournalctl -u mariadb -f\n\n# С фильтром по времени:\njournalctl -u mariadb --since "1 hour ago"',
+    },
+    {
+        id: 'svc-flush-logs',
+        tab: 'service',
+        section: 'MariaDB',
+        title: 'FLUSH LOGS / бинлог',
+        badge: 'Warning',
+        description:
+            'Принудительная ротация бинарных логов. Используется перед бэкапом или для уменьшения размера текущего binlog-файла.',
+        code: 'FLUSH BINARY LOGS;\n-- Посмотреть текущий binlog:\nSHOW MASTER STATUS;\n-- Удалить старые binlog до указанного файла:\nPURGE BINARY LOGS TO \'mariadb-bin.000100\';',
+        note: 'В Galera binlog не используется для репликации между нодами, но может быть нужен для внешних реплик (async slave).',
+    },
 
     // ── Tab: recovery ────────────────────────────────────────────────────────
     {
@@ -244,6 +265,28 @@ export const DOCS: DocCard[] = [
         description:
             'Переподключение отдельной ноды к рабочему кластеру через перезапуск MariaDB. Отличается от Bootstrap — кластер уже имеет Primary Component.',
         code: 'systemctl restart mariadb.service',
+    },
+    {
+        id: 'rec-sst-mariabackup',
+        tab: 'recovery',
+        section: 'State Transfer',
+        title: 'SST через mariabackup',
+        badge: 'Info',
+        description:
+            'mariabackup — рекомендуемый SST-метод. В отличие от rsync, не блокирует запись на доноре во время передачи (hot backup). Требует установки пакета mariadb-backup на всех нодах.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_sst_method=mariabackup\nwsrep_sst_auth=sst_user:password',
+        note: 'Создай выделенного пользователя SST: GRANT RELOAD, PROCESS, LOCK TABLES, REPLICATION CLIENT ON *.* TO sst_user@localhost;',
+    },
+    {
+        id: 'rec-donor-selection',
+        tab: 'recovery',
+        section: 'State Transfer',
+        title: 'Выбор донора для SST',
+        badge: 'Info',
+        description:
+            'По умолчанию Galera выбирает донора автоматически. Можно указать предпочтительного донора явно, чтобы SST не нагружал production-ноду.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_sst_donor=db-02,db-03',
+        note: 'Список через запятую — Galera попробует по порядку. Если указанные доноры недоступны, выберет любой.',
     },
 
     // ── Tab: variables ───────────────────────────────────────────────────────
@@ -380,6 +423,28 @@ export const DOCS: DocCard[] = [
         description:
             'Доля транзакций, применённых вне порядка (Out-Of-Order Execution). Чем выше значение — тем эффективнее работает параллельное применение. Значение 0 означает строго последовательное применение.',
     },
+    {
+        id: 'var-repl-max-ws-size',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'wsrep_max_ws_size',
+        badge: 'Warning',
+        description:
+            'Максимальный размер write-set одной транзакции (по умолчанию 2 GB). Транзакции крупнее этого лимита будут отклонены Galera с ошибкой. Актуально при bulk-операциях.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_max_ws_size=2G',
+        note: 'Разбивай большие UPDATE/DELETE на батчи по 1k–10k строк — это снизит нагрузку на всю репликацию.',
+    },
+    {
+        id: 'var-gcache-recover',
+        tab: 'variables',
+        section: 'Performance',
+        title: 'gcache.recover',
+        badge: 'Info',
+        description:
+            'Позволяет переиспользовать gcache после перезапуска ноды вместо его полного сброса. Ускоряет повторное подключение через IST после planned shutdown.',
+        code: 'wsrep_provider_options="gcache.recover=yes; gcache.size=1G"',
+        note: 'Доступно в MariaDB 10.4+. На старых версиях gcache сбрасывается при каждом рестарте.',
+    },
 
     // ── Tab: diagnostics ─────────────────────────────────────────────────────
     {
@@ -469,6 +534,37 @@ export const DOCS: DocCard[] = [
         description:
             'Счётчик транзакций, отклонённых на стадии сертификации Galera (конфликт write-sets). Растущий счётчик — признак высокого уровня конкуренции за одни и те же строки между нодами.',
         code: "SHOW STATUS LIKE 'wsrep_local_cert_failures';",
+    },
+    {
+        id: 'diag-processlist',
+        tab: 'diagnostics',
+        section: 'InnoDB',
+        title: 'Активные запросы',
+        badge: 'Info',
+        description:
+            'Просмотр всех активных соединений и выполняемых запросов. Полезно для обнаружения долгих транзакций, которые могут блокировать Galera-репликацию.',
+        code: 'SHOW FULL PROCESSLIST;\n-- Только долгие запросы (> 5 сек):\nSELECT * FROM information_schema.PROCESSLIST\nWHERE TIME > 5 AND COMMAND != \'Sleep\'\nORDER BY TIME DESC;',
+        note: 'Долгие незакоммиченные транзакции могут вызвать рост wsrep_local_recv_queue на всех нодах.',
+    },
+    {
+        id: 'diag-table-locks',
+        tab: 'diagnostics',
+        section: 'InnoDB',
+        title: 'Блокировки таблиц',
+        badge: 'Warning',
+        description:
+            'Диагностика блокировок на уровне таблиц и строк. В Galera критично следить за длинными транзакциями — они блокируют применение write-sets на всех нодах.',
+        code: '-- Активные блокировки:\nSELECT * FROM information_schema.INNODB_LOCKS;\n-- Ожидающие блокировки:\nSELECT * FROM information_schema.INNODB_LOCK_WAITS;',
+    },
+    {
+        id: 'diag-disk-usage',
+        tab: 'diagnostics',
+        section: 'Панели',
+        title: 'Размер баз данных',
+        badge: 'Info',
+        description:
+            'Быстрый просмотр размеров баз данных и топ таблиц по размеру. Помогает спланировать место для SST и бэкапов.',
+        code: '-- Размер всех БД:\nSELECT table_schema AS db,\n  ROUND(SUM(data_length + index_length)/1024/1024, 1) AS size_mb\nFROM information_schema.TABLES\nGROUP BY table_schema ORDER BY size_mb DESC;',
     },
 
     // ── Tab: architecture ────────────────────────────────────────────────────
@@ -570,6 +666,38 @@ export const DOCS: DocCard[] = [
             'Rolling restart перезапускает ноды по одной, чтобы сохранить кластер работоспособным. Порядок: сначала ноды DONOR/DESYNCED, затем SYNCED-ноды, в последнюю очередь — Primary-нода (с наибольшим seqno). Между каждым перезапуском ждёт возврата ноды в SYNCED.',
         note: 'Если нода не возвращается в SYNCED за отведённое время, rolling restart отменяется с ошибкой.',
     },
+    {
+        id: 'arch-backup-sqlite',
+        tab: 'architecture',
+        section: 'Деплой',
+        title: 'Бэкап SQLite',
+        badge: 'Info',
+        description:
+            'SQLite поддерживает онлайн-бэкап без остановки оркестратора. Файл orchestrator.db можно скопировать напрямую или использовать встроенную команду .backup.',
+        code: '# Копирование файла (безопасно при работающем оркестраторе):\ncp /data/orchestrator.db /backup/orchestrator_$(date +%Y%m%d).db\n\n# Через sqlite3:\nsqlite3 /data/orchestrator.db ".backup /backup/orchestrator.db"',
+        note: 'Рекомендуется делать бэкап перед обновлением версии оркестратора.',
+    },
+    {
+        id: 'arch-env-vars',
+        tab: 'architecture',
+        section: 'Деплой',
+        title: 'Переменные окружения',
+        badge: 'Info',
+        description:
+            'Все секреты передаются через переменные окружения, не в конфиг-файлах. Обязательные: FERNET_SECRET_KEY (шифрование паролей в БД), JWT_SECRET_KEY (подпись токенов).',
+        code: 'FERNET_SECRET_KEY=<base64-fernet-key>   # 44 символа\nJWT_SECRET_KEY=<random-string>           # >= 32 символа\nJWT_EXPIRE_MINUTES=60                    # опционально, дефолт 60\nPOLLING_INTERVAL=10                      # опционально, дефолт 10',
+        note: 'Никогда не коммить секреты в репозиторий. Используй .env файл с .gitignore или Docker secrets.',
+    },
+    {
+        id: 'arch-api-auth',
+        tab: 'architecture',
+        section: 'API',
+        title: 'API — структура эндпоинтов',
+        badge: 'Info',
+        description:
+            'Основные группы эндпоинтов: /api/auth/* (логин/логаут/me), /api/clusters/* (CRUD кластеров), /api/clusters/{id}/nodes/* (ноды), /api/clusters/{id}/status (polling), /api/clusters/{id}/operations/* (recovery, rolling restart).',
+        code: 'GET  /api/auth/me\nPOST /api/auth/login\nPOST /api/auth/logout\nGET  /api/clusters/{id}/status\nPOST /api/clusters/{id}/operations/bootstrap\nPOST /api/clusters/{id}/operations/rolling-restart\nGET  /api/clusters/{id}/operations/{op_id}',
+    },
 
     // ── Tab: websocket ────────────────────────────────────────────────────────
     {
@@ -645,6 +773,26 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'При переключении кластера в шапке: WS-соединение закрывается и открывается заново для нового cluster_id, все Vue Query кэши инвалидируются, ring buffer спарклайнов очищается. Данные нового кластера подгружаются с нуля.',
+    },
+    {
+        id: 'ws-log-entry',
+        tab: 'websocket',
+        section: 'Real-time',
+        title: 'log_entry event',
+        badge: 'Info',
+        description:
+            'Событие log_entry приходит при записи новой строки в журнал операции. Используется для live-вывода прогресса в UI без отдельного polling лога.',
+        code: '{\n  "event": "log_entry",\n  "cluster_id": 1,\n  "ts": "2026-04-09T00:01:05Z",\n  "payload": {\n    "operation_id": 42,\n    "level": "info",\n    "message": "Node db-02 reached SYNCED state"\n  }\n}',
+    },
+    {
+        id: 'ws-ping-pong',
+        tab: 'websocket',
+        section: 'Real-time',
+        title: 'Keepalive (ping/pong)',
+        badge: 'Info',
+        description:
+            'Backend отправляет WebSocket ping каждые 30 сек для удержания соединения через NAT и прокси. Если pong не пришёл за 10 сек — соединение считается мёртвым и закрывается. Frontend переподключается автоматически.',
+        note: 'При развёртывании за nginx добавь proxy_read_timeout 120s и proxy_send_timeout 120s для WS-локейшна.',
     },
 
     // ── Tab: faq ──────────────────────────────────────────────────────────────
@@ -745,6 +893,37 @@ export const DOCS: DocCard[] = [
         badge: 'Info',
         description:
             'Интервал polling настраивается в Settings → System → Polling Interval (сек). Минимум рекомендуется 5 сек, чтобы не нагружать ноды диагностическими запросами.',
+    },
+    {
+        id: 'faq-cluster-address',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Что такое wsrep_cluster_address?',
+        badge: 'Info',
+        description:
+            'wsrep_cluster_address — список IP-адресов нод кластера в формате gcomm://. При старте нода подключается к любому из перечисленных адресов и получает актуальный список участников.',
+        code: '# /etc/mysql/conf.d/galera.cnf\nwsrep_cluster_address="gcomm://192.168.1.10,192.168.1.11,192.168.1.12"\n\n# Первый старт кластера (bootstrap):\nwsrep_cluster_address="gcomm://"',
+        note: 'gcomm:// (пустой) означает запуск нового кластера. Используй только при Bootstrap, затем верни полный список.',
+    },
+    {
+        id: 'faq-remove-node',
+        tab: 'faq',
+        section: 'Частые вопросы',
+        title: 'Как удалить ноду из кластера?',
+        badge: 'Warning',
+        description:
+            'Чтобы корректно вывести ноду: 1) останови MariaDB на ноде (systemctl stop), 2) убедись что кворум сохранился (wsrep_cluster_size уменьшилось), 3) удали ноду в Settings → Nodes. Кластер продолжит работу без неё.',
+        note: 'Обнови wsrep_cluster_address на оставшихся нодах, убрав IP удалённой ноды — иначе при каждом старте будут timeout-ошибки подключения.',
+    },
+    {
+        id: 'faq-nginx-ws',
+        tab: 'faq',
+        section: 'Критические ситуации',
+        title: 'WebSocket не работает за nginx',
+        badge: 'Warning',
+        description:
+            'При проксировании через nginx WebSocket-соединения требуют явной настройки upgrade-заголовков. Без них соединение устанавливается как обычный HTTP и сразу закрывается.',
+        code: 'location /ws/ {\n    proxy_pass http://orchestrator:8000;\n    proxy_http_version 1.1;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection "upgrade";\n    proxy_set_header Host $host;\n    proxy_read_timeout 120s;\n    proxy_send_timeout 120s;\n}',
     },
 ]
 
