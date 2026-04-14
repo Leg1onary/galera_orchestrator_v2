@@ -129,7 +129,7 @@ export interface RejoinNodeResponse {
     after:   WsrepSnapshot
 }
 
-// ── SST Status (#11) ───────────────────────────────────────────────────────
+// ── SST Status (#11) ───────────────────────────────────────────────────────────────────
 // GET /api/clusters/{cluster_id}/nodes/sst-status
 export interface SstStatusItem {
     node_id: number
@@ -144,6 +144,18 @@ export interface RestartSstResponse {
     ok: boolean
     node_id: number
     message: string
+}
+
+// ── Flush Operations (#12) ────────────────────────────────────────────────────────────
+// POST /api/clusters/{cluster_id}/nodes/{node_id}/flush
+export type FlushOperation = 'logs' | 'tables_read_lock' | 'unlock_tables'
+
+export interface FlushResponse {
+    ok: boolean
+    node_id: number
+    node_name: string
+    operation: FlushOperation
+    query_executed: string
 }
 
 export const nodesApi = {
@@ -205,7 +217,7 @@ export const nodesApi = {
             )
             .then((r) => r.data),
 
-    // ── SST (#11) ────────────────────────────────────────────────────────
+    // ── SST (#11) ───────────────────────────────────────────────────────────────────────────
     // GET /api/clusters/{cluster_id}/nodes/sst-status
     getSstStatus: (clusterId: number) =>
         api
@@ -217,6 +229,16 @@ export const nodesApi = {
         api
             .post<RestartSstResponse>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/restart-sst`
+            )
+            .then((r) => r.data),
+
+    // ── Flush (#12) ───────────────────────────────────────────────────────────────────────────
+    // POST /api/clusters/{cluster_id}/nodes/{node_id}/flush
+    flush: (clusterId: number, nodeId: number, operation: FlushOperation) =>
+        api
+            .post<FlushResponse>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/flush`,
+                { operation }
             )
             .then((r) => r.data),
 }
