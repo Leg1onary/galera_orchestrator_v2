@@ -15,6 +15,7 @@ PATCH /api/clusters/{cluster_id}/nodes/{node_id}              — enable/disable
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
 POST /api/clusters/{cluster_id}/nodes/{node_id}/actions
+POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin
 POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs
 
 GET  /api/clusters/{cluster_id}/operations/active
@@ -346,6 +347,105 @@ async def node_action(
         return await _run_sync_action(cluster_id, node, action)
     else:
         return await _start_async_action(cluster_id, node, action)
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin ───────────────────────
+# Вне MVP. Standalone быстрый rejoin для одной выпавшей ноды при живом кластере.
+# Отличие от rejoin-force (async action): этот endpoint синхронный, возвращает
+# wsrep-статус до/после, не требует cluster_operations lock.
+
+@router.post("/{cluster_id}/nodes/{node_id}/rejoin")
+async def rejoin_node(cluster_id: int, node_id: int) -> dict:
+    """
+    Быстрый rejoin одной ноды: systemctl restart mariadb через SSH.
+    Возвращает wsrep_cluster_status и wsrep_connected до и после рестарта.
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    # ── Снимаем wsrep-статус ДО рестарта ──────────────────────────────────
+    before = await _get_wsrep_snapshot(node)
+
+    # ── SSH: systemctl restart mariadb ────────────────────────────────────
+    ssh = SSHClient(
+        host=node["host"],
+        port=int(node["ssh_port"] or 22),
+        username=node["ssh_user"] or "root",
+    )
+    try:
+        await asyncio.to_thread(ssh.connect)
+        await asyncio.to_thread(ssh.execute, "systemctl restart mariadb", True)
+    except SSHError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"SSH error on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(ssh.close)
+
+    # ── Ждём ~10 сек, пока MariaDB поднимется, затем снимаем статус ──────
+    await asyncio.sleep(10)
+    after = await _get_wsrep_snapshot(node)
+
+    write_event(
+        level="INFO",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=(
+            f"Node '{node['name']}': rejoin executed. "
+            f"before={before}, after={after}"
+        ),
+    )
+
+    # Тригерим внеплановый поллинг ноды
+    asyncio.create_task(
+        poll_single_node(cluster_id, node),
+        name=f"poll_after_rejoin_{node_id}",
+    )
+
+    return {
+        "ok":      True,
+        "node_id": node_id,
+        "before":  before,
+        "after":   after,
+    }
+
+
+async def _get_wsrep_snapshot(node: dict) -> dict:
+    """Снимает wsrep_cluster_status и wsrep_connected с ноды. При ошибке возвращает None-поля."""
+    db = DBClient(
+        host=node["host"],
+        port=int(node["port"] or 3306),
+        user=node["db_user"] or "root",
+        encrypted_password=node["db_password"] or "",
+    )
+    try:
+        await asyncio.to_thread(db.connect)
+        rows = await asyncio.to_thread(
+            db.query,
+            "SHOW GLOBAL STATUS WHERE Variable_name IN "
+            "('wsrep_cluster_status','wsrep_connected','wsrep_local_state_comment')",
+        )
+        result = {r["Variable_name"]: r["Value"] for r in rows}
+        return {
+            "wsrep_cluster_status":      result.get("wsrep_cluster_status"),
+            "wsrep_connected":           result.get("wsrep_connected"),
+            "wsrep_local_state_comment": result.get("wsrep_local_state_comment"),
+        }
+    except DBError:
+        return {
+            "wsrep_cluster_status":      None,
+            "wsrep_connected":           None,
+            "wsrep_local_state_comment": None,
+        }
+    finally:
+        await asyncio.to_thread(db.close)
 
 
 # ── Sync action executor ───────────────────────────────────────────────────────
