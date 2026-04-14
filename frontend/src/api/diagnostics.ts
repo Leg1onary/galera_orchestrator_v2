@@ -1,160 +1,74 @@
-import { api } from '@/api/client'
+// frontend/src/api/diagnostics.ts
+import api from './index'
 
-// ── Config diff ────────────────────────────────────────────────────────────
-export type ConfigDiffValueEntry = {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export type DiagCheckResult = {
     node_id: number
     node_name: string
-    value: string | null
-    fetch_error: boolean
-}
-
-export type ConfigDiffRow = {
-    variable: string
-    values: ConfigDiffValueEntry[]
-    has_diff: boolean
-}
-
-export type ConfigDiffResponse = {
-    variables: ConfigDiffRow[]
-    nodes: { node_id: number; node_name: string; host: string; fetch_ok: boolean }[]
-    diff_found: boolean
-}
-
-// ── Variables ──────────────────────────────────────────────────────────────
-// Backend: GET /diagnostics/variables?node_id=N  (single node)
-//          GET /diagnostics/variables/all        (all enabled nodes — used by VariablesPanel)
-export type KVRow = {
-    variable_name: string
-    value: string
-}
-
-export type VariablesResult = Record<string, KVRow[]>
-
-// Raw shape from backend per single node request
-interface RawVariablesResult {
-    node_id: number
-    node_name: string
-    host: string
-    total: number
-    variables: { name: string; value: string }[]
-    error?: string | null
-}
-
-// ── Check all (connections) ────────────────────────────────────────────────
-export type ConnectionCheckRow = {
-    node_id: number
-    node_name: string
-    host: string
-    role: 'node' | 'arbitrator'
-    ssh_ok: boolean | null
-    db_ok: boolean | null
-    ssh_latency_ms: number | null
-    db_latency_ms: number | null
-    ssh_error: string | null
-    db_error: string | null
-    garbd_running?: boolean | null
-    latency_ssh_ms?: number | null
-}
-
-export type CheckAllResponse = {
-    nodes: ConnectionCheckRow[]
-    arbitrators: ConnectionCheckRow[]
-}
-
-// ── Resources ──────────────────────────────────────────────────────────────
-export type NodeResourceRow = {
-    node_id: number
-    node_name: string
-    cpu_percent: number | null
-    ram_used_bytes: number | null
-    ram_total_bytes: number | null
-    disk_used_bytes: number | null
-    disk_total_bytes: number | null
-    load_avg_1: number | null
-    uptime_since: string | null
+    checks: Record<string, string | number | null>
     error: string | null
 }
 
-interface RawResourceNode {
+export type DiagResourceResult = {
     node_id: number
     node_name: string
-    host: string
-    cpu_load: { load1: number; load5: number; load15: number } | null
-    ram: { total_bytes: number; used_bytes: number; free_bytes: number; available_bytes: number | null } | null
-    disk: { total_bytes: number; used_bytes: number; available_bytes: number; use_percent: string } | null
-    uptime_since: string | null
-    error: string | null
-}
-
-function normalizeResourceNode(raw: RawResourceNode): NodeResourceRow {
-    return {
-        node_id:         raw.node_id,
-        node_name:       raw.node_name,
-        load_avg_1:      raw.cpu_load?.load1 ?? null,
-        cpu_percent:     raw.cpu_load ? Math.min(Math.round(raw.cpu_load.load1 * 100), 100) : null,
-        ram_used_bytes:  raw.ram?.used_bytes ?? null,
-        ram_total_bytes: raw.ram?.total_bytes ?? null,
-        disk_used_bytes: raw.disk?.used_bytes ?? null,
-        disk_total_bytes: raw.disk?.total_bytes ?? null,
-        uptime_since:    raw.uptime_since,
-        error:           raw.error,
+    resources: {
+        cpu_pct: number | null
+        ram_used: number | null
+        ram_total: number | null
+        disk_used: number | null
+        disk_total: number | null
     }
-}
-
-// ── Arbitrator log ─────────────────────────────────────────────────────────
-export type ArbitratorLogResult = {
-    arbitrator_id: number
-    arbitrator_name: string
-    lines: string[]
-    fetched_at: string
-    /** SSH or execution error from backend; null on success */
     error: string | null
 }
 
-// ── Arbitrator test connection ─────────────────────────────────────────────
-export type ArbitratorConnectionResult = {
-    ssh_ok: boolean
-    garbd_running: boolean
-    latency_ssh_ms: number | null
+export type ConfigDiffResult = {
+    nodes: Array<{ node_id: number; node_name: string }>
+    diffs: Record<string, Record<string, string | null>>
+    node_errors: Array<{ node_id: number; node_name: string; error: string }>
 }
 
-// ── Galera status ──────────────────────────────────────────────────────────
-export type GaleraStatusNodeResult = {
+export type NodeVariablesResult = {
     node_id: number
     node_name: string
-    host: string
+    variables: Array<{ name: string; value: string }>
+    error: string | null
+}
+
+export type GaleraStatusResult = {
+    node_id: number
+    node_name: string
     status: Record<string, string>
     error: string | null
 }
 
-// ── Process list ───────────────────────────────────────────────────────────
-export type ProcessRow = {
-    id: number
-    user: string
-    host: string
+export type ProcessListEntry = {
+    id: number | null
+    user: string | null
+    host: string | null
     db: string | null
-    command: string
-    time: number
+    command: string | null
+    time: number | null
     state: string | null
     info: string | null
 }
 
-export type ProcessListNodeResult = {
+export type ProcessListResult = {
     node_id: number
     node_name: string
+    processes: ProcessListEntry[]
     error: string | null
-    processes: ProcessRow[]
 }
 
-// ── Slow query log ─────────────────────────────────────────────────────────
 export type SlowQueryRow = {
     start_time: string
     user_host: string
     query_time: string
     lock_time: string
-    rows_sent: number
-    rows_examined: number
-    db: string | null
+    rows_sent: number | null
+    rows_examined: number | null
+    db: string
     sql_text: string
 }
 
@@ -166,94 +80,124 @@ export type SlowQueryNodeResult = {
     error: string | null
 }
 
-// ── Error log ──────────────────────────────────────────────────────────────
-export type ErrorLogResult = {
+export type InnodbStatusResult = {
     node_id: number
     node_name: string
-    lines: string[]
-    fetched_at: string
+    content: string | null
     error: string | null
 }
 
+export type ErrorLogResult = {
+    node_id: number
+    node_name: string
+    content: string | null
+    error: string | null
+}
+
+export type ArbTestResult = {
+    arb_id: number
+    arb_name: string
+    success: boolean
+    latency_ms: number | null
+    error: string | null
+}
+
+export type ArbLogResult = {
+    arb_id: number
+    arb_name: string
+    content: string | null
+    error: string | null
+}
+
+// ── Slow query log toggle ──────────────────────────────────────────────────
+export type SlowQueryToggleResult = {
+    node_id: number
+    node_name: string
+    enabled: boolean | null
+    error: string | null
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+
 export const diagnosticsApi = {
-
-    configDiff: (clusterId: number): Promise<ConfigDiffResponse> =>
+    checkAll: (clusterId: number): Promise<DiagCheckResult[]> =>
         api
-            .get<ConfigDiffResponse>(`/api/clusters/${clusterId}/diagnostics/config-diff`)
+            .post<DiagCheckResult[]>(`/api/clusters/${clusterId}/diagnostics/check-all`)
             .then((r) => r.data),
 
-    // Single node — used when you need variables for a specific node_id
-    variablesForNode: (clusterId: number, nodeId: number, wsrepOnly = false): Promise<KVRow[]> =>
+    getResources: (clusterId: number): Promise<DiagResourceResult[]> =>
         api
-            .get<RawVariablesResult>(`/api/clusters/${clusterId}/diagnostics/variables`, {
-                params: { node_id: nodeId, wsrep_only: wsrepOnly },
+            .post<DiagResourceResult[]>(`/api/clusters/${clusterId}/diagnostics/resources`)
+            .then((r) => r.data),
+
+    getConfigDiff: (clusterId: number): Promise<ConfigDiffResult> =>
+        api
+            .get<ConfigDiffResult>(`/api/clusters/${clusterId}/diagnostics/config-diff`)
+            .then((r) => r.data),
+
+    getVariables: (clusterId: number, nodeId?: number): Promise<NodeVariablesResult[]> =>
+        api
+            .get<NodeVariablesResult[]>(`/api/clusters/${clusterId}/diagnostics/variables`, {
+                params: nodeId ? { node_id: nodeId } : undefined,
             })
-            .then((r) => r.data.variables.map((v) => ({ variable_name: v.name, value: v.value }))),
+            .then((r) => r.data),
 
-    // All enabled nodes — used by VariablesPanel to avoid per-node requests from frontend
-    variablesAll: (clusterId: number, wsrepOnly = false): Promise<RawVariablesResult[]> =>
+    getVariablesAll: (clusterId: number, nodeId?: number): Promise<NodeVariablesResult[]> =>
         api
-            .get<RawVariablesResult[]>(`/api/clusters/${clusterId}/diagnostics/variables/all`, {
-                params: { wsrep_only: wsrepOnly },
+            .get<NodeVariablesResult[]>(`/api/clusters/${clusterId}/diagnostics/variables/all`, {
+                params: nodeId ? { node_id: nodeId } : undefined,
             })
             .then((r) => r.data),
 
-    checkAll: (clusterId: number): Promise<CheckAllResponse> =>
+    getGaleraStatus: (clusterId: number): Promise<GaleraStatusResult[]> =>
         api
-            .post<CheckAllResponse>(`/api/clusters/${clusterId}/diagnostics/check-all`)
+            .get<GaleraStatusResult[]>(`/api/clusters/${clusterId}/diagnostics/galera-status`)
             .then((r) => r.data),
 
-    resources: (clusterId: number): Promise<NodeResourceRow[]> =>
+    getProcessList: (clusterId: number, nodeId?: number): Promise<ProcessListResult[]> =>
         api
-            .post<{ nodes: RawResourceNode[] }>(`/api/clusters/${clusterId}/diagnostics/resources`)
-            .then((r) => r.data.nodes.map(normalizeResourceNode)),
-
-    arbitratorLog: (clusterId: number, arbitratorId: number, lines: 20 | 50 | 100 = 50) =>
-        api
-            .get<ArbitratorLogResult>(
-                `/api/clusters/${clusterId}/arbitrators/${arbitratorId}/log`,
-                { params: { lines } },
-            )
+            .get<ProcessListResult[]>(`/api/clusters/${clusterId}/diagnostics/process-list`, {
+                params: nodeId ? { node_id: nodeId } : undefined,
+            })
             .then((r) => r.data),
 
-    arbitratorTestConnection: (clusterId: number, arbitratorId: number) =>
+    getSlowQueries: (clusterId: number, nodeId?: number): Promise<SlowQueryNodeResult[]> =>
         api
-            .get<ArbitratorConnectionResult>(
-                `/api/clusters/${clusterId}/arbitrators/${arbitratorId}/test-connection`,
-            )
+            .get<SlowQueryNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/slow-queries`, {
+                params: nodeId ? { node_id: nodeId } : undefined,
+            })
             .then((r) => r.data),
 
-    innodbStatus: (clusterId: number, nodeId: number) =>
+    getInnodbStatus: (clusterId: number, nodeId: number): Promise<InnodbStatusResult> =>
         api
-            .get(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
+            .get<InnodbStatusResult>(`/api/clusters/${clusterId}/nodes/${nodeId}/innodb-status`)
             .then((r) => r.data),
 
-    getGaleraStatus: (clusterId: number) =>
+    getErrorLog: (clusterId: number, nodeId: number, lines?: number): Promise<ErrorLogResult> =>
         api
-            .get<GaleraStatusNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/galera-status`)
+            .get<ErrorLogResult>(`/api/clusters/${clusterId}/nodes/${nodeId}/error-log`, {
+                params: lines ? { lines } : undefined,
+            })
             .then((r) => r.data),
 
-    getProcessList: (clusterId: number, nodeId?: number) =>
+    testArbConnection: (clusterId: number, arbId: number): Promise<ArbTestResult> =>
         api
-            .get<ProcessListNodeResult[]>(
-                `/api/clusters/${clusterId}/diagnostics/process-list`,
-                { params: nodeId !== undefined ? { node_id: nodeId } : {} },
-            )
+            .get<ArbTestResult>(`/api/clusters/${clusterId}/arbitrators/${arbId}/test-connection`)
             .then((r) => r.data),
 
-    getSlowQueries: (clusterId: number, nodeId?: number) =>
+    getArbLog: (clusterId: number, arbId: number, lines?: number): Promise<ArbLogResult> =>
         api
-            .get<SlowQueryNodeResult[]>(
-                `/api/clusters/${clusterId}/diagnostics/slow-queries`,
-                { params: nodeId !== undefined ? { node_id: nodeId } : {} },
-            )
+            .get<ArbLogResult>(`/api/clusters/${clusterId}/arbitrators/${arbId}/log`, {
+                params: lines ? { lines } : undefined,
+            })
             .then((r) => r.data),
 
-    getErrorLog: (clusterId: number, nodeId: number, lines = 200) =>
+    toggleSlowQueryLog: (clusterId: number, nodeId: number, enable: boolean): Promise<SlowQueryToggleResult> =>
         api
-            .get<ErrorLogResult>(
-                `/api/clusters/${clusterId}/nodes/${nodeId}/error-log`,
-                { params: { lines } },
+            .post<SlowQueryToggleResult>(
+                `/api/clusters/${clusterId}/diagnostics/nodes/${nodeId}/slow-query-log/toggle`,
+                null,
+                { params: { enable } },
             )
             .then((r) => r.data),
 }
