@@ -54,6 +54,9 @@
             </td>
             <td class="s-table__td s-table__td--actions">
               <div class="row-actions">
+                <button class="row-btn row-btn--clone" @click="openClone(row)" title="Clone node">
+                  <i class="pi pi-copy" />
+                </button>
                 <button class="row-btn row-btn--edit" @click="openEdit(row)" title="Edit">
                   <i class="pi pi-pencil" />
                 </button>
@@ -69,7 +72,7 @@
 
     <EntityFormModal
       v-if="modal.open"
-      :title="modal.mode === 'create' ? 'Add node' : 'Edit node'"
+      :title="modalTitle"
       :fields="nodeFields"
       :initial-values="modal.initial"
       :loading="saving"
@@ -140,19 +143,31 @@ const nodeFields = computed((): FormField[] => [
   { key: 'enabled', label: 'Enabled', type: 'toggle', toggleLabel: 'Monitor this node' },
 ])
 
+type ModalMode = 'create' | 'edit' | 'clone'
+
 const modal = ref<{
   open:     boolean
-  mode:     'create' | 'edit'
+  mode:     ModalMode
   id?:      number
   initial?: Record<string, unknown>
 }>({ open: false, mode: 'create' })
+
+const modalTitle = computed(() => {
+  if (modal.value.mode === 'edit')  return 'Edit node'
+  if (modal.value.mode === 'clone') return 'Clone node'
+  return 'Add node'
+})
 
 const deleteTarget = ref<NodeSetting | null>(null)
 const saving       = ref(false)
 const deleting     = ref(false)
 const apiError     = ref<string | null>(null)
 
-function openCreate() { modal.value = { open: true, mode: 'create' }; apiError.value = null }
+function openCreate() {
+  modal.value = { open: true, mode: 'create' }
+  apiError.value = null
+}
+
 function openEdit(node: NodeSetting) {
   modal.value = {
     open: true, mode: 'edit', id: node.id,
@@ -170,6 +185,26 @@ function openEdit(node: NodeSetting) {
   }
   apiError.value = null
 }
+
+// Clone: copy all fields from source, clear name and host so user fills them in
+function openClone(node: NodeSetting) {
+  modal.value = {
+    open: true, mode: 'clone',
+    initial: {
+      name:          '',
+      host:          '',
+      port:          node.port,
+      ssh_user:      node.ssh_user,
+      ssh_port:      node.ssh_port,
+      db_user:       node.db_user,
+      db_password:   node.db_password,
+      datacenter_id: node.datacenter_id,
+      enabled:       node.enabled,
+    },
+  }
+  apiError.value = null
+}
+
 function openDelete(node: NodeSetting) { deleteTarget.value = node }
 function closeModal() { modal.value = { open: false, mode: 'create' } }
 
@@ -177,10 +212,11 @@ async function handleSubmit(values: Record<string, unknown>) {
   if (!clusterId.value) { apiError.value = 'No cluster selected'; return }
   saving.value = true; apiError.value = null
   try {
-    if (modal.value.mode === 'create') {
-      await settingsApi.createNode({ cluster_id: clusterId.value, ...(values as any) })
-    } else {
+    if (modal.value.mode === 'edit') {
       await settingsApi.updateNode(modal.value.id!, values as any)
+    } else {
+      // both 'create' and 'clone' go through createNode
+      await settingsApi.createNode({ cluster_id: clusterId.value, ...(values as any) })
     }
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
     toast.add({ severity: 'success', summary: 'Saved', life: 2500 })
@@ -210,4 +246,12 @@ async function handleDelete() {
 
 <style scoped>
 /* All shared styles live in assets/settings-shared.css */
+
+.row-btn--clone {
+  color: var(--color-text-faint);
+}
+.row-btn--clone:hover {
+  color: var(--color-primary, #2dd4bf);
+  background: rgba(45, 212, 191, 0.08);
+}
 </style>
