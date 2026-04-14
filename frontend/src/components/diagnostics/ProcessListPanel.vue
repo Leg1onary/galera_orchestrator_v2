@@ -25,7 +25,6 @@
       <span>{{ error.message }}</span>
     </div>
 
-    <!-- Per-node error banners (partial failures) -->
     <div
         v-for="nodeErr in nodeErrors"
         :key="nodeErr.node_id"
@@ -60,10 +59,6 @@
                   class="search-input"
               />
             </div>
-            <!-- ФИКС: <label> заменён на <div>.
-                 <label> без for/id передаёт клик по всей площади
-                 первому интерактивному дочернему элементу (ToggleSwitch).
-                 @click.stop на InputText блокирует всплытие. -->
             <div class="toggle-row" @click.stop="hideSystem = !hideSystem">
               <ToggleSwitch
                   :model-value="hideSystem"
@@ -150,6 +145,24 @@
           </template>
         </Column>
 
+        <!-- Actions column: Kill button -->
+        <Column header="" style="width: 52px; text-align: center">
+          <template #body="{ data }">
+            <Button
+                icon="pi pi-times-circle"
+                size="small"
+                severity="danger"
+                text
+                rounded
+                :disabled="isSystemProcess(data) || killingId === data._key"
+                :loading="killingId === data._key"
+                v-tooltip.left="isSystemProcess(data) ? 'System process' : `Kill process #${data.id}`"
+                class="kill-btn"
+                @click="confirmKill(data)"
+            />
+          </template>
+        </Column>
+
         <template #empty>
           <div class="empty-row">
             <i class="pi pi-inbox" />
@@ -158,17 +171,34 @@
         </template>
       </DataTable>
     </div>
+
+    <!-- Kill confirm dialog -->
+    <ConfirmDialog group="kill-process">
+      <template #message="{ message }">
+        <div class="confirm-body">
+          <i class="pi pi-exclamation-triangle confirm-icon" />
+          <div>
+            <div class="confirm-title">{{ message.header }}</div>
+            <div class="confirm-text">{{ message.message }}</div>
+          </div>
+        </div>
+      </template>
+    </ConfirmDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useQuery }      from '@tanstack/vue-query'
+import { ref, computed }  from 'vue'
+import { useQuery }       from '@tanstack/vue-query'
+import { useConfirm }     from 'primevue/useconfirm'
+import { useToast }       from 'primevue/usetoast'
 import DataTable    from 'primevue/datatable'
 import Column       from 'primevue/column'
 import Select       from 'primevue/select'
 import InputText    from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Button       from 'primevue/button'
+import ConfirmDialog from 'primevue/confirmdialog'
 import { useClusterStore }                              from '@/stores/cluster'
 import { diagnosticsApi, type ProcessListNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                    from './PanelToolbar.vue'
@@ -182,6 +212,9 @@ const clusterStore   = useClusterStore()
 const selectedNodeId = ref<number | undefined>(undefined)
 const search         = ref('')
 const hideSystem     = ref(true)
+const killingId      = ref<string | null>(null)
+const confirm        = useConfirm()
+const toast          = useToast()
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
@@ -226,6 +259,10 @@ const filtered = computed(() => {
   return rows
 })
 
+function isSystemProcess(row: { command: string; user: string }): boolean {
+  return row.command === 'Daemon' || row.user === 'system user'
+}
+
 function stateBadgeClass(state: string): string {
   const s = state.toLowerCase()
   if (s.includes('lock'))                        return 'badge--warn'
@@ -234,6 +271,47 @@ function stateBadgeClass(state: string): string {
   if (s.includes('send') || s.includes('copy'))  return 'badge--primary'
   if (s.includes('query') || s.includes('exec')) return 'badge--query'
   return 'badge--default'
+}
+
+function confirmKill(row: { _key: string; id: number; node_id: number; node_name: string; user: string; host: string }) {
+  confirm.require({
+    group:   'kill-process',
+    header:  `Kill process #${row.id}?`,
+    message: `${row.user}@${row.host} on ${row.node_name}`,
+    icon:    'pi pi-exclamation-triangle',
+    acceptLabel:  'Kill',
+    rejectLabel:  'Cancel',
+    acceptClass:  'p-button-danger',
+    accept: () => doKill(row),
+  })
+}
+
+async function doKill(row: { _key: string; id: number; node_id: number; node_name: string }) {
+  killingId.value = row._key
+  try {
+    await diagnosticsApi.killProcess(
+      clusterStore.selectedClusterId!,
+      row.node_id,
+      row.id,
+    )
+    toast.add({
+      severity: 'success',
+      summary:  'Process killed',
+      detail:   `#${row.id} on ${row.node_name}`,
+      life:     3000,
+    })
+    await refetch()
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(err)
+    toast.add({
+      severity: 'error',
+      summary:  'Kill failed',
+      detail:   msg,
+      life:     5000,
+    })
+  } finally {
+    killingId.value = null
+  }
 }
 </script>
 
@@ -478,6 +556,13 @@ function stateBadgeClass(state: string): string {
 .badge--query   { background: color-mix(in oklch, var(--color-info) 12%, transparent); color: var(--color-info); border-color: color-mix(in oklch, var(--color-info) 28%, transparent); }
 .badge--query   .state-dot { background: var(--color-info); }
 
+.kill-btn {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+:deep(tr:hover) .kill-btn { opacity: 1; }
+:deep(tr) .kill-btn.p-button-loading { opacity: 1; }
+
 .empty-row {
   display: flex;
   flex-direction: column;
@@ -500,5 +585,29 @@ function stateBadgeClass(state: string): string {
   background: var(--color-primary-dim);
   color: var(--color-primary);
   border-color: var(--color-primary-glow);
+}
+
+.confirm-body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+}
+.confirm-icon {
+  font-size: 1.4rem;
+  color: var(--color-warning);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.confirm-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+.confirm-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
 }
 </style>

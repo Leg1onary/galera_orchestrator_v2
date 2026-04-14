@@ -16,6 +16,9 @@
 #   GET  /api/clusters/{cluster_id}/diagnostics/slow-queries?node_id=N
 #   GET  /api/clusters/{cluster_id}/nodes/{node_id}/error-log?lines=N
 #
+# Improvement #5:
+#   POST /api/clusters/{cluster_id}/nodes/{node_id}/kill-process/{process_id}
+#
 # innodb-status lives in routers/nodes.py — not duplicated here.
 # Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
 
@@ -285,9 +288,6 @@ def _fetch_resources(node: dict) -> dict:
 
 
 # ── Journalctl noise filter ──────────────────────────────────────────────────────────
-#
-# journalctl выводит служебные строки вроде "-- No entries --" или
-# "-- Logs begin at Mon 2026-04-13..." — фильтруем их.
 _JOURNALCTL_NOISE_PREFIXES = (
     "-- No entries --",
     "-- Logs begin",
@@ -310,27 +310,7 @@ def _filter_journalctl_noise(raw: str) -> list[str]:
     return result
 
 
-# ── _fetch_arbitrator_log (Variant A) ───────────────────────────────────────────────
-#
-# Стратегия поиска лога garbd (в порядке приоритета):
-#
-#   1. journalctl с несколькими именами unit:
-#      garbd → garb → garbd@ (systemd prefix match)
-#      Каждый вызов — отдельный execute(), без || цепочек.
-#
-#   2. Файловые fallback-и через отдельные execute():
-#      /var/log/garbd.log
-#      /var/log/garbd/garbd.log
-#      /var/log/garb/garbd.log
-#      Раздельные вызовы исключают баг: файл есть, но пуст → exit 0 →
-#      || цепочка останавливается и не пробует следующий путь.
-#
-#   3. Last resort: journalctl без unit-фильтра + grep garb.
-#      Ловит случаи когда сервис логируется под другим именем.
-#
-# Поле `source` в ответе показывает откуда взяты строки.
-# При lines=[] && error=null фронт должен показывать
-# "garbd log not found on this host", а не пустой блок.
+# ── _fetch_arbitrator_log ────────────────────────────────────────────────────────────
 
 _GARBD_SYSTEMD_UNITS = ("garbd", "garb", "garbd@")
 
@@ -351,7 +331,6 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
             log_lines: list[str] = []
             source_used: str = "none"
 
-            # 1. journalctl — пробуем несколько имён unit по очереди
             for unit in _GARBD_SYSTEMD_UNITS:
                 stdout, _ = client.execute(
                     f"journalctl -u {unit} -n {lines} --no-pager 2>/dev/null"
@@ -362,7 +341,6 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
                     source_used = f"journalctl -u {unit}"
                     break
 
-            # 2. Файловые fallback-и — каждый файл отдельным execute()
             if not log_lines:
                 for path in _GARBD_LOG_FILES:
                     stdout, _ = client.execute(
@@ -374,7 +352,6 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
                         source_used = f"tail {path}"
                         break
 
-            # 3. Last resort: journalctl без unit-фильтра + grep
             if not log_lines:
                 stdout, _ = client.execute(
                     f"journalctl -n {lines} --no-pager 2>/dev/null | grep -i garb || true"
@@ -417,35 +394,16 @@ def _fetch_arbitrator_log(arb: dict, lines: int) -> dict:
 
 # ── Error log helpers ────────────────────────────────────────────────────────────────
 
-# Пробуем кандидатов по очереди, возвращаем первый непустой результат.
-# Каждый кандидат работает через отдельный execute() — нет бага с пустым
-# файлом в || цепочке (файл есть, но пустой → exit 0 → цепочка останавливается).
 _ERROR_LOG_CANDIDATES = [
-    # systemd (Debian/Ubuntu/RHEL при systemd-based установке)
     ("journalctl", "journalctl -u mariadb -n {lines} --no-pager 2>/dev/null"),
-    # Debian/Ubuntu классика
     ("file",        "tail -n {lines} /var/log/mysql/error.log 2>/dev/null"),
-    # RHEL/CentOS/Rocky
     ("file",        "tail -n {lines} /var/log/mariadb/mariadb.log 2>/dev/null"),
-    # альтернатива RHEL
     ("file",        "tail -n {lines} /var/log/mysqld.log 2>/dev/null"),
-    # datadir fallback: ищем через find — не glob, чтобы shell раскрыл glob
     ("file",        "find /var/lib/mysql -maxdepth 1 -name '*.err' 2>/dev/null | head -1 | xargs -r tail -n {lines}"),
 ]
 
 
 def _fetch_error_log(node: dict, lines: int) -> dict:
-    """
-    Читаем error log через SSH.
-
-    Пробуем кандидатов в порядке приоритета:
-      1. journalctl -u mariadb   (фильтруем шум)
-      2. /var/log/mysql/error.log
-      3. /var/log/mariadb/mariadb.log
-      4. /var/log/mysqld.log
-      5. find /var/lib/mysql -name '*.err' | xargs tail
-    Возвращаем первый непустой результат.
-    """
     try:
         with SSHClient(
                 host=node["host"],
@@ -497,7 +455,7 @@ def _fetch_error_log(node: dict, lines: int) -> dict:
         }
 
 
-# ── POST /diagnostics/check-all ──────────────────────────────────────────────────────────────
+# ── POST /diagnostics/check-all ──────────────────────────────────────────────────────
 
 @router.post("/diagnostics/check-all")
 async def check_all(cluster_id: int) -> dict:
@@ -570,7 +528,7 @@ async def check_all(cluster_id: int) -> dict:
     return {"nodes": node_checks, "arbitrators": arb_checks}
 
 
-# ── GET /diagnostics/config-diff ──────────────────────────────────────────────────────────────
+# ── GET /diagnostics/config-diff ─────────────────────────────────────────────────────
 
 @router.get("/diagnostics/config-diff")
 async def config_diff(cluster_id: int) -> dict:
@@ -623,7 +581,7 @@ async def config_diff(cluster_id: int) -> dict:
     }
 
 
-# ── GET /diagnostics/variables ───────────────────────────────────────────────────────────────
+# ── GET /diagnostics/variables ───────────────────────────────────────────────────────
 
 @router.get("/diagnostics/variables")
 async def variables(
@@ -663,7 +621,7 @@ async def variables(
     }
 
 
-# ── GET /diagnostics/variables/all ─────────────────────────────────────────────────────────────
+# ── GET /diagnostics/variables/all ───────────────────────────────────────────────────
 
 @router.get("/diagnostics/variables/all")
 async def variables_all(
@@ -706,7 +664,7 @@ async def variables_all(
     return output
 
 
-# ── POST /diagnostics/resources ──────────────────────────────────────────────────────────────
+# ── POST /diagnostics/resources ──────────────────────────────────────────────────────
 
 @router.post("/diagnostics/resources")
 async def resources(cluster_id: int) -> dict:
@@ -751,7 +709,7 @@ async def resources(cluster_id: int) -> dict:
     return {"nodes": node_resources}
 
 
-# ── GET /diagnostics/galera-status ────────────────────────────────────────────────────────────
+# ── GET /diagnostics/galera-status ───────────────────────────────────────────────────
 
 def _fetch_galera_status(node: dict) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -822,7 +780,7 @@ async def galera_status(cluster_id: int) -> list[dict]:
     return output
 
 
-# ── GET /diagnostics/process-list ────────────────────────────────────────────────────────────
+# ── GET /diagnostics/process-list ────────────────────────────────────────────────────
 
 def _fetch_process_list(node: dict) -> list[dict]:
     if not node.get("db_user") or not node.get("db_password"):
@@ -891,7 +849,63 @@ async def process_list(
     return output
 
 
-# ── GET /diagnostics/slow-queries ────────────────────────────────────────────────────────────
+# ── POST /nodes/{node_id}/kill-process/{process_id} ──────────────────────────────────
+# Improvement #5: Kill a specific process by ID on a given node.
+
+@router.post("/nodes/{node_id}/kill-process/{process_id}")
+async def kill_process(
+    cluster_id: int,
+    node_id: int,
+    process_id: int,
+    _user: dict = Depends(require_auth),
+) -> dict:
+    _assert_cluster_exists(cluster_id)
+    node = _get_node_for_cluster(node_id, cluster_id)
+    if node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+        )
+
+    if not node.get("db_user") or not node.get("db_password"):
+        raise HTTPException(status_code=422, detail="No DB credentials configured for this node")
+
+    def _do_kill() -> None:
+        with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+        ) as client:
+            # KILL accepts only a literal integer — no parameter binding possible.
+            # process_id is validated as int by FastAPI path param type, safe to interpolate.
+            client.execute(f"KILL {process_id}")
+
+    try:
+        await asyncio.to_thread(_do_kill)
+    except DBError as exc:
+        msg = str(exc)
+        # 1094: Unknown thread id (process already gone — treat as success)
+        if "1094" in msg:
+            pass
+        elif any(code in msg for code in ("1227", "1044", "1142", "Access denied")):
+            raise HTTPException(status_code=403, detail=f"Insufficient privileges: {msg}")
+        else:
+            raise HTTPException(status_code=500, detail=msg)
+
+    await asyncio.to_thread(
+        write_event,
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="diagnostics",
+        level="WARN",
+        message=f"kill process {process_id} on node {node['name']} ({node['host']})",
+    )
+
+    return {"ok": True, "process_id": process_id, "node_name": node["name"]}
+
+
+# ── GET /diagnostics/slow-queries ────────────────────────────────────────────────────
 
 def _fetch_slow_queries(node: dict) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -1005,7 +1019,7 @@ async def slow_queries(
     return output
 
 
-# ── GET /nodes/{node_id}/error-log ────────────────────────────────────────────────────────────
+# ── GET /nodes/{node_id}/error-log ───────────────────────────────────────────────────
 
 @router.get("/nodes/{node_id}/error-log")
 async def error_log(
@@ -1036,7 +1050,7 @@ async def error_log(
     return result
 
 
-# ── GET /arbitrators/{arb_id}/test-connection ──────────────────────────────────────────────────
+# ── GET /arbitrators/{arb_id}/test-connection ────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/test-connection")
 async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
@@ -1068,7 +1082,7 @@ async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
     }
 
 
-# ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────────────────────
+# ── GET /arbitrators/{arb_id}/log ────────────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/log")
 async def arbitrator_log(
@@ -1094,7 +1108,7 @@ async def arbitrator_log(
     return result
 
 
-# ── POST /nodes/{node_id}/set-slow-query-log ─────────────────────────────────
+# ── POST /nodes/{node_id}/set-slow-query-log ─────────────────────────────────────────
 
 class _SetSlowQueryLogBody(BaseModel):
     enabled: bool

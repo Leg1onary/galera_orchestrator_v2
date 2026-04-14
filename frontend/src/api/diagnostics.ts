@@ -21,8 +21,6 @@ export type ConfigDiffResponse = {
 }
 
 // ── Variables ──────────────────────────────────────────────────────────────────
-// Backend: GET /diagnostics/variables?node_id=N  (single node)
-//          GET /diagnostics/variables/all        (all enabled nodes — used by VariablesPanel)
 export type KVRow = {
     variable_name: string
     value: string
@@ -30,7 +28,6 @@ export type KVRow = {
 
 export type VariablesResult = Record<string, KVRow[]>
 
-// Raw shape from backend per single node request
 interface RawVariablesResult {
     node_id: number
     node_name: string
@@ -40,13 +37,11 @@ interface RawVariablesResult {
     error?: string | null
 }
 
-// ── Check all (connections) ────────────────────────────────────────────────────────────
+// ── Check all (connections) ────────────────────────────────────────────────────
 export type ConnectionCheckRow = {
     node_id: number
-    // nodes: backend returns node_name; arbitrators: backend returns arbitrator_name
-    // Both are normalised to node_name in the checkAll transformer below.
     node_name: string
-    arbitrator_name?: string   // raw field kept for typing completeness
+    arbitrator_name?: string
     host: string
     role: 'node' | 'arbitrator'
     ssh_ok: boolean | null
@@ -64,7 +59,6 @@ export type CheckAllResponse = {
     arbitrators: ConnectionCheckRow[]
 }
 
-// Raw shapes returned by backend (arbitrators use arbitrator_id / arbitrator_name)
 interface RawArbCheckRow {
     arbitrator_id: number
     arbitrator_name: string
@@ -84,7 +78,7 @@ interface RawCheckAllResponse {
 function normalizeArbRow(raw: RawArbCheckRow): ConnectionCheckRow {
     return {
         node_id:        raw.arbitrator_id,
-        node_name:      raw.arbitrator_name,   // ← normalise to node_name
+        node_name:      raw.arbitrator_name,
         arbitrator_name: raw.arbitrator_name,
         host:           raw.host,
         role:           'arbitrator',
@@ -139,24 +133,23 @@ function normalizeResourceNode(raw: RawResourceNode): NodeResourceRow {
     }
 }
 
-// ── Arbitrator log ──────────────────────────────────────────────────────────────────
+// ── Arbitrator log ──────────────────────────────────────────────────────────────
 export type ArbitratorLogResult = {
     arbitrator_id: number
     arbitrator_name: string
     lines: string[]
     fetched_at: string
-    /** SSH or execution error from backend; null on success */
     error: string | null
 }
 
-// ── Arbitrator test connection ────────────────────────────────────────────────────────────
+// ── Arbitrator test connection ──────────────────────────────────────────────────
 export type ArbitratorConnectionResult = {
     ssh_ok: boolean
     garbd_running: boolean
     latency_ssh_ms: number | null
 }
 
-// ── Galera status ──────────────────────────────────────────────────────────────────
+// ── Galera status ──────────────────────────────────────────────────────────────
 export type GaleraStatusNodeResult = {
     node_id: number
     node_name: string
@@ -165,7 +158,7 @@ export type GaleraStatusNodeResult = {
     error: string | null
 }
 
-// ── Process list ──────────────────────────────────────────────────────────────────
+// ── Process list ──────────────────────────────────────────────────────────────
 export type ProcessRow = {
     id: number
     user: string
@@ -184,7 +177,14 @@ export type ProcessListNodeResult = {
     processes: ProcessRow[]
 }
 
-// ── Slow query log ──────────────────────────────────────────────────────────────────
+// ── Kill process result ────────────────────────────────────────────────────────
+export type KillProcessResult = {
+    ok: boolean
+    process_id: number
+    node_name: string
+}
+
+// ── Slow query log ──────────────────────────────────────────────────────────────
 export type SlowQueryRow = {
     start_time: string
     user_host: string
@@ -220,7 +220,6 @@ export const diagnosticsApi = {
             .get<ConfigDiffResponse>(`/api/clusters/${clusterId}/diagnostics/config-diff`)
             .then((r) => r.data),
 
-    // Single node — used when you need variables for a specific node_id
     variablesForNode: (clusterId: number, nodeId: number, wsrepOnly = false): Promise<KVRow[]> =>
         api
             .get<RawVariablesResult>(`/api/clusters/${clusterId}/diagnostics/variables`, {
@@ -228,7 +227,6 @@ export const diagnosticsApi = {
             })
             .then((r) => r.data.variables.map((v) => ({ variable_name: v.name, value: v.value }))),
 
-    // All enabled nodes — used by VariablesPanel to avoid per-node requests from frontend
     variablesAll: (clusterId: number, wsrepOnly = false): Promise<RawVariablesResult[]> =>
         api
             .get<RawVariablesResult[]>(`/api/clusters/${clusterId}/diagnostics/variables/all`, {
@@ -279,6 +277,13 @@ export const diagnosticsApi = {
             .get<ProcessListNodeResult[]>(
                 `/api/clusters/${clusterId}/diagnostics/process-list`,
                 { params: nodeId !== undefined ? { node_id: nodeId } : {} },
+            )
+            .then((r) => r.data),
+
+    killProcess: (clusterId: number, nodeId: number, processId: number): Promise<KillProcessResult> =>
+        api
+            .post<KillProcessResult>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/kill-process/${processId}`,
             )
             .then((r) => r.data),
 
