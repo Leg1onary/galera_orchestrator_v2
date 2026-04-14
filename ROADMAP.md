@@ -8,15 +8,16 @@
 
 ## ✅ Уже реализовано (улучшения вне MVP)
 
-| # | Фича | Файлы |
-|---|---|---|
-| 1 | Экранирование unicode-символов в NodesTable (`—`, `…`) | `NodesTable.vue` |
-| 2 | Отображение `name` для арбитра в ConnectionCheckPanel | `diagnostics.ts` |
-| 3 | Enable/Disable `slow_query_log` прямо из UI | `SlowQueryPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
-| 4 | Фильтры в SlowQueryPanel (query time, db, user, query text) | `SlowQueryPanel.vue` |
-| 5 | **Kill process** | Кнопка Kill рядом с каждым процессом в ProcessListPanel. `POST /nodes/{node_id}/kill-process/{process_id}`. ConfirmDialog перед выполнением. | `ProcessListPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
-| 6 | **Kill ALL по фильтру** | Kill всех процессов: Sleep > N сек, или по конкретному юзеру — одной кнопкой. `POST /nodes/{node_id}/kill-processes` с фильтром. | `ProcessListPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
-| 9 | **Purge binary logs** | Модальное окно с выбором даты/количества дней. `PURGE BINARY LOGS BEFORE ...` | `nodes.py`, `PurgeBinaryLogsModal.vue` (или аналог) |
+| # | Фича | Описание | Файлы |
+|---|---|---|---|
+| 1 | Экранирование unicode-символов в NodesTable | `—`, `…` отображаются корректно | `NodesTable.vue` |
+| 2 | Отображение `name` для арбитра в ConnectionCheckPanel | `arbitrator_name` маппится в `node_name` | `diagnostics.ts` |
+| 3 | Enable/Disable `slow_query_log` прямо из UI | Тоггл через `SET GLOBAL slow_query_log` | `SlowQueryPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
+| 4 | Фильтры в SlowQueryPanel | query time, db, user, query text | `SlowQueryPanel.vue` |
+| 5 | **Kill process** | Кнопка Kill рядом с процессом, ConfirmDialog, `POST /nodes/{node_id}/kill-process/{process_id}` | `ProcessListPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
+| 6 | **Kill ALL по фильтру** | Kill Sleep > N сек или по юзеру, `POST /nodes/{node_id}/kill-processes` | `ProcessListPanel.vue`, `diagnostics.py`, `diagnostics.ts` |
+| 8 | **Bootstrap cluster** | 4-шаговый wizard: скан SSH всех нод, чтение `grastate.dat`/`seqno`, bootstrap ноды с макс `seqno`, rejoin остальных | `RecoveryPage.vue`, `recovery/` стор, `stores/recovery.ts` |
+| 9 | **Purge binary logs** | Модальное окно с выбором даты/количества дней, `PURGE BINARY LOGS BEFORE ...` | `nodes.py`, frontend-модал |
 
 ---
 
@@ -26,8 +27,7 @@
 
 | # | Фича | Описание | Статус |
 |---|---|---|---|
-| 7 | **Rejoin node** | Рестарт MariaDB на ноде через SSH (`systemctl restart mariadb`). Проверка статуса до/после. ConfirmDialog. | 🔲 Следующий |
-| 8 | **Bootstrap cluster** | Авто-определение ноды с наибольшим `seqno` из `grastate.dat`, выполнение `pc.bootstrap=YES`. Защита от случайного запуска. | 🔲 Запланировано |
+| 7 | **Rejoin node** | Standalone-действие для работающего кластера: перезапуск MariaDB на отдельной ноде, которая выпала из кластера при здоровых остальных. `systemctl restart mariadb` через SSH. Проверка `wsrep_cluster_status` до/после. ConfirmDialog. Отличается от RecoveryPage: там wizard для полностью мёртвого кластера, здесь — быстрый rejoin одной ноды без wizardа. | 🔲 Следующий |
 | 10 | **Desync / Resync ноды** | `SET GLOBAL wsrep_desync = ON/OFF` — вывод ноды из репликации для тяжёлых операций без тормозов кластера. | 🔲 Запланировано |
 | 11 | **Stuck SST detector + restart** | Детект ноды в состоянии `Joining`/`Donor/Desynced` дольше порога. Кнопка рестарта SST. | 🔲 Запланировано |
 | 12 | **FLUSH операции** | `FLUSH LOGS` (ротация бинлогов), `FLUSH TABLES WITH READ LOCK` / `UNLOCK TABLES`. Нужны перед бэкапом. | 🔲 Запланировано |
@@ -76,4 +76,4 @@
 **Стек:** Python 3.11 / FastAPI / SQLAlchemy Core / SQLite / paramiko / pymysql + Vue 3 / Vite / Pinia / TanStack Vue Query / PrimeVue  
 **Эталон:** `galera-orchestrator-v2-final-spec.docx` — базовый контракт, всё новое помечается как "вне MVP"  
 **Текущая задача:** реализуем аварийные инструменты поштучно (#7 → #19), затем Advisor (#20)  
-**Следующий шаг:** #7 — Rejoin node
+**Следующий шаг:** #7 — Rejoin node (standalone, не wizard)
