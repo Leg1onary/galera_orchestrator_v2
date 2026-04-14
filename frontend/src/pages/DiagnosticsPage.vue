@@ -91,6 +91,21 @@ const TABS = [
   </div>
 </template>
 
+<style>
+/*
+  Terminal color tokens — scoped to diagnostics page root.
+  Used by InnodbStatusPanel and ErrorLogPanel instead of hardcoded hex values.
+  Override here to support future theme switching.
+*/
+.diagnostics-page {
+  --color-terminal-bg:    #0a0b0e;
+  --color-terminal-text:  #8b949e;
+  --color-terminal-ok:    #7dcfad;
+  --color-terminal-warn:  #fbbf24;
+  --color-terminal-error: #f87171;
+}
+</style>
+
 <style scoped>
 .diagnostics-page {
   display: flex;
