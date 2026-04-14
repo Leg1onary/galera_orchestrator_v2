@@ -125,17 +125,16 @@ function dcName(id: number | null) {
   return datacenters.value?.find((d) => d.id === id)?.name ?? '—'
 }
 
-// fix #2: nodeFields is fully computed — dcOptions.value is evaluated fresh every time
-// datacenters load, so the select dropdown is always populated correctly
 const nodeFields = computed((): FormField[] => [
-  { key: 'name',          label: 'Name',       required: true, placeholder: 'db-01' },
-  { key: 'host',          label: 'Host / IP',  required: true, placeholder: '10.0.0.1' },
-  { key: 'port',          label: 'MySQL Port', type: 'number', min: 1, max: 65535, placeholder: '3306' },
-  { key: 'ssh_user',      label: 'SSH User',   placeholder: 'root' },
-  { key: 'ssh_port',      label: 'SSH Port',   type: 'number', min: 1, max: 65535, placeholder: '22' },
+  { key: 'name',          label: 'Name',          required: true, placeholder: 'db-01' },
+  { key: 'host',          label: 'Host / IP',      required: true, placeholder: '10.0.0.1' },
+  { key: 'port',          label: 'MySQL Port',     type: 'number', min: 1, max: 65535, placeholder: '3306' },
+  { key: 'ssh_user',      label: 'SSH User',       placeholder: 'root' },
+  { key: 'ssh_port',      label: 'SSH Port',       type: 'number', min: 1, max: 65535, placeholder: '22' },
+  { key: 'db_user',       label: 'DB User',        required: true, placeholder: 'monitor' },
+  { key: 'db_password',   label: 'DB Password',    type: 'password', required: true, placeholder: '••••••••' },
   {
-    key: 'datacenter_id', label: 'Datacenter', type: 'select',
-    // options is evaluated inside computed — reactive to dcOptions changes
+    key: 'datacenter_id', label: 'Datacenter',     type: 'select',
     options: dcOptions.value,
   },
   { key: 'enabled', label: 'Enabled', type: 'toggle', toggleLabel: 'Monitor this node' },
@@ -163,6 +162,8 @@ function openEdit(node: NodeSetting) {
       port:          node.port,
       ssh_user:      node.ssh_user,
       ssh_port:      node.ssh_port,
+      db_user:       node.db_user,
+      db_password:   node.db_password,
       datacenter_id: node.datacenter_id,
       enabled:       node.enabled,
     },
