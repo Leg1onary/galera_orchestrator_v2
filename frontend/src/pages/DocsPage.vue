@@ -1,6 +1,6 @@
 <template>
   <div class="docs-page">
-    <!-- ── Page header ──────────────────────────────────────── -->
+    <!-- ── Page header ──────────────────────────────────────────── -->
     <div class="docs-page__header">
       <h1 class="docs-page__title">Документация</h1>
       <p class="docs-page__subtitle">
@@ -8,7 +8,7 @@
       </p>
     </div>
 
-    <!-- ── Search ────────────────────────────────────────────── -->
+    <!-- ── Search ──────────────────────────────────────────────── -->
     <div class="docs-page__search-wrap">
       <div class="docs-page__search-box">
         <i class="pi pi-search docs-page__search-icon" />
@@ -29,7 +29,7 @@
       </div>
     </div>
 
-    <!-- ── Search results ────────────────────────────────────── -->
+    <!-- ── Search results ──────────────────────────────────────────── -->
     <template v-if="search.trim()">
       <div v-if="searchResults.length === 0" class="docs-page__empty">
         <i class="pi pi-search docs-page__empty-icon" />
@@ -51,6 +51,7 @@
                 :badge="card.badge"
                 :description="card.description"
                 :code="card.code"
+                :code-lang="card.codeLang"
                 :note="card.note"
               />
             </div>
@@ -59,26 +60,34 @@
       </div>
     </template>
 
-    <!-- ── Tabbed view ────────────────────────────────────────── -->
+    <!-- ── Tabbed view ──────────────────────────────────────────────── -->
     <template v-else>
       <div class="docs-tabs">
         <!-- Tab switcher -->
         <div class="docs-tabs__nav" role="tablist">
           <button
-            v-for="tab in DOC_TABS"
+            v-for="(tab, index) in DOC_TABS"
             :key="tab.id"
             role="tab"
+            :id="`docs-tab-${tab.id}`"
             :aria-selected="activeTab === tab.id"
+            :aria-controls="`docs-tabpanel-${tab.id}`"
             class="docs-tabs__tab"
             :class="{ 'docs-tabs__tab--active': activeTab === tab.id }"
             @click="activeTab = tab.id"
+            @keydown="handleTabKeydown($event, index)"
           >
             {{ tab.label }}
           </button>
         </div>
 
         <!-- Tab content -->
-        <div class="docs-tabs__content">
+        <div
+          class="docs-tabs__content"
+          role="tabpanel"
+          :id="`docs-tabpanel-${activeTab}`"
+          :aria-labelledby="`docs-tab-${activeTab}`"
+        >
           <DocSection
             v-for="section in getSections(activeTab)"
             :key="section.name"
@@ -92,10 +101,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import DocCard from '@/components/docs/DocCard.vue'
 import DocSection from '@/components/docs/DocSection.vue'
 import { DOCS, DOC_TABS, type DocTab } from '@/data/docs'
+import { plural } from '@/utils/plural'
 
 const activeTab = ref(DOC_TABS[0].id)
 
@@ -109,10 +119,24 @@ function getSections(tabId: DocTab): { name: string; cards: typeof DOCS }[] {
   return Array.from(sectionMap.entries()).map(([name, cards]) => ({ name, cards }))
 }
 
+// ── Search with debounce ──
+
 const search = ref('')
+const debouncedSearch = ref('')
+
+watch(
+  search,
+  (value) => {
+    clearTimeout((debouncedSearch as any)._t)
+    ;(debouncedSearch as any)._t = setTimeout(() => {
+      debouncedSearch.value = value
+    }, 150)
+  },
+  { flush: 'post' },
+)
 
 const searchResults = computed(() => {
-  const q = search.value.trim().toLowerCase()
+  const q = debouncedSearch.value.trim().toLowerCase()
   if (!q) return []
   return DOCS.filter(
     (c) =>
@@ -135,16 +159,31 @@ const searchGrouped = computed(() => {
 
 function clearSearch() { search.value = '' }
 
+// ── Tab helpers ──
+
+const tabLabelMap = computed(() =>
+  DOC_TABS.reduce((acc, t) => {
+    acc[t.id] = t.label
+    return acc
+  }, {} as Record<DocTab, string>),
+)
+
 function getTabLabel(tabId: DocTab): string {
-  return DOC_TABS.find((t) => t.id === tabId)?.label ?? tabId
+  return tabLabelMap.value[tabId] ?? tabId
 }
 
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return one
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
-  return many
+function handleTabKeydown(event: KeyboardEvent, currentIndex: number) {
+  if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+    event.preventDefault()
+    const dir = event.key === 'ArrowRight' ? 1 : -1
+    const tabs = DOC_TABS
+    const nextIndex = (currentIndex + dir + tabs.length) % tabs.length
+    activeTab.value = tabs[nextIndex].id
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`docs-tab-${tabs[nextIndex].id}`)
+      el?.focus()
+    })
+  }
 }
 </script>
 
@@ -181,14 +220,14 @@ function plural(n: number, one: string, few: string, many: string): string {
   position: relative;
   display: flex;
   align-items: center;
-  background: #13141a;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 .docs-page__search-box:focus-within {
-  border-color: rgba(45,212,191,0.4);
-  box-shadow: 0 0 0 3px rgba(45,212,191,0.08);
+  border-color: var(--color-border-active);
+  box-shadow: 0 0 0 3px var(--color-primary-dim);
 }
 
 .docs-page__search-icon {
@@ -235,7 +274,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 .docs-page__search-clear:hover {
   color: var(--color-text);
-  background: rgba(255,255,255,0.06);
+  background: var(--color-surface-4);
 }
 .docs-page__search-clear .pi { font-size: 0.75rem; }
 
@@ -279,8 +318,8 @@ function plural(n: number, one: string, few: string, many: string): string {
   flex-wrap: wrap;
   gap: var(--space-1);
   padding: var(--space-1);
-  background: #13141a;
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   margin-bottom: var(--space-8);
   width: fit-content;
@@ -301,15 +340,15 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 .docs-tabs__tab:hover {
   color: var(--color-text);
-  background: rgba(255,255,255,0.05);
+  background: var(--color-surface-3);
 }
 .docs-tabs__tab--active {
-  background: rgba(45,212,191,0.1);
-  color: #2dd4bf;
-  border-color: rgba(45,212,191,0.2);
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border-color: var(--color-border-hover);
 }
 .docs-tabs__tab--active:hover {
-  background: rgba(45,212,191,0.15);
+  background: var(--color-primary-glow);
 }
 
 .docs-tabs__content {
@@ -321,7 +360,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 /* ── Shared card grid (used in search results too) ── */
 .docs-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: var(--space-5);
 }
 </style>
