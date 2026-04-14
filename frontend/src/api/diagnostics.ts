@@ -1,5 +1,5 @@
 // frontend/src/api/diagnostics.ts
-import api from './index'
+import api from './client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
