@@ -52,6 +52,12 @@ class LiveNodeState:
     # ── Timestamp ─────────────────────────────────────────────────────────────
     last_check_ts: datetime | None = None
 
+    # ── SST stuck detection (вне MVP) ─────────────────────────────────────────
+    # Момент, когда нода последний раз сменила wsrep_local_state_comment.
+    # Используется для детекта застрявшего SST: если нода в Joining/Donor/Desynced
+    # дольше SST_STUCK_THRESHOLD_SEC — показываем алерт с кнопкой рестарта.
+    state_since_ts: datetime | None = None
+
     # ── Ring buffers for sparklines (30 points, not serialised to WS payload) ─
     # Per ТЗ раздел 8: backend keeps 30 points for frontend sparklines.
     flow_control_history: Deque[float] = field(
@@ -85,6 +91,7 @@ class LiveNodeState:
             "db_latency_ms":             self.db_latency_ms,
             "error":                     self.error,
             "last_check_ts":             self.last_check_ts.isoformat() if self.last_check_ts else None,
+            "state_since_ts":            self.state_since_ts.isoformat() if self.state_since_ts else None,
             "flow_control_history":      list(self.flow_control_history),
             "recv_queue_history":        list(self.recv_queue_history),
         }
