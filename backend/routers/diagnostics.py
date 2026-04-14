@@ -19,6 +19,11 @@
 # Improvement #5:
 #   POST /api/clusters/{cluster_id}/nodes/{node_id}/kill-process/{process_id}
 #
+# Improvement #6:
+#   POST /api/clusters/{cluster_id}/nodes/{node_id}/kill-processes
+#        body: { filter: "sleep"|"user", min_time?: int, user?: str }
+#        → { killed: [int], skipped: int, errors: [str], node_name: str }
+#
 # innodb-status lives in routers/nodes.py — not duplicated here.
 # Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
 
@@ -27,10 +32,11 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 
 from database import engine
@@ -903,6 +909,156 @@ async def kill_process(
     )
 
     return {"ok": True, "process_id": process_id, "node_name": node["name"]}
+
+
+# ── POST /nodes/{node_id}/kill-processes ─────────────────────────────────────────────
+# Improvement #6: Kill ALL processes matching a filter on a given node.
+#
+# Filters:
+#   sleep  — kill all Command=Sleep with Time >= min_time (default 5s)
+#   user   — kill all processes for a specific DB user (excluding system users)
+#
+# System processes (Daemon, system user, own connection) are always excluded.
+# Response: { killed: [int], skipped: int, errors: [str], node_name: str }
+
+_SYSTEM_USERS = frozenset({"system user", "event_scheduler"})
+_SYSTEM_COMMANDS = frozenset({"Daemon", "Binlog Dump", "Binlog Dump GTID"})
+
+
+class _KillFilter(str, Enum):
+    sleep = "sleep"
+    user  = "user"
+
+
+class _KillProcessesBody(BaseModel):
+    filter: _KillFilter
+    min_time: int = 5      # seconds; used only for filter=sleep
+    user: str | None = None  # required for filter=user
+
+    @field_validator("user")
+    @classmethod
+    def user_required_for_user_filter(cls, v: str | None, info: Any) -> str | None:
+        if info.data.get("filter") == _KillFilter.user and not v:
+            raise ValueError("'user' field is required when filter='user'")
+        return v
+
+
+def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
+    """
+    Synchronous: fetch processlist, apply filter, KILL each matching process.
+    Returns { killed, skipped, errors }.
+    """
+    if not node.get("db_user") or not node.get("db_password"):
+        raise DBError("No DB credentials configured")
+
+    with DBClient(
+        host=node["host"],
+        port=int(node.get("port") or 3306),
+        user=node["db_user"],
+        encrypted_password=node["db_password"],
+    ) as client:
+        rows = client.query("SHOW FULL PROCESSLIST")
+
+        # determine our own connection id to never kill ourselves
+        own_id_rows = client.query("SELECT CONNECTION_ID() AS cid")
+        own_id = own_id_rows[0]["cid"] if own_id_rows else None
+
+        candidates: list[int] = []
+        skipped = 0
+
+        for r in rows:
+            pid     = r.get("Id")
+            user    = r.get("User") or ""
+            command = r.get("Command") or ""
+            time_s  = int(r.get("Time") or 0)
+
+            # always skip own connection and system processes
+            if pid == own_id:
+                skipped += 1
+                continue
+            if user.lower() in _SYSTEM_USERS or command in _SYSTEM_COMMANDS:
+                skipped += 1
+                continue
+
+            if body.filter == _KillFilter.sleep:
+                if command == "Sleep" and time_s >= body.min_time:
+                    candidates.append(pid)
+                else:
+                    skipped += 1
+            else:  # user filter
+                if user == body.user:
+                    candidates.append(pid)
+                else:
+                    skipped += 1
+
+        killed: list[int] = []
+        errors: list[str] = []
+
+        for pid in candidates:
+            try:
+                client.execute(f"KILL {pid}")
+                killed.append(pid)
+            except DBError as exc:
+                msg = str(exc)
+                if "1094" in msg:
+                    # process already gone — count as killed
+                    killed.append(pid)
+                else:
+                    errors.append(f"pid {pid}: {msg}")
+
+    return {"killed": killed, "skipped": skipped, "errors": errors}
+
+
+@router.post("/nodes/{node_id}/kill-processes")
+async def kill_processes(
+    cluster_id: int,
+    node_id: int,
+    body: _KillProcessesBody,
+    _user: dict = Depends(require_auth),
+) -> dict:
+    _assert_cluster_exists(cluster_id)
+    node = _get_node_for_cluster(node_id, cluster_id)
+    if node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+        )
+
+    if not node.get("db_user") or not node.get("db_password"):
+        raise HTTPException(status_code=422, detail="No DB credentials configured for this node")
+
+    try:
+        result = await asyncio.to_thread(_do_kill_processes, node, body)
+    except DBError as exc:
+        msg = str(exc)
+        if any(code in msg for code in ("1227", "1044", "1142", "Access denied")):
+            raise HTTPException(status_code=403, detail=f"Insufficient privileges: {msg}")
+        raise HTTPException(status_code=500, detail=msg)
+
+    filter_desc = (
+        f"sleep >= {body.min_time}s"
+        if body.filter == _KillFilter.sleep
+        else f"user={body.user}"
+    )
+    await asyncio.to_thread(
+        write_event,
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="diagnostics",
+        level="WARN",
+        message=(
+            f"kill-processes ({filter_desc}) on {node['name']}: "
+            f"killed={len(result['killed'])}, skipped={result['skipped']}, "
+            f"errors={len(result['errors'])}"
+        ),
+    )
+
+    return {
+        "killed":    result["killed"],
+        "skipped":   result["skipped"],
+        "errors":    result["errors"],
+        "node_name": node["name"],
+    }
 
 
 # ── GET /diagnostics/slow-queries ────────────────────────────────────────────────────
