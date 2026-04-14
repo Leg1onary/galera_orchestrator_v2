@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { diagnosticsApi, type NodeResourceRow } from '@/api/diagnostics'
+import { diagnosticsApi, type NodeResourceRow, type DiskUsageNodeResult } from '@/api/diagnostics'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
@@ -11,11 +11,20 @@ const loading = ref(false)
 const error   = ref<string | null>(null)
 const lastRun = ref<string | null>(null)
 
+// disk usage state — keyed by node_id
+const diskData    = ref<Record<number, DiskUsageNodeResult>>({})
+const diskLoading = ref<Record<number, boolean>>({})
+const diskOpen    = ref<Record<number, boolean>>({})
+
 async function run() {
   const id = clusterStore.selectedClusterId
   if (!id) return
   loading.value = true
   error.value   = null
+  // reset disk state on refresh
+  diskData.value    = {}
+  diskOpen.value    = {}
+  diskLoading.value = {}
   try {
     rows.value    = await diagnosticsApi.resources(id)
     lastRun.value = new Date().toLocaleTimeString()
@@ -23,6 +32,35 @@ async function run() {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleDisk(nodeId: number) {
+  const id = clusterStore.selectedClusterId
+  if (!id) return
+
+  // close if already open
+  if (diskOpen.value[nodeId]) {
+    diskOpen.value = { ...diskOpen.value, [nodeId]: false }
+    return
+  }
+
+  diskOpen.value = { ...diskOpen.value, [nodeId]: true }
+
+  // already fetched — just open
+  if (diskData.value[nodeId]) return
+
+  diskLoading.value = { ...diskLoading.value, [nodeId]: true }
+  try {
+    const results = await diagnosticsApi.diskUsage(id)
+    const nodeResult = results.find(r => r.node_id === nodeId)
+    if (nodeResult) {
+      diskData.value = { ...diskData.value, [nodeId]: nodeResult }
+    }
+  } catch {
+    // silently fail — error shown via nodeResult.error
+  } finally {
+    diskLoading.value = { ...diskLoading.value, [nodeId]: false }
   }
 }
 
@@ -39,6 +77,12 @@ function fmtBytes(b: number | null): string {
   if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + ' GB'
   if (b >= 1_048_576)     return (b / 1_048_576).toFixed(0) + ' MB'
   return (b / 1024).toFixed(0) + ' KB'
+}
+
+function fmtMb(mb: number | null): string {
+  if (mb === null) return '—'
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB'
+  return mb.toFixed(0) + ' MB'
 }
 
 type Level = 'ok' | 'warn' | 'crit' | 'unknown'
@@ -197,6 +241,75 @@ function cardStatusLevel(row: NodeResourceRow): Level {
               <span class="stat-val mono">{{ row.uptime_since ?? '—' }}</span>
             </div>
           </div>
+
+          <!-- Disk Details toggle -->
+          <button
+            class="disk-details-btn"
+            @click="toggleDisk(row.node_id)"
+          >
+            <i :class="['pi', diskOpen[row.node_id] ? 'pi-chevron-up' : 'pi-chevron-down']" />
+            Disk Details
+            <i v-if="diskLoading[row.node_id]" class="pi pi-spin pi-spinner disk-spin" />
+          </button>
+
+          <!-- Disk Details panel -->
+          <div v-if="diskOpen[row.node_id]" class="disk-details">
+
+            <!-- loading skeleton -->
+            <template v-if="diskLoading[row.node_id]">
+              <div class="sk-bar" style="height:12px;width:60%;margin-bottom:6px" />
+              <div class="sk-bar" style="height:60px" />
+            </template>
+
+            <template v-else-if="diskData[row.node_id]">
+              <!-- fetch error -->
+              <div v-if="diskData[row.node_id].error" class="disk-err">
+                <i class="pi pi-exclamation-circle" /> {{ diskData[row.node_id].error }}
+              </div>
+
+              <!-- ibdata1 + binary logs summary -->
+              <div class="disk-summary">
+                <div class="disk-badge">
+                  <span class="disk-badge-label">ibdata1</span>
+                  <span class="disk-badge-val">{{ fmtMb(diskData[row.node_id].ibdata1_mb) }}</span>
+                </div>
+                <div class="disk-badge">
+                  <span class="disk-badge-label">Binary logs</span>
+                  <span class="disk-badge-val">{{ fmtMb(diskData[row.node_id].binary_logs_total_mb) }}</span>
+                </div>
+              </div>
+
+              <!-- top tables -->
+              <div v-if="diskData[row.node_id].top_tables.length > 0" class="disk-tables-wrap">
+                <div class="disk-section-label">Top tables by size</div>
+                <table class="disk-table">
+                  <thead>
+                    <tr>
+                      <th>Schema</th>
+                      <th>Table</th>
+                      <th class="num">Data</th>
+                      <th class="num">Index</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in diskData[row.node_id].top_tables" :key="t.schema + '.' + t.table">
+                      <td class="mono">{{ t.schema }}</td>
+                      <td class="mono">{{ t.table }}</td>
+                      <td class="num mono">{{ fmtMb(t.data_mb) }}</td>
+                      <td class="num mono">{{ fmtMb(t.index_mb) }}</td>
+                      <td class="num mono bold">{{ fmtMb(t.total_mb) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else-if="!diskData[row.node_id].error" class="disk-empty">
+                No user tables found.
+              </div>
+            </template>
+          </div>
+
         </template>
       </div>
     </div>
@@ -436,4 +549,121 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   flex-shrink: 0;
 }
 .mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs) !important; }
+
+/* ── Disk Details ──────────────────────────────────────────────── */
+.disk-details-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
+  letter-spacing: 0.02em;
+}
+.disk-details-btn:hover {
+  background: var(--color-surface-dynamic);
+  color: var(--color-text);
+}
+.disk-spin { margin-left: auto; font-size: 0.7rem; }
+
+.disk-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--color-border);
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.disk-err {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  background: var(--color-error-highlight);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.disk-summary {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.disk-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  min-width: 90px;
+}
+.disk-badge-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.disk-badge-val {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.disk-section-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  margin-bottom: var(--space-1);
+}
+
+.disk-tables-wrap { display: flex; flex-direction: column; }
+
+.disk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+.disk-table th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+.disk-table th.num,
+.disk-table td.num { text-align: right; }
+.disk-table td {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.disk-table tr:last-child td { border-bottom: none; }
+.disk-table .bold { font-weight: 600; }
+
+.disk-empty {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  padding: var(--space-2) 0;
+}
 </style>

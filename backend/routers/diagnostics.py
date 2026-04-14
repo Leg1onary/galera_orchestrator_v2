@@ -24,6 +24,11 @@
 #        body: { filter: "sleep"|"user", min_time?: int, user?: str }
 #        → { killed: [int], skipped: int, errors: [str], node_name: str }
 #
+# Improvement #13:
+#   POST /api/clusters/{cluster_id}/diagnostics/disk-usage
+#        → { nodes: [{ node_id, node_name, top_tables, binary_logs,
+#                       binary_logs_total_mb, ibdata1_mb, error }] }
+#
 # innodb-status lives in routers/nodes.py — not duplicated here.
 # Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
 
@@ -411,6 +416,9 @@ _ERROR_LOG_CANDIDATES = [
 
 def _fetch_error_log(node: dict, lines: int) -> dict:
     try:
+
+
+
         with SSHClient(
                 host=node["host"],
                 port=int(node.get("ssh_port") or 22),
@@ -1314,3 +1322,124 @@ async def set_slow_query_log(
         message=f"slow_query_log set to {value} on node {node['name']}",
     )
     return {"ok": True, "slow_query_log": value}
+
+
+# ── POST /diagnostics/disk-usage ─────────────────────────────────────────────────────
+# Improvement #13: per-node disk usage details.
+# Combines DB queries (top tables, binary logs) with SSH (ibdata1 size).
+# Each source is independently fault-tolerant: SSH failure only nullifies ibdata1_mb.
+
+def _fetch_disk_usage(node: dict) -> dict:
+    result: dict[str, Any] = {
+        "node_id":              node["id"],
+        "node_name":            node["name"],
+        "top_tables":           [],
+        "binary_logs":          [],
+        "binary_logs_total_mb": None,
+        "ibdata1_mb":           None,
+        "error":                None,
+    }
+
+    # ── DB part: top-10 tables + binary logs ──────────────────────────────────
+    if node.get("db_user") and node.get("db_password"):
+        try:
+            with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+            ) as client:
+                rows = client.query("""
+                    SELECT
+                        table_schema  AS `schema`,
+                        table_name    AS `table`,
+                        ROUND(data_length  / 1048576, 2) AS data_mb,
+                        ROUND(index_length / 1048576, 2) AS index_mb,
+                        ROUND((data_length + index_length) / 1048576, 2) AS total_mb
+                    FROM information_schema.TABLES
+                    WHERE table_schema NOT IN
+                          ('information_schema','performance_schema','mysql','sys')
+                    ORDER BY (data_length + index_length) DESC
+                    LIMIT 10
+                """)
+                result["top_tables"] = [
+                    {
+                        "schema":   r["schema"],
+                        "table":    r["table"],
+                        "data_mb":  float(r["data_mb"] or 0),
+                        "index_mb": float(r["index_mb"] or 0),
+                        "total_mb": float(r["total_mb"] or 0),
+                    }
+                    for r in rows
+                ]
+
+                try:
+                    blrows = client.query("SHOW BINARY LOGS")
+                    logs = [
+                        {"log_name": r["Log_name"], "file_size": int(r["File_size"])}
+                        for r in blrows
+                    ]
+                    result["binary_logs"] = logs
+                    result["binary_logs_total_mb"] = round(
+                        sum(r["file_size"] for r in logs) / 1_048_576, 2
+                    )
+                except Exception:
+                    # binary logging may be disabled — non-fatal
+                    pass
+
+        except DBError as exc:
+            result["error"] = str(exc)
+        except Exception as exc:
+            result["error"] = str(exc)
+    else:
+        result["error"] = "No DB credentials configured"
+
+    # ── SSH part: ibdata1 size ────────────────────────────────────────────────
+    # Failure here is non-fatal: ibdata1_mb stays None, error is not overwritten.
+    try:
+        with SSHClient(
+            host=node["host"],
+            port=int(node.get("ssh_port") or 22),
+            username=node.get("ssh_user") or "root",
+        ) as client:
+            stdout, _ = client.execute(
+                "test -f /var/lib/mysql/ibdata1 "
+                "&& du -sb /var/lib/mysql/ibdata1 2>/dev/null | awk '{print $1}' "
+                "|| echo ''"
+            )
+            val = stdout.strip()
+            if val:
+                result["ibdata1_mb"] = round(int(val) / 1_048_576, 2)
+    except Exception:
+        pass
+
+    return result
+
+
+@router.post("/diagnostics/disk-usage")
+async def disk_usage(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return {"nodes": []}
+
+    tasks   = [asyncio.to_thread(_fetch_disk_usage, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":              node["id"],
+                "node_name":            node["name"],
+                "top_tables":           [],
+                "binary_logs":          [],
+                "binary_logs_total_mb": None,
+                "ibdata1_mb":           None,
+                "error":                str(result),
+            })
+        else:
+            output.append(result)
+
+    return {"nodes": output}

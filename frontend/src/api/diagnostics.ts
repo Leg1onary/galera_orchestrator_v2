@@ -241,6 +241,30 @@ export type PurgeBinaryLogsResult = {
     node_name: string
 }
 
+// ── Disk usage — #13 ───────────────────────────────────────────────────────────
+export type DiskUsageTableRow = {
+    schema: string
+    table: string
+    data_mb: number
+    index_mb: number
+    total_mb: number
+}
+
+export type DiskUsageBinaryLog = {
+    log_name: string
+    file_size: number
+}
+
+export type DiskUsageNodeResult = {
+    node_id: number
+    node_name: string
+    top_tables: DiskUsageTableRow[]
+    binary_logs: DiskUsageBinaryLog[]
+    binary_logs_total_mb: number | null
+    ibdata1_mb: number | null
+    error: string | null
+}
+
 export const diagnosticsApi = {
 
     configDiff: (clusterId: number): Promise<ConfigDiffResponse> =>
@@ -354,4 +378,9 @@ export const diagnosticsApi = {
                 body,
             )
             .then((r) => r.data),
+
+    diskUsage: (clusterId: number): Promise<DiskUsageNodeResult[]> =>
+        api
+            .post<{ nodes: DiskUsageNodeResult[] }>(`/api/clusters/${clusterId}/diagnostics/disk-usage`)
+            .then((r) => r.data.nodes),
 }
