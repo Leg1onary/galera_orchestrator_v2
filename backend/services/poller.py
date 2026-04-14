@@ -40,7 +40,13 @@ logger = logging.getLogger(__name__)
 # Fallback when system_settings row is missing or unreadable
 DEFAULT_POLL_INTERVAL = 5
 
-# ── Global live state stores ─────────────────────────────────────────────────────
+# ── SST stuck detection (вне MVP) ─────────────────────────────────────────
+# Нода считается застрявшей в SST, если она в одном из состояний ниже
+# дольше этого порога.
+SST_STUCK_THRESHOLD_SEC = 300  # 5 минут
+SST_STUCK_STATES = frozenset({"JOINING", "DONOR/DESYNCED", "DONOR", "DESYNCED"})
+
+# ── Global live state stores ──────────────────────────────────────────────────────
 # Accessed by GET /api/clusters/{id}/status without locking —
 # Python GIL makes dict reads safe for our single-worker use case.
 # Keys: cluster_id → node_id → LiveNodeState
@@ -49,7 +55,7 @@ live_node_states: dict[int, dict[int, LiveNodeState]] = {}
 # Keys: cluster_id → arbitrator_id → LiveArbitratorState
 live_arbitrator_states: dict[int, dict[int, LiveArbitratorState]] = {}
 
-# ── Poller task handle ───────────────────────────────────────────────────────────
+# ── Poller task handle ───────────────────────────────────────────────────────
 _poller_task: asyncio.Task | None = None
 
 # ── wsrep STATUS variables to fetch per ТЗ раздел 7.2 ──────────────────────
@@ -69,7 +75,7 @@ _WSREP_STATUS_VARS = (
 _WSREP_IN_CLAUSE = ", ".join(f"'{v}'" for v in _WSREP_STATUS_VARS)
 
 
-# ── Public lifecycle API ────────────────────────────────────────────────────────────
+# ── Public lifecycle API ─────────────────────────────────────────────────────────
 
 def start_poller() -> None:
     """
@@ -96,7 +102,7 @@ def stop_poller() -> None:
     _poller_task = None
 
 
-# ── Public one-shot poll ──────────────────────────────────────────────────────────
+# ── Public one-shot poll ──────────────────────────────────────────────────────
 
 async def poll_single_node(cluster_id: int, node: dict) -> None:
     """
@@ -113,7 +119,7 @@ async def poll_single_node(cluster_id: int, node: dict) -> None:
     await _poll_node(cluster_id, node)
 
 
-# ── Main polling loop ─────────────────────────────────────────────────────────────
+# ── Main polling loop ────────────────────────────────────────────────────────
 
 async def _poll_loop() -> None:
     """Infinite loop: poll all clusters, sleep interval, repeat.
@@ -160,7 +166,7 @@ def _get_polling_interval() -> int:
     return int(row[0]) if row else DEFAULT_POLL_INTERVAL
 
 
-# ── Cluster-level dispatch ──────────────────────────────────────────────────────────
+# ── Cluster-level dispatch ───────────────────────────────────────────────────────
 
 async def _poll_all_clusters() -> None:
     nodes_by_cluster, arbitrators_by_cluster = await asyncio.to_thread(_load_all_targets)
@@ -252,7 +258,7 @@ async def _poll_cluster(
             logger.warning("Poll task error in cluster %d: %s", cluster_id, r)
 
 
-# ── Node polling ────────────────────────────────────────────────────────────────
+# ── Node polling ──────────────────────────────────────────────────────────
 
 async def _poll_node(cluster_id: int, node: dict) -> None:
     """
@@ -273,7 +279,22 @@ async def _poll_node(cluster_id: int, node: dict) -> None:
     new_state = await asyncio.to_thread(_collect_node_state, node, previous)
     live_node_states[cluster_id][node_id] = new_state
 
-    # ── Change detection → WS broadcast + event log ──────────────────────────────
+    # ── SST stuck detection: пробрасываем state_since_ts ────────────────────────────
+    new_comment = new_state.wsrep_local_state_comment
+    if new_comment != prev_state_comment:
+        # Состояние сменилось — сбрасываем таймер
+        if new_comment.upper() in SST_STUCK_STATES:
+            new_state.state_since_ts = new_state.last_check_ts
+        else:
+            new_state.state_since_ts = None
+    else:
+        # Состояние не менялось — сохраняем старый state_since_ts
+        if new_comment.upper() in SST_STUCK_STATES:
+            new_state.state_since_ts = previous.state_since_ts
+        else:
+            new_state.state_since_ts = None
+
+    # ── Change detection → WS broadcast + event log ───────────────────────────────
     state_changed = (
             new_state.wsrep_local_state_comment != prev_state_comment
             or new_state.ssh_ok != prev_ssh_ok
@@ -319,7 +340,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
     )
     new_state.last_check_ts = datetime.now(timezone.utc)
 
-    # ── Step 1: SSH ────────────────────────────────────────────────────────────────
+    # ── Step 1: SSH ─────────────────────────────────────────────────────────────
     ssh_client = SSHClient(
         host=node["host"],
         port=int(node.get("ssh_port") or 22),
@@ -338,7 +359,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         return new_state
     # ssh_client kept open — closed in DB finally block below
 
-    # ── Steps 2–5: DB + queries (ssh_client always closed in finally) ─────────────
+    # ── Steps 2–5: DB + queries (ssh_client always closed in finally) ────────────
     db_client = DBClient(
         host=node["host"],
         port=int(node.get("port") or 3306),
@@ -350,7 +371,7 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         new_state.db_latency_ms = db_client.test_connection()
         new_state.db_ok = True
 
-        # ── wsrep status ───────────────────────────────────────────────────────
+        # ── wsrep status ──────────────────────────────────────────────────────
         try:
             status_rows = db_client.query(
                 f"SHOW GLOBAL STATUS WHERE Variable_name IN ({_WSREP_IN_CLAUSE})"
@@ -380,10 +401,10 @@ def _collect_node_state(node: dict, previous: LiveNodeState) -> LiveNodeState:
         db_client.close()
         ssh_client.close()
 
-    # ── Step 4: maintenance_drift ──────────────────────────────────────────────────
+    # ── Step 4: maintenance_drift ───────────────────────────────────────────────────
     new_state.maintenance_drift = bool(node.get("maintenance")) and not new_state.readonly
 
-    # ── Step 5: ring buffers ────────────────────────────────────────────────────────
+    # ── Step 5: ring buffers ─────────────────────────────────────────────────────
     new_state.flow_control_history.append(new_state.wsrep_flow_control_paused)
     new_state.recv_queue_history.append(new_state.wsrep_local_recv_queue)
 
@@ -455,7 +476,7 @@ def _fill_wsrep_defaults(state: LiveNodeState) -> None:
     state.wsrep_desync                = False
 
 
-# ── Arbitrator polling ──────────────────────────────────────────────────────────────
+# ── Arbitrator polling ─────────────────────────────────────────────────────────
 
 async def _poll_arbitrator(cluster_id: int, arb: dict) -> None:
     """
@@ -524,7 +545,7 @@ def _collect_arbitrator_state(arb: dict) -> LiveArbitratorState:
     return state
 
 
-# ── WebSocket broadcast helpers ──────────────────────────────────────────────────────
+# ── WebSocket broadcast helpers ───────────────────────────────────────────────────────
 
 async def _broadcast_node_state_changed(
         cluster_id: int,
@@ -568,7 +589,7 @@ async def _broadcast_arbitrator_state_changed(
     await ws_manager.broadcast(cluster_id, event)
 
 
-# ── Event log writer ────────────────────────────────────────────────────────────────
+# ── Event log writer ────────────────────────────────────────────────────────────
 
 def _write_event_log(
         *,
