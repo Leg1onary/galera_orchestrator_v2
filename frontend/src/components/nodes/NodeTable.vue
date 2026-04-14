@@ -1,4 +1,5 @@
 <template>
+  <ConfirmDialog />
   <DataTable
       :value="nodes"
       :loading="loading"
@@ -30,7 +31,7 @@
     <!-- Datacenter -->
     <Column field="datacenter_name" header="DC" :sortable="true" style="width: 100px">
       <template #body="{ data }">
-        <span class="col-muted">{{ data.datacenter_name || '—' }}</span>
+        <span class="col-muted">{{ data.datacenter_name || '\u2014' }}</span>
       </template>
     </Column>
 
@@ -113,9 +114,19 @@
     </Column>
 
     <!-- Actions -->
-    <Column header="" style="width: 88px" :frozen="true" alignFrozen="right">
+    <Column header="" style="width: 116px" :frozen="true" alignFrozen="right">
       <template #body="{ data }">
         <div class="actions-cell" @click.stop>
+          <button
+            class="rejoin-btn"
+            :class="{ 'rejoin-btn--active': isNodeDown(data) }"
+            :disabled="!data.enabled || rejoinLoading === data.id"
+            :title="isNodeDown(data) ? 'Rejoin node to cluster' : 'Node is healthy'"
+            v-tooltip.top="isNodeDown(data) ? 'Rejoin' : 'Node is healthy'"
+            @click="handleRejoin(data)"
+          >
+            <i :class="rejoinLoading === data.id ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'" />
+          </button>
           <button
             class="clone-btn"
             title="Clone node"
@@ -139,11 +150,16 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
+import ConfirmDialog from 'primevue/confirmdialog'
+import { useConfirm } from 'primevue/useconfirm'
+import { useToast } from 'primevue/usetoast'
 import NodeStatusBadge from './NodeStatusBadge.vue'
 import NodeActionMenu from './NodeActionMenu.vue'
+import { nodesApi } from '@/api/nodes'
 import type { NodeListItem } from '@/api/nodes'
 import { formatRelative } from '@/utils/time'
 
@@ -158,6 +174,50 @@ const emit = defineEmits<{
   refresh: []
   clone:  [node: NodeListItem]
 }>()
+
+const confirm = useConfirm()
+const toast   = useToast()
+const rejoinLoading = ref<number | null>(null)
+
+function isNodeDown(node: NodeListItem): boolean {
+  if (!node.enabled || !node.live) return false
+  return node.live.wsrep_connected !== 'ON' || node.live.wsrep_ready !== 'ON'
+}
+
+function handleRejoin(node: NodeListItem) {
+  confirm.require({
+    message: `Restart MariaDB on "${node.name}" and rejoin the cluster?`,
+    header:  'Rejoin node',
+    icon:    'pi pi-exclamation-triangle',
+    rejectLabel: 'Cancel',
+    acceptLabel: 'Rejoin',
+    acceptClass: 'p-button-warning',
+    accept: async () => {
+      rejoinLoading.value = node.id
+      try {
+        const res = await nodesApi.rejoin(props.clusterId, node.id)
+        const after = res.after
+        const joined = after.wsrep_cluster_status === 'Primary'
+        toast.add({
+          severity: joined ? 'success' : 'warn',
+          summary:  joined ? 'Node rejoined' : 'Rejoin done, check status',
+          detail:   `wsrep_connected: ${after.wsrep_connected} · status: ${after.wsrep_cluster_status}`,
+          life:     6000,
+        })
+        emit('refresh')
+      } catch (e: any) {
+        toast.add({
+          severity: 'error',
+          summary:  'Rejoin failed',
+          detail:   e?.response?.data?.detail ?? String(e),
+          life:     8000,
+        })
+      } finally {
+        rejoinLoading.value = null
+      }
+    },
+  })
+}
 
 function fcClass(val: number | null) {
   if (val === null) return ''
@@ -175,7 +235,7 @@ function recvClass(val: number | null) {
 </script>
 
 <style scoped>
-/* ── Header spacing ───────────────────────────────── */
+/* ── Header spacing ────────────────────────────────────────────────── */
 :deep(.p-datatable-thead > tr > th) {
   padding: var(--space-3) var(--space-4) !important;
   font-size: var(--text-sm) !important;
@@ -222,6 +282,35 @@ function recvClass(val: number | null) {
   gap: var(--space-1);
 }
 
+/* ── Rejoin button ────────────────────────────────────────────────── */
+.rejoin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: color 150ms ease, background 150ms ease;
+  flex-shrink: 0;
+}
+.rejoin-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.rejoin-btn--active {
+  color: var(--color-warning);
+}
+.rejoin-btn--active:not(:disabled):hover {
+  color: var(--color-warning-hover);
+  background: rgba(187, 101, 59, 0.1);
+}
+
+/* ── Clone button ─────────────────────────────────────────────────── */
 .clone-btn {
   display: inline-flex;
   align-items: center;
