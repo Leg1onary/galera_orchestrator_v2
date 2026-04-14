@@ -19,6 +19,7 @@ POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin
 POST /api/clusters/{cluster_id}/nodes/{node_id}/desync
 POST /api/clusters/{cluster_id}/nodes/{node_id}/resync
 POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs
+POST /api/clusters/{cluster_id}/nodes/{node_id}/flush         — (вне MVP) FLUSH LOGS / FTWRL / UNLOCK
 
 GET  /api/clusters/{cluster_id}/nodes/sst-status              — (вне MVP) SST stuck detection
 POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst   — (вне MVP) restart stuck SST
@@ -61,7 +62,7 @@ router = APIRouter(
     dependencies=[Depends(require_auth)],
 )
 
-# ── Constants ──────────────────────────────────────────────────────────
+# ── Constants ───────────────────────────────────────────────────────
 
 SYNC_ACTIONS  = frozenset({"set-readonly", "set-readwrite", "enter-maintenance", "exit-maintenance"})
 ASYNC_ACTIONS = frozenset({"start", "stop", "restart", "rejoin-force"})
@@ -70,7 +71,15 @@ ALL_ACTIONS   = SYNC_ACTIONS | ASYNC_ACTIONS
 SSH_CONNECT_TIMEOUT = 5
 DB_CONNECT_TIMEOUT  = 3
 
-# ── Schemas ────────────────────────────────────────────────────────────
+FLUSH_OPERATIONS = frozenset({"logs", "tables_read_lock", "unlock_tables"})
+
+FLUSH_SQL_MAP = {
+    "logs":              "FLUSH LOGS",
+    "tables_read_lock":  "FLUSH TABLES WITH READ LOCK",
+    "unlock_tables":     "UNLOCK TABLES",
+}
+
+# ── Schemas ────────────────────────────────────────────────────────
 
 class NodeActionRequest(BaseModel):
     action: str
@@ -111,7 +120,20 @@ class PurgeBinaryLogsRequest(BaseModel):
         return v
 
 
-# ── DB helpers ─────────────────────────────────────────────────────────────
+class FlushRequest(BaseModel):
+    operation: str  # 'logs' | 'tables_read_lock' | 'unlock_tables'
+
+    @field_validator("operation")
+    @classmethod
+    def validate_operation(cls, v: str) -> str:
+        if v not in FLUSH_OPERATIONS:
+            raise ValueError(
+                f"Unknown flush operation '{v}'. Valid: {sorted(FLUSH_OPERATIONS)}"
+            )
+        return v
+
+
+# ── DB helpers ───────────────────────────────────────────────────────────
 
 def _fetch_node(cluster_id: int, node_id: int) -> dict:
     """Load node row. Raises 404 if not found or belongs to different cluster."""
@@ -146,7 +168,7 @@ def _assert_cluster_exists(cluster_id: int) -> None:
         )
 
 
-# ── GET /api/clusters/{cluster_id}/nodes ───────────────────────────────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes ────────────────────────────────────────────────────────
 
 @router.get("/{cluster_id}/nodes")
 async def list_nodes(cluster_id: int) -> list[dict]:
@@ -185,7 +207,7 @@ async def list_nodes(cluster_id: int) -> list[dict]:
     return result
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id} ─────────────────────────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id} ───────────────────────────────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}")
 async def get_node(cluster_id: int, node_id: int) -> dict:
@@ -209,7 +231,7 @@ async def get_node(cluster_id: int, node_id: int) -> dict:
     }
 
 
-# ── PATCH /api/clusters/{cluster_id}/nodes/{node_id} ──────────────────────────────────────────
+# ── PATCH /api/clusters/{cluster_id}/nodes/{node_id} ──────────────────────────────────────────────────────
 
 @router.patch("/{cluster_id}/nodes/{node_id}")
 async def patch_node(
@@ -232,7 +254,7 @@ async def patch_node(
     return {"accepted": True, "node_id": node_id, **body.model_dump(exclude_none=True)}
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection ─────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/test-connection ─────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}/test-connection")
 async def test_node_connection(cluster_id: int, node_id: int) -> dict:
@@ -282,7 +304,7 @@ async def test_node_connection(cluster_id: int, node_id: int) -> dict:
     return result
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status ────────────────────
+# ── GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status ─────────────────────────
 
 @router.get("/{cluster_id}/nodes/{node_id}/innodb-status")
 async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
@@ -330,7 +352,7 @@ def _extract_deadlock_section(innodb_text: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/actions ────────────────────────────
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/actions ───────────────────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/actions")
 async def node_action(
@@ -354,7 +376,7 @@ async def node_action(
         return await _start_async_action(cluster_id, node, action)
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin ────────────────────────────
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin ───────────────────────────────
 # Вне MVP. Standalone быстрый rejoin для одной выпавшей ноды при живом кластере.
 
 @router.post("/{cluster_id}/nodes/{node_id}/rejoin")
@@ -416,10 +438,7 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
     }
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/desync ───────────────────────────
-# Вне MVP. Выводит ноду из flow control Galera для тяжёлых операций.
-# SET GLOBAL wsrep_desync = ON — нода продолжает репликацию, но не тормозит кластер
-# flow control'ом. Буферизует write-set'ы, нагоняет отставание при resync.
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/desync ───────────────────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/desync")
 async def desync_node(cluster_id: int, node_id: int) -> dict:
@@ -453,7 +472,7 @@ async def desync_node(cluster_id: int, node_id: int) -> dict:
     return {"ok": True, "node_id": node_id, "wsrep_desync": True}
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/resync ───────────────────────────
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/resync ───────────────────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/resync")
 async def resync_node(cluster_id: int, node_id: int) -> dict:
@@ -518,7 +537,7 @@ async def _get_wsrep_snapshot(node: dict) -> dict:
         await asyncio.to_thread(db.close)
 
 
-# ── Sync action executor ────────────────────────────────────────────────────────
+# ── Sync action executor ──────────────────────────────────────────────────────────────
 
 async def _run_sync_action(cluster_id: int, node: dict, action: str) -> dict:
     node_id = node["id"]
@@ -593,7 +612,7 @@ async def _db_exec(node: dict, sql: str) -> None:
         await asyncio.to_thread(db.close)
 
 
-# ── Async action launcher ─────────────────────────────────────────────────────
+# ── Async action launcher ────────────────────────────────────────────────────────────
 
 async def _start_async_action(cluster_id: int, node: dict, action: str) -> dict:
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
@@ -710,9 +729,6 @@ async def _safe_poll_node(cluster_id: int, node: dict) -> None:
 
 
 def _ssh_node_action(node: dict, action: str) -> None:
-    """
-    Execute a management action on a node via SSH.
-    """
     ssh = SSHClient(
         host=node["host"],
         port=int(node["ssh_port"] or 22),
@@ -757,7 +773,7 @@ async def _broadcast_op_finished(
     })
 
 
-# ── GET /api/clusters/{cluster_id}/operations/active ──────────────────────────────────
+# ── GET /api/clusters/{cluster_id}/operations/active ────────────────────────────────────────────
 
 @router.get("/{cluster_id}/operations/active")
 async def get_active_op(cluster_id: int) -> dict:
@@ -766,7 +782,7 @@ async def get_active_op(cluster_id: int) -> dict:
     return {"operation": active}
 
 
-# ── POST /api/clusters/{cluster_id}/operations/cancel ─────────────────────────────────
+# ── POST /api/clusters/{cluster_id}/operations/cancel ───────────────────────────────────────────
 
 @router.post("/{cluster_id}/operations/cancel")
 async def cancel_operation(cluster_id: int) -> dict:
@@ -788,7 +804,7 @@ async def cancel_operation(cluster_id: int) -> dict:
     return {"accepted": True, "operation": op}
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs ────────────────
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs ────────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/purge-binary-logs")
 async def purge_binary_logs(
@@ -796,9 +812,6 @@ async def purge_binary_logs(
         node_id: int,
         body: PurgeBinaryLogsRequest,
 ) -> dict:
-    """
-    Execute PURGE BINARY LOGS BEFORE '<before_date>' on the target node.
-    """
     node = _fetch_node(cluster_id, node_id)
 
     sql = f"PURGE BINARY LOGS BEFORE '{body.before_date}'"
@@ -832,17 +845,77 @@ async def purge_binary_logs(
     )
 
     return {
-        "ok":            True,
+        "ok":             True,
         "query_executed": sql,
-        "node_name":     node["name"],
+        "node_name":      node["name"],
     }
 
 
-# ── GET /api/clusters/{cluster_id}/nodes/sst-status (вне MVP) ────────────────────────
-# Возвращает список нод с is_stuck/stuck_for_sec для фронтенда.
-# Нода считается застрявшей, если она в SST_STUCK_STATES дольше SST_STUCK_THRESHOLD_SEC.
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/flush (вне MVP) ───────────────────────
+# FLUSH LOGS | FLUSH TABLES WITH READ LOCK | UNLOCK TABLES
+
+@router.post("/{cluster_id}/nodes/{node_id}/flush")
+async def flush_node(
+        cluster_id: int,
+        node_id: int,
+        body: FlushRequest,
+) -> dict:
+    """
+    (вне MVP) Выполняет FLUSH-операцию на целевой ноде.
+
+    operation:
+      - 'logs'             → FLUSH LOGS                        (ротация бинлогов)
+      - 'tables_read_lock' → FLUSH TABLES WITH READ LOCK       (блокировка перед бэкапом)
+      - 'unlock_tables'    → UNLOCK TABLES                     (снятие блокировки)
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    sql = FLUSH_SQL_MAP[body.operation]
+
+    db = DBClient(
+        host=node["host"],
+        port=int(node["port"] or 3306),
+        user=node["db_user"] or "root",
+        encrypted_password=node["db_password"] or "",
+    )
+    try:
+        await asyncio.to_thread(db.connect)
+        await asyncio.to_thread(db.execute, sql)
+    except DBError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{sql} failed on '{node['name']}': {exc}",
+        )
+    finally:
+        await asyncio.to_thread(db.close)
+
+    log_level = "WARN" if body.operation in ("tables_read_lock", "unlock_tables") else "INFO"
+    write_event(
+        level=log_level,
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=f"Node '{node['name']}': {sql}",
+    )
+
+    return {
+        "ok":             True,
+        "node_id":        node_id,
+        "node_name":      node["name"],
+        "operation":      body.operation,
+        "query_executed": sql,
+    }
+
+
+# ── GET /api/clusters/{cluster_id}/nodes/sst-status (вне MVP) ──────────────────────────
 # IMPORTANT: роут /nodes/sst-status нужно зарегистрировать до /{node_id},
-# чтобы FastAPI не трактовал "сst-status" как node_id.
+# чтобы FastAPI не трактовал "sst-status" как node_id.
 
 @router.get("/{cluster_id}/nodes/sst-status")
 async def get_sst_status(cluster_id: int) -> list[dict]:
@@ -865,7 +938,6 @@ async def get_sst_status(cluster_id: int) -> list[dict]:
         is_stuck = False
 
         if live.state_since_ts is not None:
-            # state_since_ts может быть naive (если сохранён с предыдущей версии)
             since = live.state_since_ts
             if since.tzinfo is None:
                 since = since.replace(tzinfo=timezone.utc)
@@ -873,18 +945,17 @@ async def get_sst_status(cluster_id: int) -> list[dict]:
             is_stuck = stuck_for_sec >= SST_STUCK_THRESHOLD_SEC
 
         result.append({
-            "node_id":       node_id,
-            "state":         live.wsrep_local_state_comment,
+            "node_id":        node_id,
+            "state":          live.wsrep_local_state_comment,
             "state_since_ts": live.state_since_ts.isoformat() if live.state_since_ts else None,
-            "stuck_for_sec": round(stuck_for_sec, 1) if stuck_for_sec is not None else None,
-            "is_stuck":      is_stuck,
+            "stuck_for_sec":  round(stuck_for_sec, 1) if stuck_for_sec is not None else None,
+            "is_stuck":       is_stuck,
         })
 
     return result
 
 
-# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst (вне MVP) ─────────────
-# systemctl restart mariadb через SSH для ноды, застрявшей SST.
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst (вне MVP) ─────────────────
 
 @router.post("/{cluster_id}/nodes/{node_id}/restart-sst")
 async def restart_sst(
@@ -893,7 +964,6 @@ async def restart_sst(
 ) -> dict:
     """
     (вне MVP) Перезапуск MariaDB через SSH для разблокировки застрявшего SST.
-    Записывает событие в event_log, эмитит node_state_changed через WS после поллинга.
     """
     node = _fetch_node(cluster_id, node_id)
 
@@ -903,7 +973,6 @@ async def restart_sst(
             detail=f"Node {node_id} is disabled",
         )
 
-    # Проверяем, что нода действительно в SST-состоянии
     live = live_node_states.get(cluster_id, {}).get(node_id)
     if live is None or live.wsrep_local_state_comment.upper() not in SST_STUCK_STATES:
         raise HTTPException(
