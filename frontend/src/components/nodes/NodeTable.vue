@@ -30,7 +30,7 @@
     <!-- Datacenter -->
     <Column field="datacenter_name" header="DC" :sortable="true" style="width: 100px">
       <template #body="{ data }">
-        <span class="col-muted">{{ data.datacenter_name || '—' }}</span>
+        <span class="col-muted">{{ data.datacenter_name || '\u2014' }}</span>
       </template>
     </Column>
 
@@ -42,7 +42,7 @@
           :value="data.live?.readonly ? 'RO' : 'RW'"
           :severity="data.live?.readonly ? 'warn' : 'success'"
         />
-        <span v-else class="col-muted">—</span>
+        <span v-else class="col-muted">\u2014</span>
       </template>
     </Column>
 
@@ -62,7 +62,7 @@
             class="text-xs"
             v-tooltip.top="'maintenance flag set but node is read-write'"
         />
-        <span v-else class="col-muted">—</span>
+        <span v-else class="col-muted">\u2014</span>
       </template>
     </Column>
 
@@ -75,7 +75,7 @@
         >
           {{ data.live?.wsrep_flow_control_paused != null
             ? (data.live.wsrep_flow_control_paused * 100).toFixed(1) + '%'
-            : '—' }}
+            : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -89,7 +89,7 @@
         >
           {{ data.live?.wsrep_local_recv_queue != null
             ? data.live.wsrep_local_recv_queue
-            : '—' }}
+            : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -98,7 +98,7 @@
     <Column header="Last seen" style="width: 120px">
       <template #body="{ data }">
         <span class="col-muted">
-          {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '—' }}
+          {{ data.live?.last_check_ts ? formatRelative(data.live.last_check_ts) : '\u2014' }}
         </span>
       </template>
     </Column>
@@ -113,9 +113,18 @@
     </Column>
 
     <!-- Actions -->
-    <Column header="" style="width: 56px" :frozen="true" alignFrozen="right">
+    <Column header="" style="width: 88px" :frozen="true" alignFrozen="right">
       <template #body="{ data }">
-        <NodeActionMenu :node="data" :cluster-id="clusterId" @action-done="emit('refresh')" />
+        <div class="actions-cell" @click.stop>
+          <button
+            class="clone-btn"
+            title="Clone node"
+            @click="emit('clone', data)"
+          >
+            <i class="pi pi-copy" />
+          </button>
+          <NodeActionMenu :node="data" :cluster-id="clusterId" @action-done="emit('refresh')" />
+        </div>
       </template>
     </Column>
 
@@ -124,7 +133,7 @@
     </template>
 
     <template #loading>
-      <div class="table-empty">Loading nodes…</div>
+      <div class="table-empty">Loading nodes\u2026</div>
     </template>
   </DataTable>
 </template>
@@ -147,6 +156,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [node: NodeListItem]
   refresh: []
+  clone:  [node: NodeListItem]
 }>()
 
 function fcClass(val: number | null) {
@@ -205,4 +215,30 @@ function recvClass(val: number | null) {
 }
 .enabled-badge--on  { background: rgba(74,222,128,0.1); color: #4ade80; }
 .enabled-badge--off { background: rgba(255,255,255,0.05); color: var(--color-text-faint); }
+
+.actions-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.clone-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: color 150ms ease, background 150ms ease;
+  flex-shrink: 0;
+}
+.clone-btn:hover {
+  color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.08);
+}
 </style>
