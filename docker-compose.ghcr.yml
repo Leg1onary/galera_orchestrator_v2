@@ -18,24 +18,22 @@ services:
     container_name: galera-orchestrator
     restart: unless-stopped
 
+    # env_file передаёт значения без shell-интерполяции,
+    # что критично для bcrypt-хешей с символами $
+    env_file:
+      - .env
+
+    # Переменные без $ можно оставить здесь для явности,
+    # они будут перезаписаны env_file в случае конфликта
+    environment:
+      SSH_KEY_PATH: /root/.ssh/id_rsa
+
     ports:
       - "${HOST_PORT:-8000}:8000"
 
     volumes:
       - orchestrator-data:/data
       - ${SSH_KEY_HOST_PATH:-~/.ssh/id_rsa}:/root/.ssh/id_rsa:ro
-
-    environment:
-      DATABASE_URL:          ${DATABASE_URL:-sqlite:////data/orchestrator.db}
-      ADMIN_USERNAME:        ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD_HASH:   ${ADMIN_PASSWORD_HASH}
-      JWT_SECRET_KEY:        ${JWT_SECRET_KEY:-change-me-jwt-secret-min-32-chars}
-      FERNET_SECRET_KEY:     ${FERNET_SECRET_KEY:-change-me-fernet-key}
-      SSH_KEY_PATH:          /root/.ssh/id_rsa
-      SSH_CONNECT_TIMEOUT:   ${SSH_CONNECT_TIMEOUT:-5}
-      SSH_COMMAND_TIMEOUT:   ${SSH_COMMAND_TIMEOUT:-10}
-      DB_CONNECT_TIMEOUT:    ${DB_CONNECT_TIMEOUT:-3}
-      DOCS_ENABLED:          ${DOCS_ENABLED:-false}
 
     healthcheck:
       test: >
