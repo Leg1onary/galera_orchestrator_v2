@@ -10,6 +10,7 @@ import ArbitratorLogPanel    from '@/components/diagnostics/ArbitratorLogPanel.v
 import ProcessListPanel      from '@/components/diagnostics/ProcessListPanel.vue'
 import SlowQueryPanel        from '@/components/diagnostics/SlowQueryPanel.vue'
 import ErrorLogPanel         from '@/components/diagnostics/ErrorLogPanel.vue'
+import PurgeBinaryLogsPanel  from '@/components/diagnostics/PurgeBinaryLogsPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -20,15 +21,16 @@ watch(
 )
 
 const TABS = [
-  { value: 'connections',  label: 'Connection Check', icon: 'pi-wifi' },
-  { value: 'config-diff',  label: 'Config Diff',      icon: 'pi-code' },
-  { value: 'variables',    label: 'Variables',         icon: 'pi-sliders-h' },
-  { value: 'resources',    label: 'System Resources',  icon: 'pi-server' },
-  { value: 'innodb',       label: 'InnoDB Status',     icon: 'pi-database' },
-  { value: 'arb-log',      label: 'Arbitrator Log',    icon: 'pi-file-edit' },
-  { value: 'process-list', label: 'Process List',      icon: 'pi-list' },
-  { value: 'slow-query',   label: 'Slow Queries',      icon: 'pi-clock' },
-  { value: 'error-log',    label: 'Error Log',         icon: 'pi-exclamation-triangle' },
+  { value: 'connections',  label: 'Connection Check',   icon: 'pi-wifi' },
+  { value: 'config-diff',  label: 'Config Diff',        icon: 'pi-code' },
+  { value: 'variables',    label: 'Variables',           icon: 'pi-sliders-h' },
+  { value: 'resources',    label: 'System Resources',    icon: 'pi-server' },
+  { value: 'innodb',       label: 'InnoDB Status',       icon: 'pi-database' },
+  { value: 'arb-log',      label: 'Arbitrator Log',      icon: 'pi-file-edit' },
+  { value: 'process-list', label: 'Process List',        icon: 'pi-list' },
+  { value: 'slow-query',   label: 'Slow Queries',        icon: 'pi-clock' },
+  { value: 'error-log',    label: 'Error Log',           icon: 'pi-exclamation-triangle' },
+  { value: 'purge-binlog', label: 'Purge Binary Logs',   icon: 'pi-trash' },
 ]
 </script>
 
@@ -85,6 +87,9 @@ const TABS = [
         </TabPanel>
         <TabPanel value="error-log">
           <ErrorLogPanel :active="activeTab === 'error-log'" />
+        </TabPanel>
+        <TabPanel value="purge-binlog">
+          <PurgeBinaryLogsPanel />
         </TabPanel>
       </TabPanels>
     </Tabs>
