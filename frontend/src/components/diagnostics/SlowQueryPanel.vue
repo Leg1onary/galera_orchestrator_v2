@@ -8,7 +8,6 @@
         @refresh="refetch()"
         @toggle-auto="autoRefresh = $event"
     >
-      <!-- Node selector -->
       <Select
           v-model="selectedNodeId"
           :options="nodeOptions"
@@ -19,27 +18,6 @@
           class="node-select"
           show-clear
       />
-
-      <!-- min_query_time filter (variant B: compact inline in toolbar) -->
-      <div class="mqt-filter">
-        <label class="mqt-label" for="mqt-input">
-          <i class="pi pi-stopwatch" />
-          Min time, s
-        </label>
-        <InputNumber
-            id="mqt-input"
-            v-model="minQueryTime"
-            :min="0"
-            :max="86400"
-            :step="0.5"
-            :min-fraction-digits="0"
-            :max-fraction-digits="1"
-            size="small"
-            class="mqt-input"
-            :allow-empty="false"
-            @keydown.enter="refetch()"
-        />
-      </div>
     </PanelToolbar>
 
     <!-- Network / query-level error -->
@@ -58,32 +36,14 @@
       <span><strong>{{ n.node_name }}</strong>: {{ n.error }}</span>
     </div>
 
-    <!-- slow_query_log=OFF banner (per node) with Enable button -->
+    <!-- slow_query_log=OFF banner (per node) -->
     <div
         v-for="n in disabledNodes"
         :key="'off-' + n.node_id"
         class="info-banner"
     >
-      <i class="pi pi-info-circle" style="flex-shrink: 0" />
-      <div class="banner-body">
-        <span>
-          <strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>OFF</strong> on this node.
-        </span>
-        <span class="banner-warn">
-          <i class="pi pi-exclamation-triangle" />
-          Runtime only — will reset after MariaDB restart. May increase disk I/O.
-        </span>
-      </div>
-      <Button
-          size="small"
-          severity="warning"
-          :loading="togglingNodeIds.has(n.node_id)"
-          :disabled="togglingNodeIds.has(n.node_id)"
-          label="Enable"
-          icon="pi pi-power-off"
-          class="banner-btn"
-          @click="handleToggle(n.node_id, true)"
-      />
+      <i class="pi pi-info-circle" />
+      <span><strong>{{ n.node_name }}</strong>: <code>slow_query_log</code> is <strong>OFF</strong> on this node. Enable it with <code>SET GLOBAL slow_query_log = ON</code>.</span>
     </div>
 
     <div class="table-wrap">
@@ -110,19 +70,6 @@
               <i class="pi pi-list" style="font-size: 9px; opacity: 0.5" />
               {{ allRows.length }}
             </span>
-            <!-- Disable buttons for nodes where slow log is ON -->
-            <div v-if="enabledNodesInView.length" class="toggle-controls">
-              <Button
-                  v-for="n in enabledNodesInView"
-                  :key="'dis-' + n.node_id"
-                  size="small"
-                  severity="secondary"
-                  :loading="togglingNodeIds.has(n.node_id)"
-                  :label="`Disable on ${n.node_name}`"
-                  icon="pi pi-stop"
-                  @click="handleToggle(n.node_id, false)"
-              />
-            </div>
           </div>
         </template>
 
@@ -200,13 +147,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { useToast } from 'primevue/usetoast'
+import { useQuery }      from '@tanstack/vue-query'
 import DataTable  from 'primevue/datatable'
 import Column     from 'primevue/column'
 import Select     from 'primevue/select'
-import Button     from 'primevue/button'
-import InputNumber from 'primevue/inputnumber'
 import { useClusterStore }                            from '@/stores/cluster'
 import { diagnosticsApi, type SlowQueryNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                  from './PanelToolbar.vue'
@@ -219,26 +163,9 @@ const selectedNodeId = ref<number | undefined>(undefined)
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
 
-const toast       = useToast()
-const queryClient = useQueryClient()
-
-// Track nodes currently being toggled to show spinner and prevent double-click
-const togglingNodeIds = ref<Set<number>>(new Set())
-
-// min_query_time filter — 0 means no filter (backend default)
-const minQueryTime = ref<number>(0)
-
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-  queryKey: computed(() => [
-    'diag-slow',
-    clusterStore.selectedClusterId,
-    selectedNodeId.value,
-    minQueryTime.value,
-  ]),
-  queryFn: () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, {
-    nodeId:       selectedNodeId.value,
-    minQueryTime: minQueryTime.value > 0 ? minQueryTime.value : undefined,
-  }),
+  queryKey: computed(() => ['diag-slow', clusterStore.selectedClusterId, selectedNodeId.value]),
+  queryFn:  () => diagnosticsApi.getSlowQueries(clusterStore.selectedClusterId!, selectedNodeId.value),
   enabled:  computed(() => props.active && !!clusterStore.selectedClusterId),
   refetchInterval,
   staleTime: 0,
@@ -247,50 +174,6 @@ const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
 const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
-
-/**
- * Toggle slow_query_log ON/OFF for a given node.
- * Shows a warning toast on success (runtime only, resets after restart).
- */
-async function handleToggle(nodeId: number, enable: boolean): Promise<void> {
-  togglingNodeIds.value = new Set([...togglingNodeIds.value, nodeId])
-  try {
-    const res = await diagnosticsApi.toggleSlowQueryLog(
-        clusterStore.selectedClusterId!,
-        nodeId,
-        enable,
-    )
-    if (res.error) {
-      toast.add({
-        severity: 'error',
-        summary:  'Toggle failed',
-        detail:   res.error,
-        life:     5000,
-      })
-    } else {
-      toast.add({
-        severity: 'warn',
-        summary:  `slow_query_log ${enable ? 'enabled' : 'disabled'}`,
-        detail:   `${res.node_name} — runtime change only, resets after restart`,
-        life:     6000,
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ['diag-slow', clusterStore.selectedClusterId],
-      })
-    }
-  } catch (e: any) {
-    toast.add({
-      severity: 'error',
-      summary:  'Request failed',
-      detail:   e?.message ?? String(e),
-      life:     5000,
-    })
-  } finally {
-    const s = new Set(togglingNodeIds.value)
-    s.delete(nodeId)
-    togglingNodeIds.value = s
-  }
-}
 
 /**
  * Convert "HH:MM:SS" to total seconds for correct numeric sorting.
@@ -311,17 +194,12 @@ function fmtNum(val: number | null | undefined): string {
 
 // Nodes where slow_query_log is explicitly OFF
 const disabledNodes = computed(() =>
-    (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === false && !n.error)
+    (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === false)
 )
 
 // Nodes that returned an SSH/DB error (slow_log_enabled === null and error present)
 const errorNodes = computed(() =>
     (data.value ?? []).filter((n: SlowQueryNodeResult) => !!n.error)
-)
-
-// Nodes currently visible in the view where slow log is ON (to show Disable buttons)
-const enabledNodesInView = computed(() =>
-    (data.value ?? []).filter((n: SlowQueryNodeResult) => n.slow_log_enabled === true && !n.error)
 )
 
 // Flatten rows from all nodes that are enabled and error-free, annotate with
@@ -356,38 +234,6 @@ const allRows = computed(() =>
   flex-shrink: 0;
 }
 
-/* ── min_query_time filter ────────────────────────────────────────────────── */
-.mqt-filter {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-.mqt-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  user-select: none;
-  cursor: default;
-}
-.mqt-label .pi { font-size: var(--text-xs); opacity: 0.7; }
-
-.mqt-input {
-  width: 80px;
-}
-:deep(.mqt-input .p-inputtext) {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  padding: var(--space-1) var(--space-2);
-}
-
-/* ── alerts ───────────────────────────────────────────────────────────────── */
 .error-alert {
   display: flex;
   align-items: center;
@@ -404,7 +250,7 @@ const allRows = computed(() =>
 .info-banner {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: color-mix(in oklch, var(--color-warning) 8%, transparent);
@@ -412,31 +258,9 @@ const allRows = computed(() =>
   color: var(--color-warning);
   font-size: var(--text-sm);
 }
-.info-banner > .pi { font-size: var(--text-base); }
+.info-banner .pi   { font-size: var(--text-base); flex-shrink: 0; }
 .info-banner code  { font-family: var(--font-mono); font-size: 0.85em; opacity: 0.9; }
 
-.banner-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex: 1 1 auto;
-}
-
-.banner-warn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  opacity: 0.75;
-}
-.banner-warn .pi { font-size: var(--text-xs); }
-
-.banner-btn {
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-/* ── table ────────────────────────────────────────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -451,7 +275,6 @@ const allRows = computed(() =>
   padding: var(--space-4) var(--space-5);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border-muted);
-  flex-wrap: wrap;
 }
 
 .table-title {
@@ -480,13 +303,6 @@ const allRows = computed(() =>
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
   padding: 2px var(--space-3);
-}
-
-.toggle-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
 }
 
 :deep(.diag-table .p-datatable-table) { width: 100%; table-layout: fixed; }
