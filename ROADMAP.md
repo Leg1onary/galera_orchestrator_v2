@@ -19,34 +19,54 @@
 
 ## 🚧 В работе / Запланировано
 
-### Блок 1 — Аварийные инструменты (по одному)
+### Блок 1 — Аварийные инструменты (поштучно, по порядку)
 
 | # | Фича | Описание | Статус |
 |---|---|---|---|
-| 5 | **Kill process** | Кнопка Kill рядом с каждым процессом в ProcessListPanel. Backend: `POST /nodes/{node_id}/kill-process/{process_id}` | 🔲 Следующий |
-| 6 | **Rejoin node** | Рестарт MariaDB на ноде через SSH (`systemctl restart mariadb`). Проверка статуса до/после. | 🔲 Запланировано |
-| 7 | **Bootstrap cluster** | Авто-определение ноды с наибольшим `seqno` из `grastate.dat`, выполнение `pc.bootstrap=YES`. Защита от случайного запуска. | 🔲 Запланировано |
-| 8 | **Purge binary logs** | Модальное окно с выбором даты/количества дней. `PURGE BINARY LOGS BEFORE ...` | 🔲 Запланировано |
-| 9 | **Stuck SST detector + restart** | Детект ноды в состоянии `Joining`/`Donor/Desynced` дольше порога. Кнопка рестарта SST. | 🔲 Запланировано |
-| 10 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией | 🔲 Запланировано |
+| 5 | **Kill process** | Кнопка Kill рядом с каждым процессом в ProcessListPanel. `POST /nodes/{node_id}/kill-process/{process_id}`. ConfirmDialog перед выполнением. | 🔲 Следующий |
+| 6 | **Kill ALL по фильтру** | Kill всех процессов: Sleep > N сек, или по конкретному юзеру — одной кнопкой. `POST /nodes/{node_id}/kill-processes` с фильтром. | 🔲 Запланировано |
+| 7 | **Rejoin node** | Рестарт MariaDB на ноде через SSH (`systemctl restart mariadb`). Проверка статуса до/после. ConfirmDialog. | 🔲 Запланировано |
+| 8 | **Bootstrap cluster** | Авто-определение ноды с наибольшим `seqno` из `grastate.dat`, выполнение `pc.bootstrap=YES`. Защита от случайного запуска. | 🔲 Запланировано |
+| 9 | **Purge binary logs** | Модальное окно с выбором даты/количества дней. `PURGE BINARY LOGS BEFORE ...` | 🔲 Запланировано |
+| 10 | **Desync / Resync ноды** | `SET GLOBAL wsrep_desync = ON/OFF` — вывод ноды из репликации для тяжёлых операций без тормозов кластера. | 🔲 Запланировано |
+| 11 | **Stuck SST detector + restart** | Детект ноды в состоянии `Joining`/`Donor/Desynced` дольше порога. Кнопка рестарта SST. | 🔲 Запланировано |
+| 12 | **FLUSH операции** | `FLUSH LOGS` (ротация бинлогов), `FLUSH TABLES WITH READ LOCK` / `UNLOCK TABLES`. Нужны перед бэкапом. | 🔲 Запланировано |
 
-### Блок 2 — Smart Advisor
+### Блок 2 — Мониторинг и диагностика
 
 | # | Фича | Описание | Статус |
 |---|---|---|---|
-| 11 | **Advisor panel** | `GET /api/clusters/{id}/advisor` — детерминированные правила поверх существующих данных. Карточки проблем с кнопками действий (из блока 1). Виджет на дашборде + полная панель в Diagnostics. | 🔲 После блока 1 |
+| 13 | **Disk usage детализация** | Топ-10 самых больших таблиц (`information_schema.TABLES`), размер бинлогов (`SHOW BINARY LOGS`), размер ibdata1. | 🔲 Запланировано |
+| 14 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией увеличить `wsrep_slave_threads`. | 🔲 Запланировано |
+| 15 | **Активные транзакции** | `information_schema.INNODB_TRX` — транзакции старше N секунд. Отдельно от processlist. | 🔲 Запланировано |
+| 16 | **Deadlock история** | Парсинг последнего дедлока из `SHOW ENGINE INNODB STATUS` и отображение в читаемом виде (сейчас есть raw текст). | 🔲 Запланировано |
+
+### Блок 3 — Конфигурация
+
+| # | Фича | Описание | Статус |
+|---|---|---|---|
+| 17 | **Config Health Check** | Проверка ключевых параметров: `innodb_buffer_pool_size` (~70% RAM), `max_connections`, `wsrep_slave_threads` (>= CPU cores) — с рекомендациями в UI. | 🔲 Запланировано |
+| 18 | **Изменение wsrep_provider_options на лету** | `pc.weight`, `evs.suspect_timeout` и др. без рестарта. | 🔲 Запланировано |
+| 19 | **Проверка и починка таблиц** | `CHECK TABLE` / `REPAIR TABLE` с выбором таблицы из списка. | 🔲 Запланировано |
+
+### Блок 4 — Smart Advisor
+
+| # | Фича | Описание | Статус |
+|---|---|---|---|
+| 20 | **Advisor panel** | `GET /api/clusters/{id}/advisor` — детерминированные правила поверх существующих данных. Карточки проблем с кнопками действий из блоков 1–3. Виджет на дашборде + полная панель в Diagnostics. | 🔲 После блоков 1–3 |
 
 ---
 
 ## 📐 Архитектурные принципы улучшений
 
 - Все новые backend-эндпоинты: `cluster-scoped` → `/api/clusters/{cluster_id}/...`
-- Деструктивные действия (Bootstrap, Kill, Rejoin): требуют подтверждения в UI (ConfirmDialog)
+- Деструктивные действия (Bootstrap, Kill, Rejoin, Flush): требуют подтверждения в UI (`ConfirmDialog`)
 - SSH-операции: через существующий `SSHClient` из `services/ssh_client.py`
 - DB-операции: через существующий `DBClient` из `services/db_client.py`
 - Все действия пишутся в `event_log` через `write_event()`
 - Фронтенд: toast на успех/ошибку, рефетч данных после действия
 - Права: 403 если недостаточно привилегий → показываем пользователю
+- Импорты бэкенда: `BaseModel` из pydantic, `asyncio.to_thread` для блокирующих операций
 
 ---
 
@@ -55,4 +75,5 @@
 **Репозиторий:** `Leg1onary/galera_orchestrator_v2`  
 **Стек:** Python 3.11 / FastAPI / SQLAlchemy Core / SQLite / paramiko / pymysql + Vue 3 / Vite / Pinia / TanStack Vue Query / PrimeVue  
 **Эталон:** `galera-orchestrator-v2-final-spec.docx` — базовый контракт, всё новое помечается как "вне MVP"  
-**Текущая задача:** реализуем аварийные инструменты поштучно (#5 → #10), затем Advisor (#11)
+**Текущая задача:** реализуем аварийные инструменты поштучно (#5 → #19), затем Advisor (#20)  
+**Следующий шаг:** #5 — Kill process в ProcessListPanel
