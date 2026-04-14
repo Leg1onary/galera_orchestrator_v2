@@ -1,6 +1,6 @@
 <!--
-  NodeMaintenanceTable — таблица нод с состоянием maintenance.
-  Actions: Enter / Exit maintenance per node.
+  NodeMaintenanceTable — таблица нод с состоянием maintenance + desync.
+  Actions: Enter / Exit maintenance per node, Desync / Resync per node.
   Rolling restart запускается через store.openWizard().
 -->
 <template>
@@ -100,9 +100,28 @@
           </template>
         </Column>
 
-        <Column header="Actions" style="width: 160px">
+        <!-- Desync column -->
+        <Column field="wsrep_desync" header="wsrep_desync" style="width: 130px">
+          <template #body="{ data }">
+            <Tag
+                v-if="data.wsrep_desync"
+                value="DESYNCED"
+                severity="warn"
+                class="cell-tag"
+            />
+            <Tag
+                v-else
+                value="OFF"
+                severity="secondary"
+                class="cell-tag"
+            />
+          </template>
+        </Column>
+
+        <Column header="Actions" style="width: 220px">
           <template #body="{ data }">
             <div class="cell-actions">
+              <!-- Maintenance toggle -->
               <Button
                   v-if="!data.maintenance"
                   label="Enter"
@@ -111,7 +130,7 @@
                   outlined
                   :loading="store.nodeActionLoading[data.id]"
                   :disabled="!data.enabled || store.operationRunning"
-                  @click="handleToggle(data.id, true)"
+                  @click="handleToggleMaintenance(data.id, true)"
               />
               <Button
                   v-else
@@ -121,7 +140,32 @@
                   severity="secondary"
                   :loading="store.nodeActionLoading[data.id]"
                   :disabled="store.operationRunning"
-                  @click="handleToggle(data.id, false)"
+                  @click="handleToggleMaintenance(data.id, false)"
+              />
+
+              <!-- Desync / Resync -->
+              <Button
+                  v-if="!data.wsrep_desync"
+                  v-tooltip.top="'Disable Galera flow control on this node (wsrep_desync=ON). Use before heavy operations to avoid slowing down the cluster.'"
+                  label="Desync"
+                  icon="pi pi-pause"
+                  size="small"
+                  severity="warn"
+                  outlined
+                  :loading="store.nodeDesyncLoading[data.id]"
+                  :disabled="!data.enabled || store.operationRunning"
+                  @click="handleDesync(data, true)"
+              />
+              <Button
+                  v-else
+                  v-tooltip.top="'Re-enable Galera flow control (wsrep_desync=OFF). Node will catch up with the cluster.'"
+                  label="Resync"
+                  icon="pi pi-play"
+                  size="small"
+                  severity="secondary"
+                  :loading="store.nodeDesyncLoading[data.id]"
+                  :disabled="!data.enabled || store.operationRunning"
+                  @click="handleDesync(data, false)"
               />
             </div>
           </template>
@@ -144,14 +188,18 @@ import DataTable from 'primevue/datatable'
 import Column    from 'primevue/column'
 import Tag       from 'primevue/tag'
 import Message   from 'primevue/message'
-import { useToast } from 'primevue/usetoast'
+import { useToast }   from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import { useMaintenanceStore } from '@/stores/maintenance'
 import NodeStateBadge from '@/components/shared/NodeStateBadge.vue'
+import type { MaintenanceNodeState } from '@/api/maintenance'
 
-const store = useMaintenanceStore()
-const toast = useToast()
+const store   = useMaintenanceStore()
+const toast   = useToast()
+const confirm = useConfirm()
 
-async function handleToggle(nodeId: number, enter: boolean) {
+// ── Maintenance toggle ───────────────────────────────────────────────────────
+async function handleToggleMaintenance(nodeId: number, enter: boolean) {
   try {
     await store.toggleMaintenance(nodeId, enter)
     toast.add({
@@ -165,6 +213,46 @@ async function handleToggle(nodeId: number, enter: boolean) {
       summary: 'Error',
       detail: err?.response?.data?.detail ?? err.message,
       life: 5000,
+    })
+  }
+}
+
+// ── Desync / Resync ──────────────────────────────────────────────────────────
+function handleDesync(node: MaintenanceNodeState, desync: boolean) {
+  if (desync) {
+    // Десинк — деструктивное действие, требует подтверждения
+    confirm.require({
+      header:  'Desync node',
+      message: `Remove "${node.name}" from Galera flow control? The node will fall behind and catch up on resync.`,
+      icon:    'pi pi-pause-circle',
+      acceptLabel:   'Desync',
+      rejectLabel:   'Cancel',
+      acceptClass:   'p-button-warning',
+      accept: () => doDesync(node.id, true),
+    })
+  } else {
+    // Ресинк безопасен — без подтверждения
+    doDesync(node.id, false)
+  }
+}
+
+async function doDesync(nodeId: number, desync: boolean) {
+  try {
+    await store.toggleDesync(nodeId, desync)
+    toast.add({
+      severity: 'success',
+      summary:  desync ? 'Node desynced' : 'Node resynced',
+      detail:   desync
+        ? 'wsrep_desync = ON — node is out of flow control'
+        : 'wsrep_desync = OFF — node back in flow control',
+      life: 3000,
+    })
+  } catch (err: any) {
+    toast.add({
+      severity: 'error',
+      summary:  'Error',
+      detail:   err?.response?.data?.detail ?? err.message,
+      life:     5000,
     })
   }
 }
@@ -215,7 +303,6 @@ async function handleToggle(nodeId: number, enter: boolean) {
   gap: var(--space-3);
 }
 
-/* Wrapper for disabled button tooltip */
 .btn-wrap-disabled {
   display: inline-flex;
   cursor: not-allowed;
@@ -306,6 +393,7 @@ async function handleToggle(nodeId: number, enter: boolean) {
 .cell-actions {
   display: flex;
   gap: var(--space-1);
+  flex-wrap: wrap;
 }
 
 /* ── Empty state ─────────────────────────────────────── */

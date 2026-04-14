@@ -18,8 +18,10 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
     const nodesLoading  = ref(false)
     const nodesError    = ref<string | null>(null)
 
-    // Per-node loading flags
+    // Per-node loading flags: maintenance toggle
     const nodeActionLoading = ref<Record<number, boolean>>({})
+    // Per-node loading flags: desync/resync
+    const nodeDesyncLoading = ref<Record<number, boolean>>({})
 
     // ── Rolling restart wizard ──────────────────────────────────────────────────
     const wizardOpen     = ref(false)
@@ -42,7 +44,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
 
     const currentRestartNode = computed(() =>
         rrStatus.value?.current_node_id
-            // BLOCKER fix: n.id вместо n.node_id
             ? nodes.value.find((n) => n.id === rrStatus.value!.current_node_id) ?? null
             : null
     )
@@ -51,8 +52,7 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         rrStatus.value?.state === 'running' || rrStatus.value?.state === 'pending'
     )
 
-    // ── WS subscription — ref чтобы не терять при HMR ──────────────────────────
-    // MAJOR fix: ref вместо module-level let
+    // ── WS subscription ─────────────────────────────────────────────────────────
     const wsUnsub = ref<(() => void) | null>(null)
 
     function subscribeWs() {
@@ -65,7 +65,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 const detail = (p.detail ?? {}) as Record<string, unknown>
                 const incomingNodeId = detail.node_id as number | undefined
 
-                // Накапливаем completed: если node_id сменился — предыдущий завершён
                 const prevCompleted  = rrStatus.value.completed_node_ids
                 const prevCurrentId  = rrStatus.value.current_node_id
                 const newCompleted =
@@ -81,7 +80,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                     message:            (p.message as string) ?? rrStatus.value.message,
                     current_node_id:    incomingNodeId         ?? rrStatus.value.current_node_id,
                     completed_node_ids: newCompleted,
-                    // progress_pct считаем сами — бэкенд не шлёт его в каждом событии
                     progress_pct: nodes.value.length > 0
                         ? Math.round((newCompleted.length / nodes.value.length) * 100)
                         : rrStatus.value.progress_pct,
@@ -92,13 +90,11 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 const p      = event.payload as Record<string, unknown>
                 const status = p.status as string
 
-                // set_operation_status() пишет 'success' при успехе — нормализуем в 'finished'
                 const normalizedState: RollingRestartStatus['state'] =
                     status === 'failed'    ? 'failed'
                         : status === 'cancelled' ? 'cancelled'
-                            : 'finished'            // 'success' → 'finished'
+                            : 'finished'
 
-                // При успехе все ноды завершены
                 const allNodeIds = nodes.value.map((n) => n.id)
 
                 rrStatus.value = {
@@ -134,7 +130,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         subscribeWs()
         await loadNodes()
 
-        // Восстановление состояния при заходе во время активной операции (ТЗ п.14)
         try {
             const status = await maintenanceApi.getStatus(cId)
             const op     = status.active_operation
@@ -143,12 +138,11 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 rrStatus.value = {
                     operation_id:       op.id,
                     state:              op.status as RollingRestartStatus['state'],
-                    // Прогресс неизвестен до первого WS-события — инициализируем нулями
                     current_node_id:    null,
                     completed_node_ids: [],
                     failed_node_id:     null,
                     progress_pct:       0,
-                    message:            null,   // op.message не существует в ActiveOperation
+                    message:            null,
                     error:              op.error_message ?? null,
                     started_at:         op.started_at    ?? null,
                     finished_at:        null,
@@ -168,7 +162,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         try {
             nodes.value = await maintenanceApi.listNodes(clusterId.value)
             if (nodeOrder.value.length === 0) {
-                // BLOCKER fix: n.id вместо n.node_id
                 nodeOrder.value = enabledNodes.value.map((n) => n.id)
             }
         } catch (err: any) {
@@ -180,7 +173,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
 
     async function toggleMaintenance(nodeId: number, enter: boolean) {
         if (!clusterId.value) return
-        // MAJOR fix: прямая мутация вместо spread — реактивность не теряется
         nodeActionLoading.value[nodeId] = true
         try {
             if (enter) {
@@ -189,10 +181,23 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
                 await maintenanceApi.exitMaintenance(clusterId.value, nodeId)
             }
             await loadNodes()
-        } catch (err) {
-            throw err
         } finally {
             nodeActionLoading.value[nodeId] = false
+        }
+    }
+
+    async function toggleDesync(nodeId: number, desync: boolean) {
+        if (!clusterId.value) return
+        nodeDesyncLoading.value[nodeId] = true
+        try {
+            if (desync) {
+                await maintenanceApi.desyncNode(clusterId.value, nodeId)
+            } else {
+                await maintenanceApi.resyncNode(clusterId.value, nodeId)
+            }
+            await loadNodes()
+        } finally {
+            nodeDesyncLoading.value[nodeId] = false
         }
     }
 
@@ -201,7 +206,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         wizardStep.value    = 1
         rrStatus.value      = null
         operationId.value   = null
-        // BLOCKER fix: n.id вместо n.node_id
         nodeOrder.value = enabledNodes.value.map((n) => n.id)
     }
 
@@ -209,12 +213,10 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         if (operationRunning.value) return
         wizardOpen.value  = false
         wizardStep.value  = 1
-        // MINOR fix: сброс чтобы при повторном openWizard не было стейла
         rrStatus.value    = null
         operationId.value = null
     }
 
-    // BLOCKER fix: добавлен resetWizard() — вызывается из Step3 "Run again"
     function resetWizard() {
         wizardStep.value    = 1
         rrStatus.value      = null
@@ -242,7 +244,6 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
             finished_at:        null,
         }
         wizardStep.value = 2
-        // ошибка пробрасывается наверх — try/catch в компоненте
     }
 
     async function cancelOperation() {
@@ -262,7 +263,8 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
 
     return {
         // state
-        clusterId, nodes, nodesLoading, nodesError, nodeActionLoading,
+        clusterId, nodes, nodesLoading, nodesError,
+        nodeActionLoading, nodeDesyncLoading,
         wizardOpen, wizardStep,
         nodeOrder, waitTimeoutSec,
         operationId, rrStatus, cancelling,
@@ -270,7 +272,8 @@ export const useMaintenanceStore = defineStore('maintenance', () => {
         enabledNodes, hasDrift, currentRestartNode, operationRunning,
         // actions
         init, destroy, loadNodes,
-        toggleMaintenance, openWizard, closeWizard, resetWizard,
+        toggleMaintenance, toggleDesync,
+        openWizard, closeWizard, resetWizard,
         startRollingRestart, cancelOperation,
     }
 })
