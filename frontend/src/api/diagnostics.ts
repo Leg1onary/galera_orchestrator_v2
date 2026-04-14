@@ -229,6 +229,18 @@ export type ErrorLogResult = {
     error: string | null
 }
 
+// ── Purge binary logs — #9 ─────────────────────────────────────────────────────
+export type PurgeBinaryLogsBody = {
+    mode: 'date' | 'days'
+    before_date: string  // always a MySQL datetime string: 'YYYY-MM-DD HH:MM:SS'
+}
+
+export type PurgeBinaryLogsResult = {
+    ok: boolean
+    query_executed: string
+    node_name: string
+}
+
 export const diagnosticsApi = {
 
     configDiff: (clusterId: number): Promise<ConfigDiffResponse> =>
@@ -332,6 +344,14 @@ export const diagnosticsApi = {
             .post<{ ok: boolean; slow_query_log: string }>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/set-slow-query-log`,
                 { enabled },
+            )
+            .then((r) => r.data),
+
+    purgeBinaryLogs: (clusterId: number, nodeId: number, body: PurgeBinaryLogsBody): Promise<PurgeBinaryLogsResult> =>
+        api
+            .post<PurgeBinaryLogsResult>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/purge-binary-logs`,
+                body,
             )
             .then((r) => r.data),
 }
