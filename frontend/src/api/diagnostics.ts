@@ -184,6 +184,22 @@ export type KillProcessResult = {
     node_name: string
 }
 
+// ── Kill processes (bulk) result — #6 ─────────────────────────────────────────
+export type KillProcessesFilter = 'sleep' | 'user'
+
+export type KillProcessesBody = {
+    filter: KillProcessesFilter
+    min_time?: number
+    user?: string
+}
+
+export type KillProcessesResult = {
+    killed: number[]
+    skipped: number
+    errors: string[]
+    node_name: string
+}
+
 // ── Slow query log ──────────────────────────────────────────────────────────────
 export type SlowQueryRow = {
     start_time: string
@@ -284,6 +300,14 @@ export const diagnosticsApi = {
         api
             .post<KillProcessResult>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/kill-process/${processId}`,
+            )
+            .then((r) => r.data),
+
+    killProcesses: (clusterId: number, nodeId: number, body: KillProcessesBody): Promise<KillProcessesResult> =>
+        api
+            .post<KillProcessesResult>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/kill-processes`,
+                body,
             )
             .then((r) => r.data),
 
