@@ -16,6 +16,8 @@ GET  /api/clusters/{cluster_id}/nodes/{node_id}/test-connection
 GET  /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
 POST /api/clusters/{cluster_id}/nodes/{node_id}/actions
 POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin
+POST /api/clusters/{cluster_id}/nodes/{node_id}/desync
+POST /api/clusters/{cluster_id}/nodes/{node_id}/resync
 POST /api/clusters/{cluster_id}/nodes/{node_id}/purge-binary-logs
 
 GET  /api/clusters/{cluster_id}/operations/active
@@ -351,8 +353,6 @@ async def node_action(
 
 # ── POST /api/clusters/{cluster_id}/nodes/{node_id}/rejoin ───────────────────────
 # Вне MVP. Standalone быстрый rejoin для одной выпавшей ноды при живом кластере.
-# Отличие от rejoin-force (async action): этот endpoint синхронный, возвращает
-# wsrep-статус до/после, не требует cluster_operations lock.
 
 @router.post("/{cluster_id}/nodes/{node_id}/rejoin")
 async def rejoin_node(cluster_id: int, node_id: int) -> dict:
@@ -368,10 +368,8 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
             detail=f"Node {node_id} is disabled",
         )
 
-    # ── Снимаем wsrep-статус ДО рестарта ──────────────────────────────────
     before = await _get_wsrep_snapshot(node)
 
-    # ── SSH: systemctl restart mariadb ────────────────────────────────────
     ssh = SSHClient(
         host=node["host"],
         port=int(node["ssh_port"] or 22),
@@ -388,7 +386,6 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
     finally:
         await asyncio.to_thread(ssh.close)
 
-    # ── Ждём ~10 сек, пока MariaDB поднимется, затем снимаем статус ──────
     await asyncio.sleep(10)
     after = await _get_wsrep_snapshot(node)
 
@@ -403,7 +400,6 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
         ),
     )
 
-    # Тригерим внеплановый поллинг ноды
     asyncio.create_task(
         poll_single_node(cluster_id, node),
         name=f"poll_after_rejoin_{node_id}",
@@ -415,6 +411,77 @@ async def rejoin_node(cluster_id: int, node_id: int) -> dict:
         "before":  before,
         "after":   after,
     }
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/desync ───────────────────────
+# Вне MVP. Выводит ноду из flow control Galera для тяжёлых операций.
+# SET GLOBAL wsrep_desync = ON — нода продолжает репликацию, но не тормозит кластер
+# flow control'ом. Буферизует write-set'ы, нагоняет отставание при resync.
+
+@router.post("/{cluster_id}/nodes/{node_id}/desync")
+async def desync_node(cluster_id: int, node_id: int) -> dict:
+    """
+    SET GLOBAL wsrep_desync = ON на целевой ноде.
+    Нода выводится из Galera flow control — тяжёлые операции не тормозят кластер.
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    await _db_exec(node, "SET GLOBAL wsrep_desync = ON")
+
+    write_event(
+        level="WARN",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=f"Node '{node['name']}': SET GLOBAL wsrep_desync = ON (desync enabled)",
+    )
+
+    asyncio.create_task(
+        poll_single_node(cluster_id, node),
+        name=f"poll_after_desync_{node_id}",
+    )
+
+    return {"ok": True, "node_id": node_id, "wsrep_desync": True}
+
+
+# ── POST /api/clusters/{cluster_id}/nodes/{node_id}/resync ───────────────────────
+
+@router.post("/{cluster_id}/nodes/{node_id}/resync")
+async def resync_node(cluster_id: int, node_id: int) -> dict:
+    """
+    SET GLOBAL wsrep_desync = OFF на целевой ноде.
+    Нода возвращается в нормальный режим Galera flow control.
+    """
+    node = _fetch_node(cluster_id, node_id)
+
+    if not bool(node["enabled"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Node {node_id} is disabled",
+        )
+
+    await _db_exec(node, "SET GLOBAL wsrep_desync = OFF")
+
+    write_event(
+        level="INFO",
+        cluster_id=cluster_id,
+        node_id=node_id,
+        source="ui",
+        message=f"Node '{node['name']}': SET GLOBAL wsrep_desync = OFF (resync)",
+    )
+
+    asyncio.create_task(
+        poll_single_node(cluster_id, node),
+        name=f"poll_after_resync_{node_id}",
+    )
+
+    return {"ok": True, "node_id": node_id, "wsrep_desync": False}
 
 
 async def _get_wsrep_snapshot(node: dict) -> dict:
@@ -642,10 +709,6 @@ async def _safe_poll_node(cluster_id: int, node: dict) -> None:
 def _ssh_node_action(node: dict, action: str) -> None:
     """
     Execute a management action on a node via SSH.
-
-    All systemctl commands use check=True so that a non-zero exit code
-    (e.g. systemd not available in Docker, permission denied, unit not
-    found) is surfaced as an SSHError instead of silently succeeding.
     """
     ssh = SSHClient(
         host=node["host"],
@@ -732,11 +795,6 @@ async def purge_binary_logs(
 ) -> dict:
     """
     Execute PURGE BINARY LOGS BEFORE '<before_date>' on the target node.
-
-    This is a destructive but non-clustered action — it only affects binary
-    logs on the given node and does NOT require a cluster_operations lock.
-    The caller must ensure that the date is safe (i.e. all replicas have
-    already consumed the logs up to that point).
     """
     node = _fetch_node(cluster_id, node_id)
 
