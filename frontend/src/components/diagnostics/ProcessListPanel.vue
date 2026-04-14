@@ -18,6 +18,19 @@
           class="node-select"
           show-clear
       />
+
+      <!-- Kill Bulk button: only when a single node is selected -->
+      <Button
+          v-if="selectedNodeId !== undefined && selectedNodeId !== null"
+          icon="pi pi-bolt"
+          label="Kill bulk"
+          size="small"
+          severity="danger"
+          outlined
+          v-tooltip.bottom="'Kill multiple processes by filter'"
+          class="kill-bulk-btn"
+          @click="openBulkDialog"
+      />
     </PanelToolbar>
 
     <div v-if="error" class="error-alert">
@@ -172,7 +185,7 @@
       </DataTable>
     </div>
 
-    <!-- Kill confirm dialog -->
+    <!-- Kill confirm dialog (single) -->
     <ConfirmDialog group="kill-process">
       <template #message="{ message }">
         <div class="confirm-body">
@@ -184,6 +197,86 @@
         </div>
       </template>
     </ConfirmDialog>
+
+    <!-- ── Kill Bulk dialog ──────────────────────────────────────────────── -->
+    <Dialog
+        v-model:visible="bulkDialogVisible"
+        header="Kill bulk processes"
+        :modal="true"
+        :closable="true"
+        :draggable="false"
+        style="width: 420px"
+        class="bulk-dialog"
+    >
+      <div class="bulk-body">
+        <!-- Node label -->
+        <div class="bulk-node-label">
+          <i class="pi pi-server" />
+          <span>{{ selectedNodeLabel }}</span>
+        </div>
+
+        <!-- Filter selector -->
+        <div class="bulk-field">
+          <label class="bulk-label">Filter</label>
+          <SelectButton
+              v-model="bulkFilter"
+              :options="bulkFilterOptions"
+              option-label="label"
+              option-value="value"
+              class="bulk-select-btn"
+          />
+        </div>
+
+        <!-- sleep: min_time -->
+        <div v-if="bulkFilter === 'sleep'" class="bulk-field">
+          <label class="bulk-label">Kill Sleep connections idle for at least</label>
+          <div class="bulk-input-row">
+            <InputNumber
+                v-model="bulkMinTime"
+                :min="1"
+                :max="86400"
+                show-buttons
+                size="small"
+                class="bulk-number"
+            />
+            <span class="bulk-unit">seconds</span>
+          </div>
+          <span class="bulk-hint">System processes (Daemon, event_scheduler) are always skipped.</span>
+        </div>
+
+        <!-- user: username -->
+        <div v-if="bulkFilter === 'user'" class="bulk-field">
+          <label class="bulk-label">Kill all processes for DB user</label>
+          <InputText
+              v-model="bulkUser"
+              placeholder="e.g. app_user"
+              size="small"
+              class="bulk-user-input"
+          />
+          <span class="bulk-hint">System processes are always skipped.</span>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="bulk-footer">
+          <Button
+              label="Cancel"
+              severity="secondary"
+              text
+              :disabled="bulkLoading"
+              @click="bulkDialogVisible = false"
+          />
+          <Button
+              label="Kill"
+              icon="pi pi-bolt"
+              severity="danger"
+              :loading="bulkLoading"
+              :disabled="bulkFilter === 'user' && !bulkUser.trim()"
+              @click="executeBulkKill"
+          />
+        </div>
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -192,13 +285,16 @@ import { ref, computed }  from 'vue'
 import { useQuery }       from '@tanstack/vue-query'
 import { useConfirm }     from 'primevue/useconfirm'
 import { useToast }       from 'primevue/usetoast'
-import DataTable    from 'primevue/datatable'
-import Column       from 'primevue/column'
-import Select       from 'primevue/select'
-import InputText    from 'primevue/inputtext'
-import ToggleSwitch from 'primevue/toggleswitch'
-import Button       from 'primevue/button'
+import DataTable     from 'primevue/datatable'
+import Column        from 'primevue/column'
+import Select        from 'primevue/select'
+import SelectButton  from 'primevue/selectbutton'
+import InputText     from 'primevue/inputtext'
+import InputNumber   from 'primevue/inputnumber'
+import ToggleSwitch  from 'primevue/toggleswitch'
+import Button        from 'primevue/button'
 import ConfirmDialog from 'primevue/confirmdialog'
+import Dialog        from 'primevue/dialog'
 import { useClusterStore }                              from '@/stores/cluster'
 import { diagnosticsApi, type ProcessListNodeResult }  from '@/api/diagnostics'
 import PanelToolbar                                    from './PanelToolbar.vue'
@@ -217,6 +313,75 @@ const confirm        = useConfirm()
 const toast          = useToast()
 const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
 const { nodeOptions }                  = useNodeOptions()
+
+// ── Bulk kill state ────────────────────────────────────────────────────────
+const bulkDialogVisible = ref(false)
+const bulkFilter        = ref<'sleep' | 'user'>('sleep')
+const bulkMinTime       = ref(5)
+const bulkUser          = ref('')
+const bulkLoading       = ref(false)
+
+const bulkFilterOptions = [
+  { label: 'Sleep', value: 'sleep' },
+  { label: 'User',  value: 'user'  },
+]
+
+const selectedNodeLabel = computed(() => {
+  if (selectedNodeId.value === undefined || selectedNodeId.value === null) return ''
+  return nodeOptions.value.find((o) => o.value === selectedNodeId.value)?.label ?? String(selectedNodeId.value)
+})
+
+function openBulkDialog() {
+  bulkFilter.value  = 'sleep'
+  bulkMinTime.value = 5
+  bulkUser.value    = ''
+  bulkDialogVisible.value = true
+}
+
+async function executeBulkKill() {
+  if (!clusterStore.selectedClusterId || selectedNodeId.value == null) return
+
+  bulkLoading.value = true
+  try {
+    const body =
+      bulkFilter.value === 'sleep'
+        ? { filter: 'sleep' as const, min_time: bulkMinTime.value }
+        : { filter: 'user'  as const, user: bulkUser.value.trim() }
+
+    const result = await diagnosticsApi.killProcesses(
+      clusterStore.selectedClusterId,
+      selectedNodeId.value,
+      body,
+    )
+
+    bulkDialogVisible.value = false
+
+    const summary = `Killed ${result.killed.length}, skipped ${result.skipped}`
+    const hasErrors = result.errors.length > 0
+
+    toast.add({
+      severity: hasErrors ? 'warn' : 'success',
+      summary:  hasErrors ? 'Kill bulk: partial' : 'Kill bulk: done',
+      detail:   hasErrors
+        ? `${summary}. Errors: ${result.errors.join('; ')}`
+        : summary,
+      life: hasErrors ? 8000 : 4000,
+    })
+
+    await refetch()
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(err)
+    toast.add({
+      severity: 'error',
+      summary:  'Kill bulk failed',
+      detail:   msg,
+      life:     6000,
+    })
+  } finally {
+    bulkLoading.value = false
+  }
+}
+// ──────────────────────────────────────────────────────────────────────────
 
 const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
   queryKey: computed(() => ['diag-processes', clusterStore.selectedClusterId, selectedNodeId.value]),
@@ -327,6 +492,11 @@ async function doKill(row: { _key: string; id: number; node_id: number; node_nam
   width: 160px;
   min-width: 140px;
   flex-shrink: 0;
+}
+
+.kill-bulk-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .error-alert {
@@ -609,5 +779,86 @@ async function doKill(row: { _key: string; id: number; node_id: number; node_nam
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   font-family: var(--font-mono);
+}
+
+/* ── Bulk dialog styles ─────────────────────────────────────────────────── */
+.bulk-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-2) 0 var(--space-4);
+}
+
+.bulk-node-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-primary-dim, color-mix(in oklch, var(--color-primary) 10%, transparent));
+  border: 1px solid var(--color-primary-glow, color-mix(in oklch, var(--color-primary) 25%, transparent));
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.bulk-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bulk-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.bulk-select-btn {
+  width: 100%;
+}
+
+:deep(.bulk-select-btn .p-selectbutton) {
+  width: 100%;
+  display: flex;
+}
+
+:deep(.bulk-select-btn .p-togglebutton) {
+  flex: 1;
+  justify-content: center;
+}
+
+.bulk-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bulk-number {
+  width: 120px;
+}
+
+.bulk-unit {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.bulk-user-input {
+  width: 100%;
+}
+
+.bulk-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  line-height: 1.4;
+}
+
+.bulk-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 </style>
