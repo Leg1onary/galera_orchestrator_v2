@@ -496,7 +496,401 @@ def _fetch_error_log(node: dict, lines: int) -> dict:
         }
 
 
-# ── Slow query helpers ───────────────────────────────────────────────────────────────
+# ── POST /diagnostics/check-all ──────────────────────────────────────────────────────────────
+
+@router.post("/diagnostics/check-all")
+async def check_all(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+
+    nodes        = _get_enabled_nodes(cluster_id)
+    arbitrators  = _get_enabled_arbitrators(cluster_id)
+
+    node_ssh_tasks = [asyncio.to_thread(_probe_node_ssh, node) for node in nodes]
+    node_db_tasks  = [asyncio.to_thread(_probe_node_db,  node) for node in nodes]
+    arb_tasks      = [asyncio.to_thread(_probe_arbitrator, arb) for arb in arbitrators]
+
+    all_results = await asyncio.gather(
+        *node_ssh_tasks, *node_db_tasks, *arb_tasks,
+        return_exceptions=True,
+    )
+
+    n           = len(nodes)
+    ssh_results = all_results[:n]
+    db_results  = all_results[n: n * 2]
+    arb_results = all_results[n * 2:]
+
+    node_checks = []
+    for node, ssh_r, db_r in zip(nodes, ssh_results, db_results):
+        if isinstance(ssh_r, Exception):
+            ssh_r = {"ssh_ok": False, "ssh_latency_ms": None, "ssh_error": str(ssh_r)}
+        if isinstance(db_r, Exception):
+            db_r  = {"db_ok": False, "db_latency_ms": None, "db_error": str(db_r)}
+        node_checks.append({
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "role":      "node",
+            **ssh_r,
+            **db_r,
+        })
+
+    arb_checks = []
+    for arb, arb_r in zip(arbitrators, arb_results):
+        if isinstance(arb_r, Exception):
+            arb_r = {
+                "ssh_ok":         False,
+                "garbd_running":  False,
+                "latency_ssh_ms": None,
+                "error":          str(arb_r),
+            }
+        arb_checks.append({
+            "arbitrator_id":   arb["id"],
+            "arbitrator_name": arb["name"],
+            "host":            arb["host"],
+            "role":            "arbitrator",
+            "db_ok":           None,
+            "db_latency_ms":   None,
+            **arb_r,
+        })
+
+    failed_nodes = [r for r in node_checks if not r.get("ssh_ok")]
+    level = "WARN" if failed_nodes else "INFO"
+    await asyncio.to_thread(
+        write_event,
+        cluster_id=cluster_id,
+        source="diagnostics",
+        level=level,
+        message=(
+            f"check-all: {len(node_checks)} nodes, {len(arb_checks)} arbitrators checked. "
+            f"SSH failures: {len(failed_nodes)}"
+        ),
+    )
+
+    return {"nodes": node_checks, "arbitrators": arb_checks}
+
+
+# ── GET /diagnostics/config-diff ──────────────────────────────────────────────────────────────
+
+@router.get("/diagnostics/config-diff")
+async def config_diff(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return {"variables": [], "nodes": [], "diff_found": False}
+
+    tasks: list = [asyncio.to_thread(_fetch_wsrep_variables, node) for node in nodes]
+    results: list[dict[str, str] | None] = await asyncio.gather(*tasks, return_exceptions=False)
+
+    all_var_names: set[str] = set()
+    for r in results:
+        if r:
+            all_var_names.update(r.keys())
+
+    table = []
+    for var_name in sorted(all_var_names):
+        values = [
+            {
+                "node_id":    node["id"],
+                "node_name":  node["name"],
+                "value":      node_vars.get(var_name) if node_vars else None,
+                "fetch_error": node_vars is None,
+            }
+            for node, node_vars in zip(nodes, results)
+        ]
+        distinct = {v["value"] for v in values if not v["fetch_error"]}
+        table.append({
+            "variable": var_name,
+            "values":   values,
+            "has_diff": len(distinct) > 1,
+        })
+
+    node_summary = [
+        {
+            "node_id":   n["id"],
+            "node_name": n["name"],
+            "host":      n["host"],
+            "fetch_ok":  results[i] is not None,
+        }
+        for i, n in enumerate(nodes)
+    ]
+
+    return {
+        "variables":  table,
+        "nodes":      node_summary,
+        "diff_found": any(row["has_diff"] for row in table),
+    }
+
+
+# ── GET /diagnostics/variables ───────────────────────────────────────────────────────────────
+
+@router.get("/diagnostics/variables")
+async def variables(
+        cluster_id: int,
+        node_id: int      = Query(...,    description="Target node id"),
+        search: str | None = Query(None,  description="Filter by variable name substring"),
+        wsrep_only: bool   = Query(False, description="Return only wsrep_* variables"),
+) -> dict:
+    _assert_cluster_exists(cluster_id)
+
+    node = _get_node_for_cluster(node_id, cluster_id)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node {node_id} not found in cluster {cluster_id}",
+        )
+
+    rows: list[dict] | None = await asyncio.to_thread(_fetch_all_variables, node)
+    if rows is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to connect to node {node['name']} ({node['host']}:{node['port']})",
+        )
+
+    if wsrep_only:
+        rows = [r for r in rows if r["Variable_name"].startswith("wsrep")]
+    if search:
+        search_lower = search.lower()
+        rows = [r for r in rows if search_lower in r["Variable_name"].lower()]
+
+    return {
+        "node_id":   node["id"],
+        "node_name": node["name"],
+        "host":      node["host"],
+        "total":     len(rows),
+        "variables": [{"name": r["Variable_name"], "value": r["Value"]} for r in rows],
+    }
+
+
+# ── GET /diagnostics/variables/all ─────────────────────────────────────────────────────────────
+
+@router.get("/diagnostics/variables/all")
+async def variables_all(
+        cluster_id: int,
+        wsrep_only: bool = Query(False, description="Return only wsrep_* variables"),
+) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return []
+
+    tasks = [asyncio.to_thread(_fetch_all_variables, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception) or result is None:
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "total":     0,
+                "variables": [],
+                "error":     str(result) if isinstance(result, Exception) else "No credentials or connection failed",
+            })
+        else:
+            rows = result
+            if wsrep_only:
+                rows = [r for r in rows if r["Variable_name"].startswith("wsrep")]
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "total":     len(rows),
+                "variables": [{"name": r["Variable_name"], "value": r["Value"]} for r in rows],
+                "error":     None,
+            })
+
+    return output
+
+
+# ── POST /diagnostics/resources ──────────────────────────────────────────────────────────────
+
+@router.post("/diagnostics/resources")
+async def resources(cluster_id: int) -> dict:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return {"nodes": []}
+
+    tasks   = [asyncio.to_thread(_fetch_resources, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    node_resources = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            node_resources.append({
+                "node_id":      node["id"],
+                "node_name":    node["name"],
+                "host":         node["host"],
+                "cpu_load":     None,
+                "ram":          None,
+                "disk":         None,
+                "uptime_since": None,
+                "error":        str(result),
+            })
+        else:
+            node_resources.append(result)
+
+    errors = [r for r in node_resources if r.get("error")]
+    if errors:
+        await asyncio.to_thread(
+            write_event,
+            cluster_id=cluster_id,
+            source="diagnostics",
+            level="WARN",
+            message=(
+                    f"resources check: SSH errors on {len(errors)} node(s): "
+                    + ", ".join(r["node_name"] for r in errors)
+            ),
+        )
+
+    return {"nodes": node_resources}
+
+
+# ── GET /diagnostics/galera-status ────────────────────────────────────────────────────────────
+
+def _fetch_galera_status(node: dict) -> dict:
+    if not node.get("db_user") or not node.get("db_password"):
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     "No DB credentials configured",
+        }
+    try:
+        with DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node["db_user"],
+                encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query("SHOW GLOBAL STATUS LIKE 'wsrep%'")
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {r["Variable_name"]: r["Value"] for r in rows},
+            "error":     None,
+        }
+    except DBError as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "status":    {},
+            "error":     str(exc),
+        }
+
+
+@router.get("/diagnostics/galera-status")
+async def galera_status(cluster_id: int) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_galera_status, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "status":    {},
+                "error":     str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
+
+
+# ── GET /diagnostics/process-list ────────────────────────────────────────────────────────────
+
+def _fetch_process_list(node: dict) -> list[dict]:
+    if not node.get("db_user") or not node.get("db_password"):
+        raise DBError("No DB credentials configured")
+    with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+    ) as client:
+        rows = client.query("SHOW FULL PROCESSLIST")
+    return [
+        {
+            "id":      r.get("Id"),
+            "user":    r.get("User"),
+            "host":    r.get("Host"),
+            "db":      r.get("db"),
+            "command": r.get("Command"),
+            "time":    r.get("Time"),
+            "state":   r.get("State"),
+            "info":    r.get("Info"),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/diagnostics/process-list")
+async def process_list(
+        cluster_id: int,
+        node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
+) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if node_id is not None:
+        nodes = [n for n in nodes if n["id"] == node_id]
+        if not nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+            )
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_process_list, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "error":     str(result),
+                "processes": [],
+            })
+        else:
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "error":     None,
+                "processes": result,
+            })
+
+    return output
+
+
+# ── GET /diagnostics/slow-queries ────────────────────────────────────────────────────────────
 
 def _fetch_slow_queries(node: dict) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -514,35 +908,43 @@ def _fetch_slow_queries(node: dict) -> dict:
                 user=node["db_user"],
                 encrypted_password=node["db_password"],
         ) as client:
-            # Check if slow_query_log is enabled
-            var_rows = client.query("SHOW GLOBAL VARIABLES LIKE 'slow_query_log'")
-            slow_log_enabled: bool | None = None
-            if var_rows:
-                slow_log_enabled = var_rows[0]["Value"].upper() == "ON"
+            var_rows = client.query(
+                "SHOW GLOBAL VARIABLES LIKE 'slow_query_log'"
+            )
+            slow_log_on = (
+                var_rows[0]["Value"].upper() == "ON"
+                if var_rows else False
+            )
 
-            rows = []
-            if slow_log_enabled:
-                raw = client.query(
-                    "SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 500"
-                )
-                rows = [
-                    {
-                        "start_time":    str(r.get("start_time", "")),
-                        "user_host":     r.get("user_host", ""),
-                        "query_time":    str(r.get("query_time", "")),
-                        "lock_time":     str(r.get("lock_time", "")),
-                        "rows_sent":     r.get("rows_sent"),
-                        "rows_examined": r.get("rows_examined"),
-                        "db":            r.get("db", ""),
-                        "sql_text":      r.get("sql_text", ""),
-                    }
-                    for r in raw
-                ]
+            if not slow_log_on:
+                return {
+                    "node_id":          node["id"],
+                    "node_name":        node["name"],
+                    "slow_log_enabled": False,
+                    "rows":             [],
+                    "error":            None,
+                }
 
+            rows = client.query(
+                """
+                SELECT
+                    DATE_FORMAT(start_time, '%Y-%m-%dT%H:%i:%S') AS start_time,
+                    user_host,
+                    TIME_FORMAT(query_time,  '%H:%i:%s') AS query_time,
+                    TIME_FORMAT(lock_time,   '%H:%i:%s') AS lock_time,
+                    rows_sent,
+                    rows_examined,
+                    db,
+                    CONVERT(sql_text USING utf8mb4) AS sql_text
+                FROM mysql.slow_log
+                ORDER BY start_time DESC
+                LIMIT 200
+                """
+            )
         return {
             "node_id":          node["id"],
             "node_name":        node["name"],
-            "slow_log_enabled": slow_log_enabled,
+            "slow_log_enabled": True,
             "rows":             rows,
             "error":            None,
         }
@@ -564,401 +966,51 @@ def _fetch_slow_queries(node: dict) -> dict:
         }
 
 
-# ── Process list helpers ─────────────────────────────────────────────────────────────
-
-def _fetch_process_list(node: dict) -> dict:
-    if not node.get("db_user") or not node.get("db_password"):
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "processes": [],
-            "error":     "No DB credentials configured",
-        }
-    try:
-        with DBClient(
-                host=node["host"],
-                port=int(node.get("port") or 3306),
-                user=node["db_user"],
-                encrypted_password=node["db_password"],
-        ) as client:
-            raw = client.query("SHOW FULL PROCESSLIST")
-            processes = [
-                {
-                    "id":      r.get("Id"),
-                    "user":    r.get("User"),
-                    "host":    r.get("Host"),
-                    "db":      r.get("db"),
-                    "command": r.get("Command"),
-                    "time":    r.get("Time"),
-                    "state":   r.get("State"),
-                    "info":    r.get("Info"),
-                }
-                for r in raw
-            ]
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "processes": processes,
-            "error":     None,
-        }
-    except DBError as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "processes": [],
-            "error":     str(exc),
-        }
-    except Exception as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "processes": [],
-            "error":     str(exc),
-        }
-
-
-# ── Galera status helpers ────────────────────────────────────────────────────────────
-
-def _fetch_galera_status(node: dict) -> dict:
-    if not node.get("db_user") or not node.get("db_password"):
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "status":    {},
-            "error":     "No DB credentials configured",
-        }
-    try:
-        with DBClient(
-                host=node["host"],
-                port=int(node.get("port") or 3306),
-                user=node["db_user"],
-                encrypted_password=node["db_password"],
-        ) as client:
-            rows = client.query("SHOW STATUS LIKE 'wsrep_%'")
-            status = {r["Variable_name"]: r["Value"] for r in rows}
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "status":    status,
-            "error":     None,
-        }
-    except DBError as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "status":    {},
-            "error":     str(exc),
-        }
-    except Exception as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "status":    {},
-            "error":     str(exc),
-        }
-
-
-# ── check-all helpers ────────────────────────────────────────────────────────────────
-
-def _check_node(node: dict) -> dict:
-    ssh = _probe_node_ssh(node)
-    db  = _probe_node_db(node)
-    return {
-        "node_id":       node["id"],
-        "node_name":     node["name"],
-        "host":          node["host"],
-        "role":          "node",
-        **ssh,
-        **db,
-    }
-
-
-def _check_arbitrator(arb: dict) -> dict:
-    result = _probe_arbitrator(arb)
-    return {
-        "node_id":        arb["id"],
-        "node_name":      arb["name"],
-        "host":           arb["host"],
-        "role":           "arbitrator",
-        "ssh_ok":         result["ssh_ok"],
-        "db_ok":          None,
-        "ssh_latency_ms": result["latency_ssh_ms"],
-        "db_latency_ms":  None,
-        "ssh_error":      result["error"],
-        "db_error":       None,
-        "garbd_running":  result["garbd_running"],
-        "latency_ssh_ms": result["latency_ssh_ms"],
-    }
-
-
-# ── config-diff helpers ──────────────────────────────────────────────────────────────
-
-_DIFF_VARIABLES = [
-    "wsrep_cluster_name",
-    "wsrep_provider",
-    "wsrep_slave_threads",
-    "wsrep_sync_wait",
-    "wsrep_sst_method",
-    "innodb_buffer_pool_size",
-    "innodb_flush_log_at_trx_commit",
-    "sync_binlog",
-    "max_connections",
-    "character_set_server",
-    "collation_server",
-]
-
-
-def _fetch_variables_for_diff(node: dict) -> dict:
-    if not node.get("db_user") or not node.get("db_password"):
-        return {
-            "node_id":    node["id"],
-            "node_name":  node["name"],
-            "host":       node["host"],
-            "values":     {},
-            "fetch_ok":   False,
-            "error":      "No DB credentials configured",
-        }
-    try:
-        with DBClient(
-                host=node["host"],
-                port=int(node.get("port") or 3306),
-                user=node["db_user"],
-                encrypted_password=node["db_password"],
-        ) as client:
-            rows = client.query("SHOW GLOBAL VARIABLES")
-            all_vars = {r["Variable_name"]: r["Value"] for r in rows}
-            values = {v: all_vars.get(v) for v in _DIFF_VARIABLES}
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "values":    values,
-            "fetch_ok":  True,
-            "error":     None,
-        }
-    except DBError as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "values":    {},
-            "fetch_ok":  False,
-            "error":     str(exc),
-        }
-    except Exception as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "values":    {},
-            "fetch_ok":  False,
-            "error":     str(exc),
-        }
-
-
-# ── variables helpers ────────────────────────────────────────────────────────────────
-
-def _fetch_variables(node: dict, wsrep_only: bool = False) -> dict:
-    if not node.get("db_user") or not node.get("db_password"):
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "total":     0,
-            "variables": [],
-            "error":     "No DB credentials configured",
-        }
-    try:
-        with DBClient(
-                host=node["host"],
-                port=int(node.get("port") or 3306),
-                user=node["db_user"],
-                encrypted_password=node["db_password"],
-        ) as client:
-            if wsrep_only:
-                rows = client.query(
-                    "SHOW GLOBAL VARIABLES WHERE Variable_name LIKE 'wsrep%'"
-                )
-            else:
-                rows = client.query("SHOW GLOBAL VARIABLES")
-            variables = [
-                {"name": r["Variable_name"], "value": r["Value"]}
-                for r in rows
-            ]
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "total":     len(variables),
-            "variables": variables,
-            "error":     None,
-        }
-    except DBError as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "total":     0,
-            "variables": [],
-            "error":     str(exc),
-        }
-    except Exception as exc:
-        return {
-            "node_id":   node["id"],
-            "node_name": node["name"],
-            "host":      node["host"],
-            "total":     0,
-            "variables": [],
-            "error":     str(exc),
-        }
-
-
-# ── Routes ───────────────────────────────────────────────────────────────────────────
-
-@router.post("/diagnostics/check-all")
-async def check_all(cluster_id: int) -> dict:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-    arbs  = _get_enabled_arbitrators(cluster_id)
-
-    node_results = await asyncio.gather(*[
-        asyncio.to_thread(_check_node, n) for n in nodes
-    ])
-    arb_results = await asyncio.gather(*[
-        asyncio.to_thread(_check_arbitrator, a) for a in arbs
-    ])
-
-    return {
-        "nodes":        list(node_results),
-        "arbitrators":  list(arb_results),
-    }
-
-
-@router.get("/diagnostics/config-diff")
-async def config_diff(cluster_id: int) -> dict:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_variables_for_diff, n) for n in nodes
-    ])
-
-    variable_rows = []
-    for var in _DIFF_VARIABLES:
-        values_list = [
-            {
-                "node_id":    r["node_id"],
-                "node_name":  r["node_name"],
-                "value":      r["values"].get(var) if r["fetch_ok"] else None,
-                "fetch_error": not r["fetch_ok"],
-            }
-            for r in results
-        ]
-        unique_vals = set(
-            v["value"] for v in values_list
-            if not v["fetch_error"] and v["value"] is not None
-        )
-        variable_rows.append({
-            "variable": var,
-            "values":   values_list,
-            "has_diff": len(unique_vals) > 1,
-        })
-
-    return {
-        "variables":  variable_rows,
-        "nodes":      [{"node_id": r["node_id"], "node_name": r["node_name"], "host": r["host"], "fetch_ok": r["fetch_ok"]} for r in results],
-        "diff_found": any(row["has_diff"] for row in variable_rows),
-    }
-
-
-@router.get("/diagnostics/variables")
-async def variables(
-        cluster_id: int,
-        node_id: int = Query(...),
-        wsrep_only: bool = Query(False),
-) -> dict:
-    _assert_cluster_exists(cluster_id)
-    node = _get_node_for_cluster(node_id, cluster_id)
-    if not node:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
-        )
-    return await asyncio.to_thread(_fetch_variables, node, wsrep_only)
-
-
-@router.get("/diagnostics/variables/all")
-async def variables_all(
-        cluster_id: int,
-        wsrep_only: bool = Query(False),
-) -> list[dict]:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_variables, n, wsrep_only) for n in nodes
-    ])
-    return list(results)
-
-
-@router.post("/diagnostics/resources")
-async def resources(cluster_id: int) -> dict:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_resources, n) for n in nodes
-    ])
-    return {"nodes": list(results)}
-
-
-@router.get("/diagnostics/galera-status")
-async def galera_status(cluster_id: int) -> list[dict]:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_galera_status, n) for n in nodes
-    ])
-    return list(results)
-
-
-@router.get("/diagnostics/process-list")
-async def process_list(
-        cluster_id: int,
-        node_id: int | None = Query(None),
-) -> list[dict]:
-    _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
-    if node_id is not None:
-        nodes = [n for n in nodes if n["id"] == node_id]
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_process_list, n) for n in nodes
-    ])
-    return list(results)
-
-
 @router.get("/diagnostics/slow-queries")
 async def slow_queries(
         cluster_id: int,
-        node_id: int | None = Query(None),
+        node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
 ) -> list[dict]:
     _assert_cluster_exists(cluster_id)
     nodes = _get_enabled_nodes(cluster_id)
+
     if node_id is not None:
         nodes = [n for n in nodes if n["id"] == node_id]
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_slow_queries, n) for n in nodes
-    ])
-    return list(results)
+        if not nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+            )
 
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_slow_queries, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":          node["id"],
+                "node_name":        node["name"],
+                "slow_log_enabled": None,
+                "rows":             [],
+                "error":            str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
+
+
+# ── GET /nodes/{node_id}/error-log ────────────────────────────────────────────────────────────
 
 @router.get("/nodes/{node_id}/error-log")
 async def error_log(
         cluster_id: int,
         node_id: int,
-        lines: int = Query(200, ge=10, le=2000),
+        lines: int = Query(default=200, ge=10, le=1000, description="Number of log lines"),
 ) -> dict:
     _assert_cluster_exists(cluster_id)
     node = _get_node_for_cluster(node_id, cluster_id)
@@ -967,31 +1019,75 @@ async def error_log(
             status_code=404,
             detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
         )
-    return await asyncio.to_thread(_fetch_error_log, node, lines)
 
+    result = await asyncio.to_thread(_fetch_error_log, node, lines)
+
+    if result["error"]:
+        await asyncio.to_thread(
+            write_event,
+            cluster_id=cluster_id,
+            node_id=node_id,
+            source="diagnostics",
+            level="WARN",
+            message=f"error-log fetch failed for {node['name']}: {result['error']}",
+        )
+
+    return result
+
+
+# ── GET /arbitrators/{arb_id}/test-connection ──────────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/test-connection")
-async def arbitrator_test_connection(
-        cluster_id: int,
-        arb_id: int,
-) -> dict:
+async def arbitrator_test_connection(cluster_id: int, arb_id: int) -> dict:
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
-    result = _probe_arbitrator(arb)
+
+    result = await asyncio.to_thread(_probe_arbitrator, arb)
+
+    level = "INFO" if result["ssh_ok"] else "WARN"
+    await asyncio.to_thread(
+        write_event,
+        cluster_id=cluster_id,
+        arbitrator_id=arb_id,
+        source="diagnostics",
+        level=level,
+        message=(
+            f"test-connection arbitrator {arb['name']}: "
+            f"ssh={'ok' if result['ssh_ok'] else 'fail'}, "
+            f"garbd={'running' if result['garbd_running'] else 'stopped'}, "
+            f"latency={result['latency_ssh_ms']}ms"
+        ),
+    )
+
     return {
-        "ssh_ok":         result["ssh_ok"],
-        "garbd_running":  result["garbd_running"],
-        "latency_ssh_ms": result["latency_ssh_ms"],
-        "error":          result["error"],
+        "arbitrator_id":   arb["id"],
+        "arbitrator_name": arb["name"],
+        "host":            arb["host"],
+        **result,
     }
 
+
+# ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────────────────────
 
 @router.get("/arbitrators/{arb_id}/log")
 async def arbitrator_log(
         cluster_id: int,
         arb_id: int,
-        lines: int = Query(50, ge=10, le=500),
+        lines: int = Query(default=50, ge=1, le=500, description="Number of log lines"),
 ) -> dict:
     _assert_cluster_exists(cluster_id)
     arb = _get_arbitrator_or_404(cluster_id, arb_id)
-    return await asyncio.to_thread(_fetch_arbitrator_log, arb, lines)
+
+    result = await asyncio.to_thread(_fetch_arbitrator_log, arb, lines)
+
+    if result["error"]:
+        await asyncio.to_thread(
+            write_event,
+            cluster_id=cluster_id,
+            arbitrator_id=arb_id,
+            source="diagnostics",
+            level="WARN",
+            message=f"arb log fetch failed for {arb['name']}: {result['error']}",
+        )
+
+    return result
