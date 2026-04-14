@@ -208,10 +208,9 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: 15px;
+  padding: var(--space-4);
 }
 
-/* ── Header ── */
 .panel-header {
   display: flex;
   align-items: center;
@@ -249,7 +248,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .btn-run:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
 .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── Alerts ── */
 .alert-err {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
@@ -266,14 +264,12 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   font-size: var(--text-sm);
 }
 
-/* ── Grid ── */
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-6);
 }
 
-/* ── Skeleton ── */
 .skeleton-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -297,7 +293,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .sk-bar    { height: 36px; }
 .sk-footer { height: 48px; margin-top: var(--space-2); }
 
-/* ── Card ── */
 .res-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -308,13 +303,10 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   gap: var(--space-4);
   transition: box-shadow var(--transition-interactive), border-color var(--transition-interactive);
 }
-.res-card:hover {
-  box-shadow: var(--shadow-md);
-}
+.res-card:hover { box-shadow: var(--shadow-md); }
 .res-card.status-warn  { border-color: oklch(from var(--color-warning) l c h / 0.35); }
 .res-card.status-crit  { border-color: oklch(from var(--color-error)   l c h / 0.35); }
 
-/* ── Card head ── */
 .card-head {
   display: flex;
   align-items: center;
@@ -324,7 +316,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .node-info { display: flex; align-items: center; gap: var(--space-2); }
 .node-name { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
 
-/* Status dot */
 .status-dot {
   width: 8px;
   height: 8px;
@@ -336,7 +327,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .dot-crit    { background: var(--color-error);   box-shadow: 0 0 0 2px oklch(from var(--color-error)   l c h / 0.2); }
 .dot-unknown { background: var(--color-text-faint); }
 
-/* Badges */
 .badge {
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);
@@ -348,7 +338,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .badge-warn { background: var(--color-warning-highlight); color: var(--color-warning); }
 .badge-err  { background: var(--color-error-highlight);   color: var(--color-error); }
 
-/* Error state */
 .node-err {
   display: flex;
   align-items: flex-start;
@@ -368,7 +357,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   margin: 0 calc(-1 * var(--space-2));
 }
 
-/* ── Metric row ── */
 .metric { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .metric-top {
@@ -405,7 +393,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .pct-crit    { color: var(--color-error); }
 .pct-unknown { color: var(--color-text-faint); }
 
-/* Bar */
 .bar-track {
   height: 6px;
   background: var(--color-surface-offset-2);
@@ -423,7 +410,6 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .fill-crit    { background: linear-gradient(90deg, var(--color-error),   oklch(from var(--color-error)   calc(l + 0.08) c h)); }
 .fill-unknown { background: var(--color-text-faint); }
 
-/* ── Footer ── */
 .card-footer {
   display: flex;
   align-items: center;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import ToggleSwitch from 'primevue/toggleswitch'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ConfigDiffResponse, type ConfigDiffRow } from '@/api/diagnostics'
 
@@ -35,6 +36,7 @@ const displayed = computed(() =>
   showAll.value ? rows.value : rows.value.filter((r) => r.has_diff)
 )
 
+// Returns cell descriptor once per (row, node) — used with v-memo to avoid double-call
 function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null; error: boolean } {
   const entry = row.values.find((v) => v.node_name === nodeName)
   if (!entry) return { value: null, error: false }
@@ -54,10 +56,14 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
         </span>
       </div>
       <div class="header-actions">
-        <label class="toggle-label">
-          <input type="checkbox" v-model="showAll" />
-          Show all variables
-        </label>
+        <div class="toggle-row" @click.stop="showAll = !showAll">
+          <ToggleSwitch
+            :model-value="showAll"
+            @update:model-value="showAll = $event"
+            @click.stop
+          />
+          <span class="toggle-label">Show all variables</span>
+        </div>
         <button class="btn-icon" :disabled="loading" @click="load" title="Refresh">
           <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
         </button>
@@ -73,13 +79,11 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
     </div>
 
     <template v-else-if="data">
-      <!-- No diffs and not showing all -->
       <div v-if="diffCount === 0 && !showAll" class="all-ok">
         <i class="pi pi-check-circle" />
         All wsrep variables are consistent across nodes.
       </div>
 
-      <!-- No variables fetched at all -->
       <div v-else-if="rows.length === 0" class="empty-hint">
         <i class="pi pi-info-circle" /> No variables fetched.
       </div>
@@ -102,6 +106,7 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
               <td
                 v-for="n in nodeNames"
                 :key="n"
+                v-memo="[row.variable, n, row.has_diff]"
                 class="val-cell mono"
                 :class="{
                   'val-diff': row.has_diff,
@@ -120,7 +125,6 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
         </table>
       </div>
 
-      <!-- Node fetch errors summary -->
       <div
         v-if="data.nodes.some((n) => !n.fetch_ok)"
         class="fetch-warn"
@@ -172,14 +176,27 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   gap: var(--space-3);
 }
 
-.toggle-label {
-  display: flex;
+.toggle-row {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  flex-shrink: 0;
   cursor: pointer;
   user-select: none;
+}
+
+.toggle-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+:deep(.p-toggleswitch) {
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .btn-icon {

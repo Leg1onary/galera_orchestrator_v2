@@ -21,7 +21,7 @@
           v-model="lineCount"
           :min="10"
           :max="1000"
-          :step="50"
+          :step="10"
           show-buttons
           button-layout="horizontal"
           size="small"
@@ -35,7 +35,7 @@
 
     <div v-if="error" class="error-alert">
       <i class="pi pi-exclamation-circle" />
-      <span>{{ error.message }}</span>
+      <span>{{ errorMessage }}</span>
     </div>
 
     <template v-else-if="data">
@@ -89,11 +89,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, toRef } from 'vue'
 import { useQuery }      from '@tanstack/vue-query'
 import Select      from 'primevue/select'
 import InputNumber from 'primevue/inputnumber'
 import { useClusterStore }    from '@/stores/cluster'
+import { useSettingsStore }   from '@/stores/settings'
 import { diagnosticsApi }     from '@/api/diagnostics'
 import PanelToolbar           from './PanelToolbar.vue'
 import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
@@ -101,9 +102,12 @@ import { useNodeOptions }     from '@/composables/useNodeOptions'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
+const settingsStore  = useSettingsStore()
 const selectedNodeId = ref<number | undefined>(undefined)
 const lineCount      = ref(200)
-const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
+
+const intervalMs = computed(() => settingsStore.pollingIntervalSec * 1000)
+const { autoRefresh, refetchInterval } = useDiagAutoRefresh(toRef(props, 'active'), intervalMs)
 const { nodeOptions }                  = useNodeOptions()
 
 type SeverityFilter = 'all' | 'error' | 'warning' | 'note'
@@ -127,6 +131,14 @@ const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
 const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
+
+// Safe error message — error from useQuery can be Error | string | unknown
+const errorMessage = computed(() => {
+  if (!error.value) return ''
+  if (error.value instanceof Error) return error.value.message
+  if (typeof error.value === 'string') return error.value
+  return 'An unknown error occurred'
+})
 
 function lineClass(line: string): string {
   const l = line.toLowerCase()
@@ -181,7 +193,6 @@ const filteredLines = computed<string[]>(() => {
   border-left: 1px solid var(--color-border);
 }
 
-/* ── META ROW ──────────────────────────────────────────────────── */
 .log-meta {
   display: flex;
   align-items: center;
@@ -189,7 +200,6 @@ const filteredLines = computed<string[]>(() => {
   gap: var(--space-4);
 }
 
-/* ── SEVERITY FILTER ──────────────────────────────────────────── */
 .severity-filter {
   display: flex;
   align-items: center;
@@ -215,10 +225,8 @@ const filteredLines = computed<string[]>(() => {
   transition: background 120ms ease, color 120ms ease;
   white-space: nowrap;
 }
-
 .sev-btn:hover { background: var(--color-surface-dynamic); color: var(--color-text); }
 
-/* dot цвет по умолчанию (неактивный) */
 .sev-dot {
   width: 6px;
   height: 6px;
@@ -228,32 +236,23 @@ const filteredLines = computed<string[]>(() => {
   transition: background 120ms ease;
 }
 
-/* active state — подсветка всей кнопки */
-.sev-btn--active {
-  color: var(--color-text);
-}
+.sev-btn--active { color: var(--color-text); }
 
-/* all — нейтральный */
-.sev-btn--all.sev-btn--active {
-  background: var(--color-surface-2);
-}
+.sev-btn--all.sev-btn--active { background: var(--color-surface-2); }
 .sev-btn--all.sev-btn--active .sev-dot    { background: var(--color-text-muted); }
 
-/* error */
 .sev-btn--error .sev-dot                  { background: var(--color-error); }
 .sev-btn--error.sev-btn--active {
   background: color-mix(in oklch, var(--color-error) 14%, transparent);
   color: var(--color-error);
 }
 
-/* warning */
 .sev-btn--warning .sev-dot                { background: var(--color-warning); }
 .sev-btn--warning.sev-btn--active {
   background: color-mix(in oklch, var(--color-warning) 14%, transparent);
   color: var(--color-warning);
 }
 
-/* note */
 .sev-btn--note .sev-dot                   { background: var(--color-primary); }
 .sev-btn--note.sev-btn--active {
   background: color-mix(in oklch, var(--color-primary) 14%, transparent);
@@ -268,7 +267,6 @@ const filteredLines = computed<string[]>(() => {
   white-space: nowrap;
 }
 
-/* ── LOG BODY ──────────────────────────────────────────────────── */
 .log-wrap {
   display: flex; flex-direction: column;
   border: 1px solid var(--color-border);
@@ -276,23 +274,23 @@ const filteredLines = computed<string[]>(() => {
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  background: #0a0b0e;
+  background: var(--color-terminal-bg);
   max-height: 580px;
   overflow-y: auto;
 }
 
 .log-wrap::-webkit-scrollbar       { width: 4px; }
 .log-wrap::-webkit-scrollbar-track { background: transparent; }
-.log-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+.log-wrap::-webkit-scrollbar-thumb { background: oklch(from var(--color-terminal-text) l c h / 0.15); border-radius: 2px; }
 
 .log-line {
   display: flex; align-items: stretch; gap: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid oklch(from var(--color-terminal-text) l c h / 0.05);
   line-height: 1.65;
   transition: background 80ms ease;
 }
 .log-line:last-child { border-bottom: none; }
-.log-line:hover { background: rgba(255,255,255,0.03); }
+.log-line:hover { background: oklch(from var(--color-terminal-text) l c h / 0.03); }
 
 .log-gutter { width: 4px; flex-shrink: 0; display: flex; align-items: stretch; }
 .log-bar {
@@ -309,17 +307,17 @@ const filteredLines = computed<string[]>(() => {
   padding: 3px var(--space-2) 3px var(--space-3);
   text-align: right; color: var(--color-text-faint);
   user-select: none; font-variant-numeric: tabular-nums;
-  border-right: 1px solid rgba(255,255,255,0.04);
+  border-right: 1px solid oklch(from var(--color-terminal-text) l c h / 0.06);
   font-size: 0.6rem; opacity: 0.6;
 }
 
 .log-text {
   flex: 1; padding: 3px var(--space-4);
-  color: #8b949e; white-space: pre-wrap; word-break: break-all;
+  color: var(--color-terminal-text); white-space: pre-wrap; word-break: break-all;
 }
-.log-line--error .log-text { color: #f87171; }
-.log-line--warn  .log-text { color: #fbbf24; }
-.log-line--note  .log-text { color: #7dcfad; }
+.log-line--error .log-text { color: var(--color-terminal-error); }
+.log-line--warn  .log-text { color: var(--color-terminal-warn); }
+.log-line--note  .log-text { color: var(--color-terminal-ok); }
 
 .log-empty {
   display: flex; align-items: center; justify-content: center; gap: var(--space-2);
@@ -327,17 +325,15 @@ const filteredLines = computed<string[]>(() => {
   color: var(--color-text-faint); font-size: var(--text-sm);
 }
 
-/* ERROR */
 .error-alert {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: rgba(248,113,113,0.08);
-  border: 1px solid rgba(248,113,113,0.20);
+  background: var(--color-error-highlight);
+  border: 1px solid oklch(from var(--color-error) l c h / 0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 
-/* EMPTY */
 .empty-state {
   display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
   padding: var(--space-12);

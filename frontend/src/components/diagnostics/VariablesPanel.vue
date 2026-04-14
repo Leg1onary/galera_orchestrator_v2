@@ -16,12 +16,6 @@ const activeNode = ref<string | null>(null)
 
 const nodeNames = computed(() => nodes.value.map((n) => n.node_name))
 
-watch(nodeNames, (names) => {
-  if (names.length > 0 && !activeNode.value) {
-    activeNode.value = names[0]
-  }
-})
-
 const currentRows = computed<KVRow[]>(() => {
   if (!activeNode.value) return []
   const node = nodes.value.find((n) => n.node_name === activeNode.value)
@@ -52,6 +46,10 @@ async function load() {
       variables: (n.variables ?? []).map((v) => ({ variable_name: v.name, value: v.value })),
       error:     n.error ?? null,
     }))
+    // Fix: set activeNode directly after data is available — avoids watch() dedup race
+    if (nodes.value.length > 0) {
+      activeNode.value = nodes.value[0].node_name
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {

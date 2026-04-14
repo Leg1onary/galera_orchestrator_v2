@@ -1,16 +1,23 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, toRef } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useSettingsStore } from '@/stores/settings'
 import { diagnosticsApi, type ConnectionCheckRow, type CheckAllResponse } from '@/api/diagnostics'
+import PanelToolbar from './PanelToolbar.vue'
+import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
 
 const props = defineProps<{ active: boolean }>()
-const clusterStore = useClusterStore()
+const clusterStore  = useClusterStore()
+const settingsStore = useSettingsStore()
+
+const intervalMs = computed(() => settingsStore.pollingIntervalSec * 1000)
+const { autoRefresh } = useDiagAutoRefresh(toRef(props, 'active'), intervalMs)
 
 const nodes   = ref<ConnectionCheckRow[]>([])
 const arbs    = ref<ConnectionCheckRow[]>([])
 const loading = ref(false)
 const error   = ref<string | null>(null)
-const lastRun = ref<string | null>(null)
+const fetchedAt = ref<string | null>(null)
 
 async function runCheck() {
   const id = clusterStore.selectedClusterId
@@ -21,12 +28,17 @@ async function runCheck() {
     const res: CheckAllResponse = await diagnosticsApi.checkAll(id)
     nodes.value   = res.nodes        ?? []
     arbs.value    = res.arbitrators  ?? []
-    lastRun.value = new Date().toLocaleTimeString()
+    fetchedAt.value = new Date().toLocaleTimeString()
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
     loading.value = false
   }
+}
+
+// Latency display: arbitrator rows may use latency_ssh_ms or ssh_latency_ms
+function arbLatency(row: ConnectionCheckRow): number | null {
+  return row.latency_ssh_ms ?? row.ssh_latency_ms ?? null
 }
 
 function statusIcon(ok: boolean | null | undefined) {
@@ -42,17 +54,14 @@ function fmtLatency(ms: number | null | undefined) {
 
 <template>
   <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <i class="pi pi-wifi" />
-        <span>Connection Check</span>
-        <span v-if="lastRun" class="last-run">last run {{ lastRun }}</span>
-      </div>
-      <button class="btn-run" :disabled="loading" @click="runCheck">
-        <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-play']" />
-        {{ loading ? 'Checking…' : 'Run Check' }}
-      </button>
-    </div>
+    <PanelToolbar
+      title="connection_check"
+      :loading="loading"
+      :fetched-at="fetchedAt"
+      :auto-refresh="autoRefresh"
+      @refresh="runCheck"
+      @toggle-auto="autoRefresh = $event"
+    />
 
     <div v-if="error" class="alert-err">
       <i class="pi pi-exclamation-triangle" /> {{ error }}
@@ -60,7 +69,7 @@ function fmtLatency(ms: number | null | undefined) {
 
     <div v-if="nodes.length === 0 && arbs.length === 0 && !loading && !error" class="empty-hint">
       <i class="pi pi-info-circle" />
-      Click <b>Run Check</b> to test SSH and DB connectivity for all nodes and arbitrators.
+      Click <b>Refresh</b> to test SSH and DB connectivity for all nodes and arbitrators.
     </div>
 
     <!-- Nodes -->
@@ -125,7 +134,7 @@ function fmtLatency(ms: number | null | undefined) {
               <td class="center">
                 <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
               </td>
-              <td class="center mono">{{ fmtLatency(row.latency_ssh_ms ?? row.ssh_latency_ms) }}</td>
+              <td class="center mono">{{ fmtLatency(arbLatency(row)) }}</td>
               <td class="error-cell mono">{{ row.ssh_error ?? '—' }}</td>
             </tr>
           </tbody>
@@ -137,45 +146,6 @@ function fmtLatency(ms: number | null | undefined) {
 
 <style scoped>
 .panel { display: flex; flex-direction: column; gap: var(--space-4); }
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.panel-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.last-run {
-  font-weight: 400;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  margin-left: var(--space-2);
-}
-
-.btn-run {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition-interactive);
-}
-.btn-run:hover:not(:disabled) { background: var(--color-primary-hover); }
-.btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .alert-err {
   display: flex;

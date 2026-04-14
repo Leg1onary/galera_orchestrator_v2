@@ -25,7 +25,7 @@
 
     <div v-if="error" class="error-alert">
       <i class="pi pi-exclamation-circle" />
-      <span>{{ (error as Error).message }}</span>
+      <span>{{ errorMessage }}</span>
     </div>
 
     <template v-else-if="data">
@@ -77,11 +77,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, toRef } from 'vue'
 import { useQuery }   from '@tanstack/vue-query'
 import { useToast }   from 'primevue/usetoast'
 import Select         from 'primevue/select'
 import { useClusterStore }    from '@/stores/cluster'
+import { useSettingsStore }   from '@/stores/settings'
 import { nodesApi }           from '@/api/nodes'
 import PanelToolbar           from './PanelToolbar.vue'
 import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
@@ -89,12 +90,15 @@ import { useNodeOptions }     from '@/composables/useNodeOptions'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore   = useClusterStore()
+const settingsStore  = useSettingsStore()
 const toast          = useToast()
 const selectedNodeId = ref<number | null>(null)
-const { autoRefresh, refetchInterval } = useDiagAutoRefresh(props)
+
+const intervalMs = computed(() => settingsStore.pollingIntervalSec * 1000)
+const { autoRefresh, refetchInterval } = useDiagAutoRefresh(toRef(props, 'active'), intervalMs)
+
 const { nodeOptions } = useNodeOptions()
 
-// Auto-select first node when list loads
 watch(nodeOptions, (opts) => {
   if (opts.length && !selectedNodeId.value) selectedNodeId.value = opts[0].value
 }, { immediate: true })
@@ -111,6 +115,14 @@ const fetchedAt = computed(() =>
     dataUpdatedAt.value ? new Date(dataUpdatedAt.value).toLocaleTimeString() : null
 )
 
+// Safe error message extraction — error can be Error | string | unknown
+const errorMessage = computed(() => {
+  if (!error.value) return ''
+  if (error.value instanceof Error) return error.value.message
+  if (typeof error.value === 'string') return error.value
+  return 'An unknown error occurred'
+})
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -122,7 +134,7 @@ async function copyText(text: string) {
 </script>
 
 <style scoped>
-.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); padding: 15px; }
+.diag-panel { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
 
 .selector-row {
   display: flex;
@@ -147,8 +159,8 @@ async function copyText(text: string) {
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: rgba(249,115,22,0.08);
-  border: 1px solid rgba(249,115,22,0.25);
+  background: var(--color-warning-highlight);
+  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
   color: var(--color-warning);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -191,18 +203,17 @@ async function copyText(text: string) {
   cursor: pointer;
   transition: all var(--transition-normal);
 }
-
 .copy-btn .pi { font-size: 0.65rem; }
 .copy-btn:hover { background: var(--color-surface-3); border-color: var(--color-border-hover); color: var(--color-text); }
 
-.terminal-wrap { background: #0a0b0e; }
+.terminal-wrap { background: var(--color-terminal-bg); }
 
 .innodb-pre {
   margin: 0;
   padding: var(--space-4) var(--space-5);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: #7dcfad;
+  color: var(--color-terminal-ok);
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-all;
@@ -210,18 +221,18 @@ async function copyText(text: string) {
   overflow-y: auto;
 }
 
-.pre-warn { color: #fbbf24; }
+.pre-warn { color: var(--color-terminal-warn); }
 
 .innodb-pre::-webkit-scrollbar       { width: 4px; }
 .innodb-pre::-webkit-scrollbar-track { background: transparent; }
-.innodb-pre::-webkit-scrollbar-thumb { background: rgba(125,207,173,0.2); border-radius: 2px; }
+.innodb-pre::-webkit-scrollbar-thumb { background: oklch(from var(--color-terminal-ok) l c h / 0.2); border-radius: 2px; }
 
 .error-alert {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: rgba(248,113,113,0.08);
-  border: 1px solid rgba(248,113,113,0.20);
+  background: var(--color-error-highlight);
+  border: 1px solid oklch(from var(--color-error) l c h / 0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 

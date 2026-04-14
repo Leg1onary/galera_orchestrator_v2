@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ArbitratorLogResult } from '@/api/diagnostics'
+import { api } from '@/api/client'
 
 type ArbitratorInfo = { id: number; name: string; enabled: boolean }
 
@@ -16,21 +17,19 @@ const loading      = ref(false)
 const loadingArbs  = ref(false)
 const error        = ref<string | null>(null)
 
-// Pre-computed skeleton widths so they don't jump on each render
-const skeletonWidths = Array.from({ length: 10 }, () => 50 + Math.floor(Math.random() * 45))
+// Skeleton widths initialised once in onMounted — no hydration mismatch on re-render
+const skeletonWidths = ref<number[]>([])
+onMounted(() => {
+  skeletonWidths.value = Array.from({ length: 10 }, () => 50 + Math.floor(Math.random() * 45))
+})
 
 async function loadArbitrators() {
   const id = clusterStore.selectedClusterId
   if (!id) return
   loadingArbs.value = true
   try {
-    const r = await diagnosticsApi.checkAll(id)
-    // Берём только арбитраторов из ответа check-all, или делаем отдельный запрос
-    // Используем тот же API что и раньше, но с типизацией
-    const raw = await import('@/api/client').then(({ api }) =>
-      api.get<Array<{ id: number; name: string; enabled: boolean }>>(
-        `/api/clusters/${id}/arbitrators`,
-      )
+    const raw = await api.get<Array<{ id: number; name: string; enabled: boolean }>>(
+      `/api/clusters/${id}/arbitrators`,
     )
     arbitrators.value = raw.data.filter((a) => a.enabled)
     if (arbitrators.value.length > 0 && selectedId.value === null) {
@@ -46,15 +45,13 @@ async function loadArbitrators() {
 async function fetchLog() {
   const clusterId = clusterStore.selectedClusterId
   const arbId     = selectedId.value
-  // guard: skip if another request is already in flight
   if (!clusterId || !arbId || loading.value) return
   loading.value = true
   error.value   = null
   try {
     const result = await diagnosticsApi.arbitratorLog(clusterId, arbId, lines.value)
-    // Surface backend-level SSH/execution error as UI error
     if (result.error) {
-      error.value    = result.error
+      error.value     = result.error
       logResult.value = null
     } else {
       logResult.value = result
@@ -89,7 +86,6 @@ watch(
   }
 )
 
-// guard: не шлём запрос если уже грузится
 watch([selectedId, lines], () => {
   if (props.active && selectedId.value && !loading.value) fetchLog()
 })
@@ -154,21 +150,23 @@ function lineClass(line: string): string {
       <i class="pi pi-info-circle" /> No log output returned.
     </div>
 
-    <div v-else-if="logLines.length > 0" class="log-meta">
-      <span v-if="logResult">{{ logResult.arbitrator_name }} — {{ logLines.length }} lines</span>
-      <span v-if="logResult?.fetched_at" class="ts">
-        fetched at {{ new Date(logResult.fetched_at).toLocaleTimeString() }}
-      </span>
-    </div>
+    <template v-else-if="logLines.length > 0">
+      <div class="log-meta">
+        <span v-if="logResult">{{ logResult.arbitrator_name }} — {{ logLines.length }} lines</span>
+        <span v-if="logResult?.fetched_at" class="ts">
+          fetched at {{ new Date(logResult.fetched_at).toLocaleTimeString() }}
+        </span>
+      </div>
 
-    <div v-if="logLines.length > 0" class="log-box">
-      <pre
-        v-for="(line, idx) in logLines"
-        :key="idx"
-        class="log-line"
-        :class="lineClass(line)"
-      >{{ line }}</pre>
-    </div>
+      <div class="log-box">
+        <pre
+          v-for="(line, idx) in logLines"
+          :key="idx"
+          class="log-line"
+          :class="lineClass(line)"
+        >{{ line }}</pre>
+      </div>
+    </template>
   </div>
 </template>
 

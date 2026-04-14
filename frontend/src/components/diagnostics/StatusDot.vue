@@ -1,6 +1,10 @@
 <template>
-  <span :class="['status-dot-wrap', ok === null ? 'dot-unknown' : ok ? 'dot-ok' : 'dot-fail']">
-    <span class="dot" />
+  <span
+    :class="['status-dot-wrap', ok === null ? 'dot-unknown' : ok ? 'dot-ok' : 'dot-fail']"
+    :aria-label="ok === null ? 'Unknown' : ok ? 'OK' : 'Failed'"
+    role="status"
+  >
+    <span class="dot" aria-hidden="true" />
     <span class="dot-label">{{ ok === null ? '?' : ok ? 'OK' : 'FAIL' }}</span>
   </span>
 </template>
