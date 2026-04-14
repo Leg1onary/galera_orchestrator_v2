@@ -186,18 +186,20 @@ function openEdit(node: NodeSetting) {
   apiError.value = null
 }
 
-// Clone: copy all fields from source, clear name and host so user fills them in
+// Clone: prefill name as "Copy of <original>", host from original so user can adjust,
+// all other params copied as-is. db_password is intentionally empty — the backend
+// does not expose passwords in GET /api/settings/nodes response.
 function openClone(node: NodeSetting) {
   modal.value = {
     open: true, mode: 'clone',
     initial: {
-      name:          '',
-      host:          '',
+      name:          `Copy of ${node.name}`,
+      host:          node.host,
       port:          node.port,
       ssh_user:      node.ssh_user,
       ssh_port:      node.ssh_port,
       db_user:       node.db_user,
-      db_password:   node.db_password,
+      db_password:   '',
       datacenter_id: node.datacenter_id,
       enabled:       node.enabled,
     },
