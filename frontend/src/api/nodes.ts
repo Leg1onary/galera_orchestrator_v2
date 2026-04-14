@@ -129,6 +129,23 @@ export interface RejoinNodeResponse {
     after:   WsrepSnapshot
 }
 
+// ── SST Status (#11) ───────────────────────────────────────────────────────
+// GET /api/clusters/{cluster_id}/nodes/sst-status
+export interface SstStatusItem {
+    node_id: number
+    state: string
+    state_since_ts: string | null
+    stuck_for_sec: number | null
+    is_stuck: boolean
+}
+
+// POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst
+export interface RestartSstResponse {
+    ok: boolean
+    node_id: number
+    message: string
+}
+
 export const nodesApi = {
     list: (clusterId: number) =>
         api.get<NodeListItem[]>(`/api/clusters/${clusterId}/nodes`).then((r) => r.data),
@@ -185,6 +202,21 @@ export const nodesApi = {
         api
             .post<RejoinNodeResponse>(
                 `/api/clusters/${clusterId}/nodes/${nodeId}/rejoin`
+            )
+            .then((r) => r.data),
+
+    // ── SST (#11) ────────────────────────────────────────────────────────
+    // GET /api/clusters/{cluster_id}/nodes/sst-status
+    getSstStatus: (clusterId: number) =>
+        api
+            .get<SstStatusItem[]>(`/api/clusters/${clusterId}/nodes/sst-status`)
+            .then((r) => r.data),
+
+    // POST /api/clusters/{cluster_id}/nodes/{node_id}/restart-sst
+    restartSst: (clusterId: number, nodeId: number) =>
+        api
+            .post<RestartSstResponse>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/restart-sst`
             )
             .then((r) => r.data),
 }
