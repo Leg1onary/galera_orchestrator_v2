@@ -1,5 +1,4 @@
 <template>
-  <ConfirmDialog />
   <DataTable
       :value="nodes"
       :loading="loading"
@@ -154,7 +153,6 @@ import { ref } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
-import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import NodeStatusBadge from './NodeStatusBadge.vue'
