@@ -46,8 +46,10 @@ function onDrawerClose() {
   selectedNode.value = null
 }
 
-// ── Add node modal ──────────────────────────────────────────────────────────
-const showAddModal = ref(false)
+// ── Shared modal state ──────────────────────────────────────────────────────────────────────
+const showModal    = ref(false)
+const modalTitle   = ref('Add node')
+const modalInitial = ref<Record<string, unknown>>({})
 const saving       = ref(false)
 const apiError     = ref<string | null>(null)
 
@@ -57,9 +59,12 @@ const { data: datacenters } = useQuery({
 })
 
 const dcOptions = computed(() => [
-  { label: '— None —', value: null },
+  { label: '\u2014 None \u2014', value: null },
   ...(datacenters.value ?? []).map((d: { id: number; name: string }) => ({ label: d.name, value: d.id })),
 ])
+
+// isClone flag drives db_password field hint and required
+const isClone = ref(false)
 
 const addNodeFields = computed((): FormField[] => [
   { key: 'name',          label: 'Name',        required: true,  placeholder: 'node-01' },
@@ -68,8 +73,17 @@ const addNodeFields = computed((): FormField[] => [
   { key: 'ssh_user',      label: 'SSH User',    placeholder: 'root' },
   { key: 'ssh_port',      label: 'SSH Port',    type: 'number',  min: 1, max: 65535, placeholder: '22' },
   { key: 'db_user',       label: 'DB User',     placeholder: 'monitor_user' },
-  { key: 'db_password',   label: 'DB Password', type: 'password', placeholder: '••••••••' },
-  { key: 'datacenter_id', label: 'Datacenter',  type: 'select',  options: dcOptions.value, placeholder: '— None —' },
+  {
+    key:         'db_password',
+    label:       'DB Password',
+    type:        'password',
+    required:    !isClone.value,
+    placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+    hint:        isClone.value
+                   ? 'Cannot be copied for security reasons. Enter the password for the new node.'
+                   : undefined,
+  },
+  { key: 'datacenter_id', label: 'Datacenter',  type: 'select',  options: dcOptions.value, placeholder: '\u2014 None \u2014' },
   { key: 'enabled',       label: 'Enabled',     type: 'toggle',  toggleLabel: 'Monitor this node' },
 ])
 
@@ -81,11 +95,32 @@ const addNodeDefaults = computed(() => ({
 }))
 
 function openAddModal() {
-  apiError.value = null
-  showAddModal.value = true
+  isClone.value      = false
+  modalTitle.value   = 'Add node'
+  modalInitial.value = { ...addNodeDefaults.value }
+  apiError.value     = null
+  showModal.value    = true
 }
 
-async function handleAddSubmit(values: Record<string, unknown>) {
+function onClone(node: NodeListItem) {
+  isClone.value      = true
+  modalTitle.value   = 'Clone node'
+  modalInitial.value = {
+    name:          `Copy of ${node.name}`,
+    host:          node.host,
+    port:          node.port,
+    ssh_user:      node.ssh_user,
+    ssh_port:      node.ssh_port,
+    db_user:       node.db_user ?? '',
+    db_password:   '',
+    datacenter_id: node.datacenter_id ?? null,
+    enabled:       node.enabled,
+  }
+  apiError.value  = null
+  showModal.value = true
+}
+
+async function handleModalSubmit(values: Record<string, unknown>) {
   if (!clusterId.value) { apiError.value = 'No cluster selected'; return }
   saving.value = true
   apiError.value = null
@@ -94,8 +129,8 @@ async function handleAddSubmit(values: Record<string, unknown>) {
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'nodes-settings'] })
     await qc.invalidateQueries({ queryKey: ['cluster', clusterId.value, 'status'] })
     await refetch()
-    toast.add({ severity: 'success', summary: 'Node added', life: 2500 })
-    showAddModal.value = false
+    toast.add({ severity: 'success', summary: isClone.value ? 'Node cloned' : 'Node added', life: 2500 })
+    showModal.value = false
   } catch (err) {
     apiError.value = extractApiError(err)
   } finally {
@@ -151,6 +186,7 @@ async function handleAddSubmit(values: Record<string, unknown>) {
         :cluster-id="clusterId"
         @select="onSelect"
         @refresh="refetch()"
+        @clone="onClone"
       />
     </template>
 
@@ -161,15 +197,15 @@ async function handleAddSubmit(values: Record<string, unknown>) {
     />
 
     <EntityFormModal
-      v-if="showAddModal"
-      title="Add node"
-      submit-label="Add node"
+      v-if="showModal"
+      :title="modalTitle"
+      submit-label="Save"
       :fields="addNodeFields"
-      :initial-values="addNodeDefaults"
+      :initial-values="modalInitial"
       :loading="saving"
       :api-error="apiError"
-      @submit="handleAddSubmit"
-      @cancel="showAddModal = false"
+      @submit="handleModalSubmit"
+      @cancel="showModal = false"
     />
   </div>
 </template>
