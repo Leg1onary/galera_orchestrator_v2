@@ -22,45 +22,75 @@
 from __future__ import annotations
 
 import asyncio
-import re
-import subprocess
-from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 
-from backend.db.client import DBClient, DBError
-from backend.db.queries import get_cluster_by_id, get_nodes_for_cluster, get_node_by_id
-from backend.db.queries import get_arbitrators_for_cluster, get_arbitrator_by_id
-from backend.events import write_event
-from backend.ssh.client import SSHClient, SSHError
-from backend.utils.crypto import decrypt_password
+from config import settings
+from database import engine
+from dependencies import require_auth
+from services.db_client import DBClient, DBError
+from services.event_log import write_event
+from services.ssh_client import SSHClient, SSHError
 
-router = APIRouter(prefix="/api/clusters/{cluster_id}")
+router = APIRouter(
+    prefix="/clusters",
+    tags=["diagnostics"],
+    dependencies=[Depends(require_auth)],
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# DB helpers (inline SQL, same pattern as other routers)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _assert_cluster_exists(cluster_id: int) -> dict:
-    cluster = get_cluster_by_id(cluster_id)
-    if not cluster:
+def _assert_cluster_exists(cluster_id: int) -> None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id FROM clusters WHERE id = :cid"),
+            {"cid": cluster_id},
+        ).fetchone()
+    if row is None:
         raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
-    return cluster
-
-
-def _get_node_for_cluster(node_id: int, cluster_id: int) -> Optional[dict]:
-    node = get_node_by_id(node_id)
-    if not node or node["cluster_id"] != cluster_id or not node.get("is_active", True):
-        return None
-    return node
 
 
 def _get_active_nodes(cluster_id: int) -> list[dict]:
-    return [
-        n for n in get_nodes_for_cluster(cluster_id)
-        if n.get("is_active", True)
-    ]
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT n.*, d.name AS datacenter_name
+                FROM nodes n
+                LEFT JOIN datacenters d ON d.id = n.datacenter_id
+                WHERE n.cluster_id = :cid AND n.enabled = 1
+                ORDER BY n.name
+            """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
+def _get_node_for_cluster(node_id: int, cluster_id: int) -> Optional[dict]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT n.*, d.name AS datacenter_name
+                FROM nodes n
+                LEFT JOIN datacenters d ON d.id = n.datacenter_id
+                WHERE n.id = :nid AND n.cluster_id = :cid AND n.enabled = 1
+            """),
+            {"nid": node_id, "cid": cluster_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
+def _get_arbitrator_by_id(arb_id: int, cluster_id: int) -> Optional[dict]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM arbitrators WHERE id = :aid AND cluster_id = :cid"),
+            {"aid": arb_id, "cid": cluster_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
 
 
 def _hms_to_sec(hms: str | None) -> float:
@@ -98,10 +128,7 @@ def _check_node(node: dict) -> dict:
             checks["wsrep_cluster_size"] = int(rows[0]["Value"]) if rows else None
 
             sl = client.query("SHOW SLAVE STATUS")
-            if sl:
-                checks["seconds_behind_master"] = sl[0].get("Seconds_Behind_Master")
-            else:
-                checks["seconds_behind_master"] = None
+            checks["seconds_behind_master"] = sl[0].get("Seconds_Behind_Master") if sl else None
 
             mc = client.query("SHOW VARIABLES LIKE 'max_connections'")
             tc = client.query("SHOW STATUS LIKE 'Threads_connected'")
@@ -121,7 +148,7 @@ def _check_node(node: dict) -> dict:
     }
 
 
-@router.post("/diagnostics/check-all")
+@router.post("/{cluster_id}/diagnostics/check-all")
 async def diagnostics_check_all(cluster_id: int) -> list[dict]:
     _assert_cluster_exists(cluster_id)
     nodes = _get_active_nodes(cluster_id)
@@ -136,22 +163,22 @@ async def diagnostics_check_all(cluster_id: int) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 RES_CMDS = {
-    "cpu_pct":  "top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'",
-    "ram_used": "free -m | awk '/Mem:/{print $3}'",
-    "ram_total":"free -m | awk '/Mem:/{print $2}'",
+    "cpu_pct":   "top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'",
+    "ram_used":  "free -m | awk '/Mem:/{print $3}'",
+    "ram_total": "free -m | awk '/Mem:/{print $2}'",
     "disk_used": "df -m / | awk 'NR==2{print $3}'",
     "disk_total":"df -m / | awk 'NR==2{print $2}'",
 }
 
 
-def _fetch_resources_ssh(node: dict, ssh_key_path: str) -> dict:
+def _fetch_resources_ssh(node: dict) -> dict:
     results: dict[str, Any] = {}
     error: str | None = None
     try:
         with SSHClient(
             host=node["host"],
             user=node["ssh_user"],
-            key_path=ssh_key_path,
+            key_path=settings.SSH_KEY_PATH,
             port=int(node.get("ssh_port") or 22),
         ) as ssh:
             for key, cmd in RES_CMDS.items():
@@ -172,14 +199,12 @@ def _fetch_resources_ssh(node: dict, ssh_key_path: str) -> dict:
     }
 
 
-@router.post("/diagnostics/resources")
+@router.post("/{cluster_id}/diagnostics/resources")
 async def diagnostics_resources(cluster_id: int) -> list[dict]:
-    from backend.config import settings
     _assert_cluster_exists(cluster_id)
     nodes = _get_active_nodes(cluster_id)
     results = await asyncio.gather(*[
-        asyncio.to_thread(_fetch_resources_ssh, n, settings.SSH_KEY_PATH)
-        for n in nodes
+        asyncio.to_thread(_fetch_resources_ssh, n) for n in nodes
     ])
     return list(results)
 
@@ -223,7 +248,7 @@ def _fetch_vars_for_diff(node: dict) -> dict:
     }
 
 
-@router.get("/diagnostics/config-diff")
+@router.get("/{cluster_id}/diagnostics/config-diff")
 async def diagnostics_config_diff(cluster_id: int) -> dict:
     _assert_cluster_exists(cluster_id)
     nodes = _get_active_nodes(cluster_id)
@@ -234,8 +259,7 @@ async def diagnostics_config_diff(cluster_id: int) -> dict:
     diffs: dict[str, dict] = {}
     for var in VAR_NAMES_FOR_DIFF:
         vals = {nd["node_name"]: nd["variables"].get(var) for nd in node_data if not nd["error"]}
-        unique = set(vals.values())
-        if len(unique) > 1:
+        if len(set(vals.values())) > 1:
             diffs[var] = vals
 
     return {
@@ -286,7 +310,7 @@ def _fetch_node_variables(node: dict, only_key: bool) -> dict:
     }
 
 
-@router.get("/diagnostics/variables")
+@router.get("/{cluster_id}/diagnostics/variables")
 async def diagnostics_variables(
         cluster_id: int,
         node_id: Optional[int] = Query(None),
@@ -301,7 +325,7 @@ async def diagnostics_variables(
     return list(results)
 
 
-@router.get("/diagnostics/variables/all")
+@router.get("/{cluster_id}/diagnostics/variables/all")
 async def diagnostics_variables_all(
         cluster_id: int,
         node_id: Optional[int] = Query(None),
@@ -356,7 +380,7 @@ def _fetch_galera_status(node: dict) -> dict:
     }
 
 
-@router.get("/diagnostics/galera-status")
+@router.get("/{cluster_id}/diagnostics/galera-status")
 async def diagnostics_galera_status(cluster_id: int) -> list[dict]:
     _assert_cluster_exists(cluster_id)
     nodes = _get_active_nodes(cluster_id)
@@ -406,7 +430,7 @@ def _fetch_process_list(node: dict) -> dict:
     }
 
 
-@router.get("/diagnostics/process-list")
+@router.get("/{cluster_id}/diagnostics/process-list")
 async def diagnostics_process_list(
         cluster_id: int,
         node_id: Optional[int] = Query(None),
@@ -443,8 +467,6 @@ def _fetch_slow_queries(node: dict, min_query_time: float, limit: int) -> dict:
                 slow_log_enabled = False
 
             if slow_log_enabled:
-                # Build query with optional min_query_time filter.
-                # SEC_TO_TIME converts float seconds to TIME type for comparison.
                 if min_query_time > 0:
                     sql = (
                         f"SELECT * FROM mysql.slow_log "
@@ -486,7 +508,7 @@ def _fetch_slow_queries(node: dict, min_query_time: float, limit: int) -> dict:
     }
 
 
-@router.get("/diagnostics/slow-queries")
+@router.get("/{cluster_id}/diagnostics/slow-queries")
 async def diagnostics_slow_queries(
         cluster_id: int,
         node_id: Optional[int] = Query(None),
@@ -526,10 +548,10 @@ def _toggle_slow_query_log(node: dict, enable: bool) -> dict:
         }
     try:
         with DBClient(
-                host=node["host"],
-                port=int(node.get("port") or 3306),
-                user=node["db_user"],
-                encrypted_password=node["db_password"],
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
         ) as client:
             value = "ON" if enable else "OFF"
             client.execute(f"SET GLOBAL slow_query_log = {value}")
@@ -557,7 +579,7 @@ def _toggle_slow_query_log(node: dict, enable: bool) -> dict:
         }
 
 
-@router.post("/diagnostics/nodes/{node_id}/slow-query-log/toggle")
+@router.post("/{cluster_id}/diagnostics/nodes/{node_id}/slow-query-log/toggle")
 async def toggle_slow_query_log(
         cluster_id: int,
         node_id: int,
@@ -596,19 +618,14 @@ async def toggle_slow_query_log(
 
 # ── GET /nodes/{node_id}/error-log ────────────────────────────────────────────
 
-ERROR_LOG_CMD = (
-    "tail -n 500 $(mysql -N -B -e \"SELECT @@log_error\" 2>/dev/null || echo '/var/log/mysql/error.log')"
-)
-
-
-def _fetch_error_log_ssh(node: dict, ssh_key_path: str, lines: int) -> dict:
+def _fetch_error_log_ssh(node: dict, lines: int) -> dict:
     content: str | None = None
     error: str | None = None
     try:
         with SSHClient(
             host=node["host"],
             user=node["ssh_user"],
-            key_path=ssh_key_path,
+            key_path=settings.SSH_KEY_PATH,
             port=int(node.get("ssh_port") or 22),
         ) as ssh:
             cmd = (
@@ -628,18 +645,17 @@ def _fetch_error_log_ssh(node: dict, ssh_key_path: str, lines: int) -> dict:
     }
 
 
-@router.get("/nodes/{node_id}/error-log")
+@router.get("/{cluster_id}/nodes/{node_id}/error-log")
 async def node_error_log(
         cluster_id: int,
         node_id: int,
         lines: int = Query(200, ge=10, le=2000),
 ) -> dict:
-    from backend.config import settings
     _assert_cluster_exists(cluster_id)
     node = _get_node_for_cluster(node_id, cluster_id)
     if not node:
         raise HTTPException(status_code=404, detail=f"Node {node_id} not found in cluster {cluster_id}")
-    return await asyncio.to_thread(_fetch_error_log_ssh, node, settings.SSH_KEY_PATH, lines)
+    return await asyncio.to_thread(_fetch_error_log_ssh, node, lines)
 
 
 # ── GET /nodes/{node_id}/innodb-status ────────────────────────────────────────
@@ -669,7 +685,7 @@ def _fetch_innodb_status(node: dict) -> dict:
     }
 
 
-@router.get("/nodes/{node_id}/innodb-status")
+@router.get("/{cluster_id}/nodes/{node_id}/innodb-status")
 async def node_innodb_status(cluster_id: int, node_id: int) -> dict:
     _assert_cluster_exists(cluster_id)
     node = _get_node_for_cluster(node_id, cluster_id)
@@ -680,17 +696,17 @@ async def node_innodb_status(cluster_id: int, node_id: int) -> dict:
 
 # ── GET /arbitrators/{arb_id}/test-connection ─────────────────────────────────
 
-def _test_arb_connection(arb: dict, ssh_key_path: str) -> dict:
+def _test_arb_connection(arb: dict) -> dict:
+    import time
     success = False
     latency_ms: float | None = None
     error: str | None = None
     try:
-        import time
         t0 = time.perf_counter()
         with SSHClient(
             host=arb["host"],
             user=arb.get("ssh_user", "root"),
-            key_path=ssh_key_path,
+            key_path=settings.SSH_KEY_PATH,
             port=int(arb.get("ssh_port") or 22),
         ) as ssh:
             ssh.execute("echo ok")
@@ -709,14 +725,13 @@ def _test_arb_connection(arb: dict, ssh_key_path: str) -> dict:
     }
 
 
-@router.get("/arbitrators/{arb_id}/test-connection")
+@router.get("/{cluster_id}/arbitrators/{arb_id}/test-connection")
 async def arb_test_connection(cluster_id: int, arb_id: int) -> dict:
-    from backend.config import settings
     _assert_cluster_exists(cluster_id)
-    arb = get_arbitrator_by_id(arb_id)
-    if not arb or arb["cluster_id"] != cluster_id:
+    arb = _get_arbitrator_by_id(arb_id, cluster_id)
+    if not arb:
         raise HTTPException(status_code=404, detail=f"Arbitrator {arb_id} not found")
-    return await asyncio.to_thread(_test_arb_connection, arb, settings.SSH_KEY_PATH)
+    return await asyncio.to_thread(_test_arb_connection, arb)
 
 
 # ── GET /arbitrators/{arb_id}/log ─────────────────────────────────────────────
@@ -729,14 +744,14 @@ GARB_LOG_PATHS = [
 ]
 
 
-def _fetch_arb_log_ssh(arb: dict, ssh_key_path: str, lines: int) -> dict:
+def _fetch_arb_log_ssh(arb: dict, lines: int) -> dict:
     content: str | None = None
     error: str | None = None
     try:
         with SSHClient(
             host=arb["host"],
             user=arb.get("ssh_user", "root"),
-            key_path=ssh_key_path,
+            key_path=settings.SSH_KEY_PATH,
             port=int(arb.get("ssh_port") or 22),
         ) as ssh:
             for path in GARB_LOG_PATHS:
@@ -745,7 +760,9 @@ def _fetch_arb_log_ssh(arb: dict, ssh_key_path: str, lines: int) -> dict:
                     content = ssh.execute(f"tail -n {lines} {path}")
                     break
             if content is None:
-                content = ssh.execute(f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null || echo 'Log not found'")
+                content = ssh.execute(
+                    f"journalctl -u garbd -n {lines} --no-pager 2>/dev/null || echo 'Log not found'"
+                )
     except SSHError as exc:
         error = str(exc)
     except Exception as exc:
@@ -758,15 +775,14 @@ def _fetch_arb_log_ssh(arb: dict, ssh_key_path: str, lines: int) -> dict:
     }
 
 
-@router.get("/arbitrators/{arb_id}/log")
+@router.get("/{cluster_id}/arbitrators/{arb_id}/log")
 async def arb_log(
         cluster_id: int,
         arb_id: int,
         lines: int = Query(200, ge=10, le=2000),
 ) -> dict:
-    from backend.config import settings
     _assert_cluster_exists(cluster_id)
-    arb = get_arbitrator_by_id(arb_id)
-    if not arb or arb["cluster_id"] != cluster_id:
+    arb = _get_arbitrator_by_id(arb_id, cluster_id)
+    if not arb:
         raise HTTPException(status_code=404, detail=f"Arbitrator {arb_id} not found")
-    return await asyncio.to_thread(_fetch_arb_log_ssh, arb, settings.SSH_KEY_PATH, lines)
+    return await asyncio.to_thread(_fetch_arb_log_ssh, arb, lines)
