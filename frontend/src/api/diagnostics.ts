@@ -1,6 +1,6 @@
 import { api } from '@/api/client'
 
-// ── Config diff ────────────────────────────────────────────────────────────
+// ── Config diff ──────────────────────────────────────────────────────────────────
 export type ConfigDiffValueEntry = {
     node_id: number
     node_name: string
@@ -20,7 +20,7 @@ export type ConfigDiffResponse = {
     diff_found: boolean
 }
 
-// ── Variables ──────────────────────────────────────────────────────────────
+// ── Variables ──────────────────────────────────────────────────────────────────
 // Backend: GET /diagnostics/variables?node_id=N  (single node)
 //          GET /diagnostics/variables/all        (all enabled nodes — used by VariablesPanel)
 export type KVRow = {
@@ -40,10 +40,13 @@ interface RawVariablesResult {
     error?: string | null
 }
 
-// ── Check all (connections) ────────────────────────────────────────────────
+// ── Check all (connections) ────────────────────────────────────────────────────────────
 export type ConnectionCheckRow = {
     node_id: number
+    // nodes: backend returns node_name; arbitrators: backend returns arbitrator_name
+    // Both are normalised to node_name in the checkAll transformer below.
     node_name: string
+    arbitrator_name?: string   // raw field kept for typing completeness
     host: string
     role: 'node' | 'arbitrator'
     ssh_ok: boolean | null
@@ -61,7 +64,42 @@ export type CheckAllResponse = {
     arbitrators: ConnectionCheckRow[]
 }
 
-// ── Resources ──────────────────────────────────────────────────────────────
+// Raw shapes returned by backend (arbitrators use arbitrator_id / arbitrator_name)
+interface RawArbCheckRow {
+    arbitrator_id: number
+    arbitrator_name: string
+    host: string
+    role: 'arbitrator'
+    ssh_ok: boolean | null
+    latency_ssh_ms: number | null
+    ssh_error: string | null
+    garbd_running?: boolean | null
+}
+
+interface RawCheckAllResponse {
+    nodes: ConnectionCheckRow[]
+    arbitrators: RawArbCheckRow[]
+}
+
+function normalizeArbRow(raw: RawArbCheckRow): ConnectionCheckRow {
+    return {
+        node_id:        raw.arbitrator_id,
+        node_name:      raw.arbitrator_name,   // ← normalise to node_name
+        arbitrator_name: raw.arbitrator_name,
+        host:           raw.host,
+        role:           'arbitrator',
+        ssh_ok:         raw.ssh_ok,
+        db_ok:          null,
+        ssh_latency_ms: raw.latency_ssh_ms,
+        db_latency_ms:  null,
+        ssh_error:      raw.ssh_error,
+        db_error:       null,
+        garbd_running:  raw.garbd_running ?? null,
+        latency_ssh_ms: raw.latency_ssh_ms,
+    }
+}
+
+// ── Resources ──────────────────────────────────────────────────────────────────
 export type NodeResourceRow = {
     node_id: number
     node_name: string
@@ -101,7 +139,7 @@ function normalizeResourceNode(raw: RawResourceNode): NodeResourceRow {
     }
 }
 
-// ── Arbitrator log ─────────────────────────────────────────────────────────
+// ── Arbitrator log ──────────────────────────────────────────────────────────────────
 export type ArbitratorLogResult = {
     arbitrator_id: number
     arbitrator_name: string
@@ -111,14 +149,14 @@ export type ArbitratorLogResult = {
     error: string | null
 }
 
-// ── Arbitrator test connection ─────────────────────────────────────────────
+// ── Arbitrator test connection ────────────────────────────────────────────────────────────
 export type ArbitratorConnectionResult = {
     ssh_ok: boolean
     garbd_running: boolean
     latency_ssh_ms: number | null
 }
 
-// ── Galera status ──────────────────────────────────────────────────────────
+// ── Galera status ──────────────────────────────────────────────────────────────────
 export type GaleraStatusNodeResult = {
     node_id: number
     node_name: string
@@ -127,7 +165,7 @@ export type GaleraStatusNodeResult = {
     error: string | null
 }
 
-// ── Process list ───────────────────────────────────────────────────────────
+// ── Process list ──────────────────────────────────────────────────────────────────
 export type ProcessRow = {
     id: number
     user: string
@@ -146,7 +184,7 @@ export type ProcessListNodeResult = {
     processes: ProcessRow[]
 }
 
-// ── Slow query log ─────────────────────────────────────────────────────────
+// ── Slow query log ──────────────────────────────────────────────────────────────────
 export type SlowQueryRow = {
     start_time: string
     user_host: string
@@ -166,7 +204,7 @@ export type SlowQueryNodeResult = {
     error: string | null
 }
 
-// ── Error log ──────────────────────────────────────────────────────────────
+// ── Error log ──────────────────────────────────────────────────────────────────
 export type ErrorLogResult = {
     node_id: number
     node_name: string
@@ -200,8 +238,11 @@ export const diagnosticsApi = {
 
     checkAll: (clusterId: number): Promise<CheckAllResponse> =>
         api
-            .post<CheckAllResponse>(`/api/clusters/${clusterId}/diagnostics/check-all`)
-            .then((r) => r.data),
+            .post<RawCheckAllResponse>(`/api/clusters/${clusterId}/diagnostics/check-all`)
+            .then((r) => ({
+                nodes:        r.data.nodes,
+                arbitrators:  r.data.arbitrators.map(normalizeArbRow),
+            })),
 
     resources: (clusterId: number): Promise<NodeResourceRow[]> =>
         api
