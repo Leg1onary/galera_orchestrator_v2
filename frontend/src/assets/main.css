@@ -3,6 +3,9 @@
    ============================================================ */
 @layer base, primevue;
 
+/* Settings tab shared styles (outside @layer — global utility) */
+@import './settings-shared.css';
+
 @layer base {
 
 /* ============================================================
@@ -625,14 +628,14 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   z-index: 0;
 }
 
-/* ─── Inner content wrapper — УВЕЛИЧЕННЫЙ PADDING ─── */
+/* ─── Inner content wrapper ─── */
 .p-toast .p-toast-message .p-toast-message-content {
   position: relative !important;
   z-index: 1 !important;
   display: flex !important;
   align-items: center !important;
   gap: var(--space-4) !important;
-  padding: var(--space-5) var(--space-5) var(--space-5) var(--space-5) !important;
+  padding: var(--space-5) !important;
 }
 
 /* ─── Icon container ─── */
@@ -649,7 +652,6 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   border: 1px solid var(--toast-icon-border, rgba(45,212,191,0.2)) !important;
   color: var(--toast-color, #2dd4bf) !important;
   animation: toast-icon-pop 420ms var(--ease-out-expo) 80ms both;
-  margin-top: 0 !important;
   align-self: flex-start !important;
   margin-top: 2px !important;
 }
