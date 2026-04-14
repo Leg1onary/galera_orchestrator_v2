@@ -38,7 +38,7 @@ router = APIRouter(
 )
 
 
-# ── Request body ───────────────────────────────────────────────────────────────
+# ── Request body ──────────────────────────────────────────────────────────────
 
 class RollingRestartBody(BaseModel):
     node_order: Optional[list[int]] = Field(
@@ -103,6 +103,7 @@ async def maintenance_nodes(cluster_id: int) -> list[dict]:
             "wsrep_local_state_comment": live.wsrep_local_state_comment if live else None,
             "readonly":                  live.readonly                  if live else None,
             "maintenance_drift":         live.maintenance_drift         if live else None,
+            "wsrep_desync":              live.wsrep_desync              if live else False,
             "ssh_ok":                    live.ssh_ok                    if live else None,
             "db_ok":                     live.db_ok                     if live else None,
             "last_check_ts":             live.last_check_ts.isoformat() if live and live.last_check_ts else None,
