@@ -3,10 +3,164 @@
    ============================================================ */
 @layer base, primevue;
 
-/* Settings tab shared styles (outside @layer — global utility) */
-@import './settings-shared.css';
-
 @layer base {
+
+/* Settings tab shared styles */
+/* ============================================================
+ * settings-shared.css — inlined into @layer base
+ * Shared styles for Settings tab components:
+ *   ClustersTab, NodesTab, ArbitratorsTab, DatacentersTab
+ * ============================================================ */
+
+/* ── Tab layout ── */
+.tab-content  { display: flex; flex-direction: column; gap: var(--space-5); }
+.tab-toolbar  { display: flex; justify-content: flex-end; }
+
+/* ── Add button ── */
+.btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(45, 212, 191, 0.1);
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.btn-add:hover {
+  background: rgba(45, 212, 191, 0.18);
+  border-color: rgba(45, 212, 191, 0.4);
+}
+.btn-add .pi { font-size: 0.75rem; }
+
+/* ── Table wrapper ── */
+.s-table-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+/* ── Table base ── */
+.s-table { width: 100%; border-collapse: collapse; }
+
+.s-table__th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+  border-bottom: 1px solid var(--color-border-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+.s-table__th--actions { width: 72px; }
+
+.s-table__sort-icon {
+  font-size: 0.65rem;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+
+.s-table__row {
+  border-bottom: 1px solid var(--color-border-muted);
+  transition: background 120ms ease;
+}
+.s-table__row:last-child { border-bottom: none; }
+.s-table__row:hover { background: rgba(255, 255, 255, 0.03); }
+
+.s-table__td {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  vertical-align: middle;
+}
+.s-table__td--name    { color: var(--color-text); font-weight: 500; }
+.s-table__td--actions { text-align: right; }
+
+.s-table__empty {
+  padding: var(--space-12) var(--space-4);
+  text-align: center;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+/* ── Row action buttons ── */
+.row-actions {
+  display: flex;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+
+.row-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-size: 0.8rem;
+}
+.row-btn--edit   { color: var(--color-text-faint); }
+.row-btn--edit:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-dim);
+}
+.row-btn--delete { color: var(--color-text-faint); }
+.row-btn--delete:hover {
+  color: var(--color-error);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* ── Mono cell ── */
+.mono-cell {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ── Enabled/Disabled status badge (settings tables) ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.status-badge--yes { background: rgba(74, 222, 128, 0.1); color: var(--color-synced); }
+.status-badge--no  { background: rgba(255, 255, 255, 0.05); color: var(--color-text-faint); }
+
+/* ── Skeleton loader ── */
+.skeleton {
+  display: inline-block;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: s-shimmer 1.5s ease-in-out infinite;
+}
+.skeleton-text { width: 120px; height: 14px; }
+
+@keyframes s-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
 
 /* ============================================================
    DESIGN TOKENS
@@ -60,25 +214,28 @@
   --color-offline-dim:  rgba(248, 113, 113, 0.10);
   --color-offline-glow: rgba(248, 113, 113, 0.25);
 
-  --color-success:  #4ade80;
-  --color-warning:  #fbbf24;
-  --color-error:    #f87171;
-  --color-info:     #60a5fa;
+  /* ── Semantic aliases — aliased to status tokens to avoid silent divergence ── */
+  --color-success: var(--color-synced);
+  --color-warning: var(--color-readonly);
+  --color-error:   var(--color-offline);
+  --color-info:    var(--color-donor);
 
   /* ── Typography ── */
   --font-body:    'Inter', system-ui, -apple-system, sans-serif;
   --font-mono:    'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
   --font-display: 'Inter', system-ui, sans-serif;
 
-  /* ── Type scale (compact, console-appropriate) ── */
-  --text-xs:   0.6875rem; /* 11px */
-  --text-sm:   0.8125rem; /* 13px */
-  --text-base: 0.875rem;  /* 14px  — base for dense dashboard UI */
-  --text-md:   0.9375rem; /* 15px */
-  --text-lg:   1rem;      /* 16px */
-  --text-xl:   1.125rem;  /* 18px */
-  --text-2xl:  1.375rem;  /* 22px */
-  --text-3xl:  1.75rem;   /* 28px */
+  /* ── Type scale (compact, console-appropriate) ──
+     --text-xs floor: 12px (absolute minimum for readable text on dark bg)
+     --text-base: 14px (standard for dense dashboard UI) */
+  --text-xs:   0.75rem;    /* 12px — min floor */
+  --text-sm:   0.8125rem;  /* 13px */
+  --text-base: 0.875rem;   /* 14px  — base for dense dashboard UI */
+  --text-md:   0.9375rem;  /* 15px */
+  --text-lg:   1rem;       /* 16px */
+  --text-xl:   1.125rem;   /* 18px */
+  --text-2xl:  1.375rem;   /* 22px */
+  --text-3xl:  1.75rem;    /* 28px */
 
   /* ── Spacing (4px grid) ── */
   --space-1:  0.25rem;
@@ -173,6 +330,12 @@
   --p-border-radius-md: var(--radius-md);
   --p-border-radius-lg: var(--radius-lg);
   --p-border-radius-xl: var(--radius-xl);
+
+  /* ── Button padding tokens ── */
+  --p-button-padding-x: var(--space-4);
+  --p-button-padding-y: 0.4375rem; /* 7px */
+  --p-button-sm-padding-x: var(--space-3);
+  --p-button-sm-padding-y: 0.3125rem; /* 5px */
 }
 
 /* ============================================================
@@ -221,10 +384,17 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   color: var(--color-primary);
 }
 
+/* WebKit scrollbar */
 ::-webkit-scrollbar         { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track   { background: transparent; }
 ::-webkit-scrollbar-thumb   { background: rgba(255,255,255,0.08); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
 
 /* ============================================================
    UTILITY CLASSES
@@ -347,14 +517,7 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   letter-spacing: 0.01em;
   border-radius: var(--radius-md);
   transition: all var(--transition-normal);
-}
-
-.p-button-label {
-  padding: 5px;
-}
-
-.p-button-icon {
-  padding-left: 5px;
+  padding: 0.4375rem var(--space-4); /* 7px 16px — compact but breathable */
 }
 
 /* Primary variant: ghost teal */
@@ -472,6 +635,13 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   padding: var(--space-5);
 }
 
+/* Unified footer padding for all dialogs (incl. ConfirmDialog) */
+.p-dialog-footer,
+.p-confirmdialog .p-dialog-footer {
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-muted);
+}
+
 /* ── DataTable ── */
 .p-datatable {
   font-size: var(--text-sm);
@@ -552,8 +722,6 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
 
 /* ============================================================
    TOAST — Premium redesign
-   Глубокая тёмная подложка + цветной accent-полоса +
-   свечение по severity + анимация влета/вылета
    ============================================================ */
 
 /* ─── Container ─── */
@@ -771,12 +939,6 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
     0 20px 60px rgba(0,0,0,0.7),
     0 4px 16px rgba(0,0,0,0.5),
     0 0 40px rgba(96,165,250,0.06);
-}
-
-/* ─── Confirm dialog ─── */
-.p-confirmdialog .p-dialog-footer {
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--color-border-muted);
 }
 
 /* ============================================================
