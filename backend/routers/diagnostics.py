@@ -1088,13 +1088,15 @@ def _fetch_slow_queries(node: dict) -> dict:
                     "error":            None,
                 }
 
+            # NOTE: DATE_FORMAT / TIME_FORMAT use %% to avoid Python format() confusion
+            # when the query is passed to PyMySQL which also uses % for param substitution.
             rows = client.query(
                 """
                 SELECT
-                    DATE_FORMAT(start_time, '%Y-%m-%dT%H:%i:%S') AS start_time,
+                    DATE_FORMAT(start_time, '%%Y-%%m-%%dT%%H:%%i:%%S') AS start_time,
                     user_host,
-                    TIME_FORMAT(query_time,  '%H:%i:%s') AS query_time,
-                    TIME_FORMAT(lock_time,   '%H:%i:%s') AS lock_time,
+                    TIME_FORMAT(query_time,  '%%H:%%i:%%s') AS query_time,
+                    TIME_FORMAT(lock_time,   '%%H:%%i:%%s') AS lock_time,
                     rows_sent,
                     rows_examined,
                     db,
@@ -1407,6 +1409,9 @@ async def disk_usage(
 # ── GET /diagnostics/active-transactions ─────────────────────────────────────────────
 # Improvement #15: active transactions from information_schema.INNODB_TRX
 # older than min_age_sec seconds.
+#
+# FIX: DATE_FORMAT uses %% to prevent Python / PyMySQL from interpreting
+#      %Y, %H, %i, %S as Python format characters when params tuple is passed.
 
 def _fetch_active_transactions(node: dict, min_age_sec: int) -> dict:
     if not node.get("db_user") or not node.get("db_password"):
@@ -1427,8 +1432,8 @@ def _fetch_active_transactions(node: dict, min_age_sec: int) -> dict:
                 """
                 SELECT
                     t.trx_id,
-                    DATE_FORMAT(t.trx_started, '%Y-%m-%dT%H:%i:%S') AS trx_started,
-                    TIMESTAMPDIFF(SECOND, t.trx_started, NOW())      AS trx_age_sec,
+                    DATE_FORMAT(t.trx_started, '%%Y-%%m-%%dT%%H:%%i:%%S') AS trx_started,
+                    TIMESTAMPDIFF(SECOND, t.trx_started, NOW())            AS trx_age_sec,
                     t.trx_state,
                     t.trx_mysql_thread_id,
                     t.trx_query,
@@ -1450,17 +1455,17 @@ def _fetch_active_transactions(node: dict, min_age_sec: int) -> dict:
             "node_name":    node["name"],
             "transactions": [
                 {
-                    "trx_id":             r.get("trx_id"),
-                    "trx_started":        r.get("trx_started"),
-                    "trx_age_sec":        r.get("trx_age_sec"),
-                    "trx_state":          r.get("trx_state"),
+                    "trx_id":              r.get("trx_id"),
+                    "trx_started":         r.get("trx_started"),
+                    "trx_age_sec":         r.get("trx_age_sec"),
+                    "trx_state":           r.get("trx_state"),
                     "trx_mysql_thread_id": r.get("trx_mysql_thread_id"),
-                    "trx_query":          r.get("trx_query"),
-                    "trx_tables_locked":  r.get("trx_tables_locked"),
-                    "trx_rows_locked":    r.get("trx_rows_locked"),
-                    "trx_rows_modified":  r.get("trx_rows_modified"),
-                    "user":               r.get("user"),
-                    "host":               r.get("host"),
+                    "trx_query":           r.get("trx_query"),
+                    "trx_tables_locked":   r.get("trx_tables_locked"),
+                    "trx_rows_locked":     r.get("trx_rows_locked"),
+                    "trx_rows_modified":   r.get("trx_rows_modified"),
+                    "user":                r.get("user"),
+                    "host":                r.get("host"),
                 }
                 for r in rows
             ],
@@ -1478,7 +1483,7 @@ def _fetch_active_transactions(node: dict, min_age_sec: int) -> dict:
             "node_id":      node["id"],
             "node_name":    node["name"],
             "transactions": [],
-            "error":        str(exc),
+            "error":        f"Unexpected error querying {node['host']}:{node.get('port', 3306)}: {exc}",
         }
 
 
@@ -1713,4 +1718,3 @@ async def config_health(cluster_id: int) -> list[dict]:
             output.append(result)
 
     return output
-
