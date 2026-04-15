@@ -83,13 +83,32 @@ export interface TestConnectionResult {
     error: string | null               // единое поле ошибки (не ssh_error/db_error)
 }
 
+// ── Deadlock parsed (#16) ──────────────────────────────────────────────────────────────────────
+
+export interface DeadlockTransaction {
+    id: string | null           // transaction ID
+    query: string | null        // last SQL query (truncated to 200 chars)
+    table: string | null        // locked table name
+    lock_type: string | null    // RECORD | TABLE
+    lock_mode: string | null    // X | S | X,GAP | X,REC_NOT_GAP ...
+    waiting: boolean | null     // true = waiting for lock, false = holds lock
+}
+
+export interface DeadlockParsed {
+    ts: string | null                       // '2026-04-10 14:23:01'
+    transaction_a: DeadlockTransaction | null
+    transaction_b: DeadlockTransaction | null
+    victim: string | null                   // transaction ID of rolled-back victim
+}
+
 // GET /api/clusters/{cluster_id}/nodes/{node_id}/innodb-status
-// backend: get_innodb_status() → full_status / latest_deadlock / has_deadlock
+// backend: get_innodb_status() → full_status / latest_deadlock / has_deadlock / deadlock_parsed
 export interface InnoDbStatus {
     node_id: number
-    full_status: string                // было 'raw' — не совпадало с бэкендом
-    latest_deadlock: string | null     // было 'deadlock_section'
-    has_deadlock: boolean              // было 'parsed_at' — поле другое
+    full_status: string
+    latest_deadlock: string | null
+    has_deadlock: boolean
+    deadlock_parsed: DeadlockParsed | null  // null если нет дедлока или парсинг не удался
 }
 
 export interface NodeActionResponse {
@@ -129,7 +148,7 @@ export interface RejoinNodeResponse {
     after:   WsrepSnapshot
 }
 
-// ── SST Status (#11) ───────────────────────────────────────────────────────────────────
+// ── SST Status (#11) ───────────────────────────────────────────────────────────────────────────────────────
 // GET /api/clusters/{cluster_id}/nodes/sst-status
 export interface SstStatusItem {
     node_id: number
@@ -146,7 +165,7 @@ export interface RestartSstResponse {
     message: string
 }
 
-// ── Flush Operations (#12) ────────────────────────────────────────────────────────────
+// ── Flush Operations (#12) ─────────────────────────────────────────────────────────────────────────────────
 // POST /api/clusters/{cluster_id}/nodes/{node_id}/flush
 export type FlushOperation = 'logs' | 'tables_read_lock' | 'unlock_tables'
 
@@ -217,7 +236,7 @@ export const nodesApi = {
             )
             .then((r) => r.data),
 
-    // ── SST (#11) ───────────────────────────────────────────────────────────────────────────
+    // ── SST (#11) ──────────────────────────────────────────────────────────────────────────────────────
     // GET /api/clusters/{cluster_id}/nodes/sst-status
     getSstStatus: (clusterId: number) =>
         api
@@ -232,7 +251,7 @@ export const nodesApi = {
             )
             .then((r) => r.data),
 
-    // ── Flush (#12) ───────────────────────────────────────────────────────────────────────────
+    // ── Flush (#12) ──────────────────────────────────────────────────────────────────────────────────
     // POST /api/clusters/{cluster_id}/nodes/{node_id}/flush
     flush: (clusterId: number, nodeId: number, operation: FlushOperation) =>
         api
