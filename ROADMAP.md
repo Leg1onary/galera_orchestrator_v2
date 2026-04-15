@@ -27,16 +27,18 @@
 | 15 | **Активные транзакции** | `information_schema.INNODB_TRX` — транзакции старше N секунд, с кнопкой Kill. Отдельно от processlist. | `diagnostics.py`, `diagnostics.ts`, `ActiveTransactionsPanel.vue` |
 | 16 | **Deadlock история** | Парсинг последнего дедлока из `SHOW ENGINE INNODB STATUS`, отображение victim/blocker trx в читаемом виде. | `diagnostics.py`, `diagnostics.ts`, `DeadlockPanel.vue` |
 | 17 | **Config Health Check** | Проверка ключевых параметров (`innodb_buffer_pool_size` ~70% RAM, `max_connections`, `wsrep_slave_threads` >= CPU cores) — статусы ok/warn/error с рекомендациями. | `diagnostics.py`, `diagnostics.ts`, `ConfigHealthPanel.vue` |
+| 20 | **Advisor panel** | `GET /api/clusters/{cluster_id}/advisor` — детерминированные правила поверх существующих диагностических данных. Карточки проблем (severity, evidence, recommended action). Полная панель в Diagnostics + виджет-summary на Overview. | `advisor.py`, `advisor.ts`, `AdvisorPanel.vue`, `AdvisorWidget.vue` |
 
 ---
 
-## 🚧 В работе / Запланировано
+## 🎉 Все запланированные улучшения реализованы!
 
-### Блок — Smart Advisor
+Весь ROADMAP (#1–#20) закрыт. Проект вышел за рамки MVP ТЗ по следующим направлениям:
 
-| # | Фича | Описание | Статус |
-|---|---|---|---|
-| 20 | **Advisor panel** | `GET /api/clusters/{cluster_id}/advisor` — детерминированные правила поверх существующих диагностических данных. Карточки проблем (severity, evidence, recommended action) с кнопками действий. Виджет на Overview + полная панель в Diagnostics. | 🔲 Запланировано |
+- **Диагностика**: Config Health, Disk Usage, Active Transactions, Deadlock History, Slow Query Log с фильтрами
+- **Аварийные инструменты**: Kill Process/All, Rejoin, Bootstrap Wizard, Purge BinLogs, Desync/Resync, Stuck SST, FLUSH
+- **Мониторинг**: Replication Lag Alert, SST Status Detector
+- **Smart Advisor**: агрегация диагностических данных в карточки рекомендаций с severity/evidence/actions
 
 ---
 
@@ -58,5 +60,4 @@
 **Репозиторий:** `Leg1onary/galera_orchestrator_v2`  
 **Стек:** Python 3.11 / FastAPI / SQLAlchemy Core / SQLite / paramiko / pymysql + Vue 3 / Vite / Pinia / TanStack Vue Query / PrimeVue  
 **Эталон:** `galera-orchestrator-v2-final-spec.docx` — базовый контракт, всё новое помечается как "вне MVP"  
-**Текущая задача:** все аварийные инструменты, мониторинг и конфигурационные проверки (#1–#17) реализованы; следующий шаг — Advisor (#20)  
-**Следующий шаг:** #20 — Advisor panel (backend endpoint + AdvisorPanel.vue + Overview widget)
+**Статус:** ВСЕ пункты ROADMAP (#1–#20) реализованы. Следующий шаг — bug fixing или новые фичи по запросу.
