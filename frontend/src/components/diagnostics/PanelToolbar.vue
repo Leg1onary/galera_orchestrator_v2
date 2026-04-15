@@ -57,8 +57,8 @@ const emit = defineEmits<{
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  gap: var(--space-4);
-  flex-wrap: nowrap;
+  gap: var(--space-3);
+  flex-wrap: wrap;
   min-height: 44px;
 }
 
@@ -66,7 +66,8 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .toolbar-title {
@@ -76,6 +77,8 @@ const emit = defineEmits<{
   letter-spacing: -0.01em;
   font-family: var(--font-mono);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar-ts {
@@ -87,6 +90,7 @@ const emit = defineEmits<{
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .toolbar-ts .pi {
@@ -97,10 +101,11 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
-/* ToggleSwitch контейнер — без overflow hidden, жёсткий flex */
 .auto-row {
   display: inline-flex;
   align-items: center;
@@ -152,7 +157,6 @@ const emit = defineEmits<{
   to { transform: rotate(360deg); }
 }
 
-/* ── PrimeVue ToggleSwitch глобальный фикс внутри scoped ── */
 :deep(.p-toggleswitch) {
   flex-shrink: 0;
   display: inline-flex;

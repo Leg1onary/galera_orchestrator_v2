@@ -30,7 +30,7 @@
             class="age-input"
             @update:model-value="onAgeChange"
         />
-        <span class="age-unit">sec</span>
+        <span class="age-unit">s</span>
       </div>
     </PanelToolbar>
 
@@ -257,7 +257,6 @@ function stateBadgeClass(state: string): string {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: 15px;
 }
 
 .node-select {
