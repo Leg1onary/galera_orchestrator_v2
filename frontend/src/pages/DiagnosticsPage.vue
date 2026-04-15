@@ -276,6 +276,9 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+  /* Гарантируем что страница не выходит за пределы app-content */
+  width: 100%;
+  min-width: 0;
 }
 
 /* Page header */
@@ -383,10 +386,15 @@ watch(
 
 /* Inner shell */
 .inner-shell {
+  /* Занимаем всю доступную ширину, не выходим за неё */
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
-  overflow: hidden;
+  /* overflow: hidden обрезало контент — заменяем на clip по X, scroll по Y */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 /* Sub-tab header */
@@ -478,6 +486,8 @@ watch(
 /* Panel area + transition */
 .panel-area {
   padding: var(--space-5);
+  /* Широкие таблицы скроллятся горизонтально внутри, не ломая layout */
+  overflow-x: auto;
 }
 
 .panel-fade-enter-active {
