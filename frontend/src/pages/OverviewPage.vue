@@ -4,6 +4,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
 import { useClusterLog } from '@/composables/useClusterLog'
 import ClusterSummaryBar from '@/components/overview/ClusterSummaryBar.vue'
+import AdvisorWidget from '@/components/overview/AdvisorWidget.vue'
 import NodeCard from '@/components/overview/NodeCard.vue'
 import NodeCardSkeleton from '@/components/overview/NodeCardSkeleton.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
@@ -67,6 +68,8 @@ const maxRecvQueue = computed(() => {
         :cluster-id="clusterId!"
         :is-loading="isLoading"
       />
+
+      <AdvisorWidget />
 
       <ReplicationLagAlert :nodes="nodes" />
 
