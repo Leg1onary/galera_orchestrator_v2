@@ -349,6 +349,14 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.2; font-weight: 600; }
   transition: all var(--transition-normal);
 }
 
+.p-button-label {
+  padding: 5px;
+}
+
+.p-button-icon {
+  padding-left: 5px;
+}
+
 /* Primary variant: ghost teal */
 .p-button-primary.p-button-outlined,
 .p-button:not(.p-button-text):not(.p-button-outlined):not(.p-button-link):not([class*='p-button-severity']) {
