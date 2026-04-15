@@ -1,62 +1,63 @@
 <template>
   <div class="tab-content">
     <div class="tab-toolbar">
-      <button class="btn-add" @click="openCreate">
-        <i class="pi pi-plus" />
-        Add cluster
-      </button>
+      <Button
+        icon="pi pi-plus"
+        label="Add cluster"
+        size="small"
+        class="btn-add-pv"
+        @click="openCreate"
+      />
     </div>
 
-    <!-- ── Table ── -->
-    <div class="s-table-wrap">
-      <table class="s-table">
-        <thead>
-          <tr>
-            <th class="s-table__th">Name <i class="pi pi-sort-alt s-table__sort-icon" /></th>
-            <th class="s-table__th">Contour</th>
-            <th class="s-table__th">Description</th>
-            <th class="s-table__th s-table__th--actions" />
-          </tr>
-        </thead>
-        <tbody>
-          <!-- Loading skeleton -->
-          <template v-if="isLoading">
-            <tr v-for="i in 3" :key="i" class="s-table__row">
-              <td><span class="skeleton skeleton-text" /></td>
-              <td><span class="skeleton skeleton-text" /></td>
-              <td><span class="skeleton skeleton-text" /></td>
-              <td />
-            </tr>
+    <div class="st-wrap">
+      <DataTable
+        :value="items ?? []"
+        :loading="isLoading"
+        sort-field="name"
+        :sort-order="1"
+        row-hover
+        class="settings-table"
+        data-key="id"
+      >
+        <template #empty>
+          <div class="st-empty">
+            <i class="pi pi-server" />
+            <span>No clusters configured.</span>
+          </div>
+        </template>
+
+        <Column field="name" header="Name" :sortable="true" style="min-width:160px">
+          <template #body="{ data }">
+            <span class="cell-name">{{ data.name }}</span>
           </template>
+        </Column>
 
-          <!-- Empty -->
-          <tr v-else-if="!items?.length">
-            <td colspan="4" class="s-table__empty">
-              <i class="pi pi-server" style="font-size:1.5rem; opacity:0.3; display:block; margin-bottom:0.5rem" />
-              No clusters configured.
-            </td>
-          </tr>
+        <Column field="contour_name" header="Contour" style="min-width:120px">
+          <template #body="{ data }">
+            <span class="cell-mono">{{ data.contour_name ?? data.contour_id }}</span>
+          </template>
+        </Column>
 
-          <!-- Rows -->
-          <tr v-else v-for="row in items" :key="row.id" class="s-table__row">
-            <td class="s-table__td s-table__td--name">{{ row.name }}</td>
-            <td class="s-table__td">
-              <span class="mono-cell">{{ row.contour_name ?? row.contour_id }}</span>
-            </td>
-            <td class="s-table__td">{{ row.description || '—' }}</td>
-            <td class="s-table__td s-table__td--actions">
-              <div class="row-actions">
-                <button class="row-btn row-btn--edit" @click="openEdit(row)" title="Edit">
-                  <i class="pi pi-pencil" />
-                </button>
-                <button class="row-btn row-btn--delete" @click="openDelete(row)" title="Delete">
-                  <i class="pi pi-trash" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        <Column field="description" header="Description">
+          <template #body="{ data }">
+            <span class="cell-muted">{{ data.description || '—' }}</span>
+          </template>
+        </Column>
+
+        <Column header="" style="width:96px; text-align:right">
+          <template #body="{ data }">
+            <div class="row-actions">
+              <button class="row-btn row-btn--edit" title="Edit" @click="openEdit(data)">
+                <i class="pi pi-pencil" />
+              </button>
+              <button class="row-btn row-btn--delete" title="Delete" @click="openDelete(data)">
+                <i class="pi pi-trash" />
+              </button>
+            </div>
+          </template>
+        </Column>
+      </DataTable>
     </div>
 
     <EntityFormModal
@@ -82,8 +83,12 @@
   </div>
 </template>
 
+
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Button from 'primevue/button'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import EntityFormModal, { type FormField } from './EntityFormModal.vue'
@@ -175,5 +180,68 @@ async function handleDelete() {
 </script>
 
 <style scoped>
-/* All shared styles live in assets/settings-shared.css */
+.tab-content { display: flex; flex-direction: column; gap: var(--space-5); }
+.tab-toolbar { display: flex; justify-content: flex-end; }
+
+.btn-add-pv { /* handled by global .p-button */ }
+
+.st-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* DataTable overrides */
+:deep(.settings-table .p-datatable-table-container) { border: none; box-shadow: none; border-radius: 0; }
+:deep(.settings-table .p-datatable-thead > tr > th) {
+  padding: var(--space-4) var(--space-6) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  white-space: nowrap;
+  user-select: none;
+}
+:deep(.settings-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-4) var(--space-6) !important;
+  border-bottom: 1px solid var(--color-border-muted) !important;
+  vertical-align: middle;
+}
+:deep(.settings-table .p-datatable-tbody > tr:last-child > td) { border-bottom: none !important; }
+:deep(.settings-table .p-datatable-tbody > tr:hover > td) {
+  background: rgba(45,212,191,0.04) !important;
+}
+:deep(.settings-table .p-datatable-tbody > tr) { background: var(--color-surface); }
+
+/* Cells */
+.cell-name  { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
+.cell-mono  { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-muted { font-size: var(--text-sm); color: var(--color-text-muted); }
+
+/* Row actions */
+.row-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+.row-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  border: none; background: transparent;
+  cursor: pointer; transition: all 150ms ease;
+  font-size: 0.8rem;
+}
+.row-btn--edit   { color: var(--color-text-faint); }
+.row-btn--edit:hover   { color: var(--color-primary); background: var(--color-primary-dim); }
+.row-btn--delete { color: var(--color-text-faint); }
+.row-btn--delete:hover { color: var(--color-error); background: rgba(248,113,113,0.1); }
+
+/* Empty state */
+.st-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-3); padding: var(--space-16) var(--space-4);
+  color: var(--color-text-faint); font-size: var(--text-sm);
+}
+.st-empty .pi { font-size: 1.75rem; opacity: 0.25; }
 </style>

@@ -1,71 +1,77 @@
 <template>
   <div class="tab-content">
     <div class="tab-toolbar">
-      <button class="btn-add" @click="openCreate">
-        <i class="pi pi-plus" />
-        Add arbitrator
-      </button>
+      <Button
+        icon="pi pi-plus"
+        label="Add arbitrator"
+        size="small"
+        class="btn-add-pv"
+        @click="openCreate"
+      />
     </div>
 
-    <div class="s-table-wrap">
-      <table class="s-table">
-        <thead>
-          <tr>
-            <th class="s-table__th">Name <i class="pi pi-sort-alt s-table__sort-icon" /></th>
-            <th class="s-table__th">Host</th>
-            <th class="s-table__th">DC</th>
-            <th class="s-table__th">Enabled</th>
-            <th class="s-table__th s-table__th--actions" />
-          </tr>
-        </thead>
-        <tbody>
-          <template v-if="isLoading">
-            <tr v-for="i in 3" :key="i" class="s-table__row">
-              <td><span class="skeleton skeleton-text" /></td>
-              <td><span class="skeleton skeleton-text" /></td>
-              <td><span class="skeleton skeleton-text" /></td>
-              <td><span class="skeleton skeleton-text" style="width:40px" /></td>
-              <td />
-            </tr>
+    <div class="st-wrap">
+      <DataTable
+        :value="items ?? []"
+        :loading="isLoading"
+        sort-field="name"
+        :sort-order="1"
+        row-hover
+        class="settings-table"
+        data-key="id"
+      >
+        <template #empty>
+          <div class="st-empty">
+            <i class="pi pi-server" />
+            <span>No arbitrators configured.</span>
+          </div>
+        </template>
+
+        <Column field="name" header="Name" :sortable="true" style="min-width:140px">
+          <template #body="{ data }">
+            <span class="cell-name">{{ data.name }}</span>
           </template>
+        </Column>
 
-          <tr v-else-if="!items?.length">
-            <td colspan="5" class="s-table__empty">
-              <i class="pi pi-server" style="font-size:1.5rem;opacity:0.3;display:block;margin-bottom:0.5rem" />
-              No arbitrators configured.
-            </td>
-          </tr>
+        <Column field="host" header="Host" style="min-width:160px">
+          <template #body="{ data }">
+            <span class="cell-mono">{{ data.host }}:{{ data.port }}</span>
+          </template>
+        </Column>
 
-          <tr v-else v-for="row in items" :key="row.id" class="s-table__row">
-            <td class="s-table__td s-table__td--name">{{ row.name }}</td>
-            <td class="s-table__td">
-              <span class="mono-cell">{{ row.host }}:{{ row.port }}</span>
-            </td>
-            <td class="s-table__td">{{ dcName(row.datacenter_id) }}</td>
-            <td class="s-table__td">
-              <span :class="['status-badge', row.enabled ? 'status-badge--yes' : 'status-badge--no']">
-                {{ row.enabled ? 'Yes' : 'No' }}
-              </span>
-            </td>
-            <td class="s-table__td s-table__td--actions">
-              <div class="row-actions">
-                <button class="row-btn row-btn--edit" @click="openEdit(row)" title="Edit">
-                  <i class="pi pi-pencil" />
-                </button>
-                <button class="row-btn row-btn--delete" @click="openDelete(row)" title="Delete">
-                  <i class="pi pi-trash" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        <Column field="datacenter_id" header="DC" style="min-width:80px">
+          <template #body="{ data }">
+            <span class="cell-muted">{{ dcName(data.datacenter_id) }}</span>
+          </template>
+        </Column>
+
+        <Column field="enabled" header="Enabled" style="min-width:90px">
+          <template #body="{ data }">
+            <span :class="['status-badge', data.enabled ? 'status-badge--yes' : 'status-badge--no']">
+              {{ data.enabled ? 'Yes' : 'No' }}
+            </span>
+          </template>
+        </Column>
+
+        <Column header="" style="width:96px; text-align:right">
+          <template #body="{ data }">
+            <div class="row-actions">
+              <button class="row-btn row-btn--edit" title="Edit" @click="openEdit(data)">
+                <i class="pi pi-pencil" />
+              </button>
+              <button class="row-btn row-btn--delete" title="Delete" @click="openDelete(data)">
+                <i class="pi pi-trash" />
+              </button>
+            </div>
+          </template>
+        </Column>
+      </DataTable>
     </div>
 
     <EntityFormModal
       v-if="modal.open"
       :title="modal.mode === 'create' ? 'Add arbitrator' : 'Edit arbitrator'"
-      :fields="arbFields"
+      :fields="arbitratorFields"
       :initial-values="modal.initial"
       :loading="saving"
       :api-error="apiError"
@@ -77,7 +83,6 @@
     <DeleteConfirmModal
       v-if="deleteTarget"
       :entity-name="deleteTarget.name"
-      warning-text="The arbitrator will be removed from monitoring."
       :loading="deleting"
       @confirm="handleDelete"
       @cancel="deleteTarget = null"
@@ -87,6 +92,9 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Button from 'primevue/button'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import EntityFormModal, { type FormField } from './EntityFormModal.vue'
@@ -201,5 +209,65 @@ async function handleDelete() {
 </script>
 
 <style scoped>
-/* All shared styles live in assets/settings-shared.css */
+.tab-content { display: flex; flex-direction: column; gap: var(--space-5); }
+.tab-toolbar { display: flex; justify-content: flex-end; }
+
+.st-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+:deep(.settings-table .p-datatable-table-container) { border: none; box-shadow: none; border-radius: 0; }
+:deep(.settings-table .p-datatable-thead > tr > th) {
+  padding: var(--space-4) var(--space-6) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  white-space: nowrap;
+}
+:deep(.settings-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-4) var(--space-6) !important;
+  border-bottom: 1px solid var(--color-border-muted) !important;
+  vertical-align: middle;
+}
+:deep(.settings-table .p-datatable-tbody > tr:last-child > td) { border-bottom: none !important; }
+:deep(.settings-table .p-datatable-tbody > tr:hover > td) { background: rgba(45,212,191,0.04) !important; }
+:deep(.settings-table .p-datatable-tbody > tr) { background: var(--color-surface); }
+
+.cell-name  { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
+.cell-mono  { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+.cell-muted { font-size: var(--text-sm); color: var(--color-text-muted); }
+
+.status-badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 600; border: 1px solid transparent;
+}
+.status-badge--yes { background: rgba(74,222,128,0.1); color: var(--color-synced); border-color: rgba(74,222,128,0.2); }
+.status-badge--no  { background: rgba(255,255,255,0.05); color: var(--color-text-faint); border-color: rgba(255,255,255,0.07); }
+
+.row-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+.row-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md); border: none; background: transparent;
+  cursor: pointer; transition: all 150ms ease; font-size: 0.8rem;
+}
+.row-btn--edit   { color: var(--color-text-faint); }
+.row-btn--edit:hover   { color: var(--color-primary); background: var(--color-primary-dim); }
+.row-btn--delete { color: var(--color-text-faint); }
+.row-btn--delete:hover { color: var(--color-error); background: rgba(248,113,113,0.1); }
+
+.st-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-3); padding: var(--space-16) var(--space-4);
+  color: var(--color-text-faint); font-size: var(--text-sm);
+}
+.st-empty .pi { font-size: 1.75rem; opacity: 0.25; }
 </style>
