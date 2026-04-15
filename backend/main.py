@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import settings
 from database import init_db
 from routers import (
+    advisor_router,
     auth_router,
     clusters_router,
     contours_router,
@@ -104,6 +105,7 @@ app.add_middleware(
 
 # ── API routers ─────────────────────────────────────────────────────────────
 app.include_router(auth_router,        prefix="/api")
+app.include_router(advisor_router,     prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
 app.include_router(recovery_router,    prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
