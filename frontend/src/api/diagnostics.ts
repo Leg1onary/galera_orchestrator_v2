@@ -265,6 +265,43 @@ export type DiskUsageNodeResult = {
     error: string | null
 }
 
+// ── SST Status — #11 ───────────────────────────────────────────────────────────
+export type SstStatusItem = {
+    node_id: number
+    node_name: string
+    state: string
+    state_since_ts: string | null
+    stuck_for_sec: number | null
+    is_stuck: boolean
+}
+
+export type RestartSstResponse = {
+    ok: boolean
+    node_id: number
+    message: string
+}
+
+// ── Active transactions — #15 ─────────────────────────────────────────────────
+export type ActiveTrxRow = {
+    trx_id: string
+    trx_state: string
+    trx_started: string
+    trx_age_sec: number
+    trx_mysql_thread_id: number
+    trx_query: string | null
+    trx_tables_locked: number
+    trx_rows_locked: number
+    trx_rows_modified: number
+    user: string | null
+}
+
+export type ActiveTrxNodeResult = {
+    node_id: number
+    node_name: string
+    transactions: ActiveTrxRow[]
+    error: string | null
+}
+
 export const diagnosticsApi = {
 
     configDiff: (clusterId: number): Promise<ConfigDiffResponse> =>
@@ -384,6 +421,31 @@ export const diagnosticsApi = {
             .post<DiskUsageNodeResult>(
                 `/api/clusters/${clusterId}/diagnostics/disk-usage`,
                 { node_id: nodeId },
+            )
+            .then((r) => r.data),
+
+    // ── SST Status — #11 ─────────────────────────────────────────────────────
+    getSstStatus: (clusterId: number): Promise<SstStatusItem[]> =>
+        api
+            .get<SstStatusItem[]>(`/api/clusters/${clusterId}/nodes/sst-status`)
+            .then((r) => r.data),
+
+    restartSst: (clusterId: number, nodeId: number): Promise<RestartSstResponse> =>
+        api
+            .post<RestartSstResponse>(
+                `/api/clusters/${clusterId}/nodes/${nodeId}/restart-sst`,
+            )
+            .then((r) => r.data),
+
+    // ── Active transactions — #15 ─────────────────────────────────────────────
+    getActiveTransactions: (clusterId: number, nodeId?: number, minAgeSec = 5): Promise<ActiveTrxNodeResult[]> =>
+        api
+            .get<ActiveTrxNodeResult[]>(
+                `/api/clusters/${clusterId}/diagnostics/active-transactions`,
+                { params: {
+                    ...(nodeId !== undefined ? { node_id: nodeId } : {}),
+                    min_age_sec: minAgeSec,
+                }},
             )
             .then((r) => r.data),
 }
