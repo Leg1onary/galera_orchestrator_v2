@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import { diagnosticsApi, type NodeResourceRow } from '@/api/diagnostics'
+import { diagnosticsApi, type NodeResourceRow, type DiskUsageNodeResult } from '@/api/diagnostics'
 
 const props = defineProps<{ active: boolean }>()
 const clusterStore = useClusterStore()
@@ -11,11 +11,21 @@ const loading = ref(false)
 const error   = ref<string | null>(null)
 const lastRun = ref<string | null>(null)
 
+// Per-node disk details state
+const diskExpanded  = ref<Record<number, boolean>>({})
+const diskLoading   = ref<Record<number, boolean>>({})
+const diskData      = ref<Record<number, DiskUsageNodeResult>>({})
+const diskError     = ref<Record<number, string>>({})
+
 async function run() {
   const id = clusterStore.selectedClusterId
   if (!id) return
   loading.value = true
   error.value   = null
+  // reset disk details when refreshing
+  diskExpanded.value = {}
+  diskData.value     = {}
+  diskError.value    = {}
   try {
     rows.value    = await diagnosticsApi.resources(id)
     lastRun.value = new Date().toLocaleTimeString()
@@ -23,6 +33,32 @@ async function run() {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleDiskDetails(nodeId: number) {
+  const clusterId = clusterStore.selectedClusterId
+  if (!clusterId) return
+
+  // collapse
+  if (diskExpanded.value[nodeId]) {
+    diskExpanded.value[nodeId] = false
+    return
+  }
+
+  diskExpanded.value[nodeId] = true
+
+  // already fetched — just show
+  if (diskData.value[nodeId]) return
+
+  diskLoading.value[nodeId] = true
+  diskError.value[nodeId]   = ''
+  try {
+    diskData.value[nodeId] = await diagnosticsApi.diskUsage(clusterId, nodeId)
+  } catch (e: any) {
+    diskError.value[nodeId] = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
+  } finally {
+    diskLoading.value[nodeId] = false
   }
 }
 
@@ -39,6 +75,12 @@ function fmtBytes(b: number | null): string {
   if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + ' GB'
   if (b >= 1_048_576)     return (b / 1_048_576).toFixed(0) + ' MB'
   return (b / 1024).toFixed(0) + ' KB'
+}
+
+function fmtMb(mb: number | null): string {
+  if (mb === null) return '—'
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB'
+  return mb.toFixed(0) + ' MB'
 }
 
 type Level = 'ok' | 'warn' | 'crit' | 'unknown'
@@ -196,6 +238,89 @@ function cardStatusLevel(row: NodeResourceRow): Level {
               <span class="stat-label">Up since</span>
               <span class="stat-val mono">{{ row.uptime_since ?? '—' }}</span>
             </div>
+          </div>
+
+          <!-- Disk Details toggle -->
+          <div class="disk-details-toggle" @click="toggleDiskDetails(row.node_id)">
+            <i :class="['pi', diskExpanded[row.node_id] ? 'pi-chevron-up' : 'pi-chevron-down']" />
+            <span>Disk Details</span>
+          </div>
+
+          <!-- Disk Details panel -->
+          <div v-if="diskExpanded[row.node_id]" class="disk-details">
+            <!-- Loading -->
+            <div v-if="diskLoading[row.node_id]" class="disk-loading">
+              <i class="pi pi-spin pi-spinner" /> Fetching disk details…
+            </div>
+
+            <!-- Error -->
+            <div v-else-if="diskError[row.node_id]" class="disk-err">
+              <i class="pi pi-exclamation-circle" /> {{ diskError[row.node_id] }}
+            </div>
+
+            <template v-else-if="diskData[row.node_id]">
+              <!-- ibdata1 + binary logs summary -->
+              <div class="disk-summary">
+                <div class="disk-stat">
+                  <span class="disk-stat-label">ibdata1</span>
+                  <span class="disk-stat-val mono">{{ fmtMb(diskData[row.node_id].ibdata1_mb) }}</span>
+                </div>
+                <div class="disk-stat">
+                  <span class="disk-stat-label">Binary logs</span>
+                  <span class="disk-stat-val mono">{{ fmtMb(diskData[row.node_id].binary_logs_total_mb) }}</span>
+                </div>
+              </div>
+
+              <!-- Top tables -->
+              <div v-if="diskData[row.node_id].top_tables.length" class="disk-section">
+                <div class="disk-section-title">Top 10 tables by size</div>
+                <table class="disk-table">
+                  <thead>
+                    <tr>
+                      <th>Schema</th>
+                      <th>Table</th>
+                      <th class="num">Data</th>
+                      <th class="num">Index</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in diskData[row.node_id].top_tables" :key="t.schema + '.' + t.table">
+                      <td class="muted">{{ t.schema }}</td>
+                      <td>{{ t.table }}</td>
+                      <td class="num mono">{{ fmtMb(t.data_mb) }}</td>
+                      <td class="num mono">{{ fmtMb(t.index_mb) }}</td>
+                      <td class="num mono bold">{{ fmtMb(t.total_mb) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="disk-empty">No user tables found or no DB credentials.</div>
+
+              <!-- Binary logs list -->
+              <div v-if="diskData[row.node_id].binary_logs.length" class="disk-section">
+                <div class="disk-section-title">Binary logs ({{ diskData[row.node_id].binary_logs.length }})</div>
+                <table class="disk-table">
+                  <thead>
+                    <tr>
+                      <th>Log file</th>
+                      <th class="num">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="bl in diskData[row.node_id].binary_logs" :key="bl.log_name">
+                      <td class="mono">{{ bl.log_name }}</td>
+                      <td class="num mono">{{ fmtBytes(bl.file_size) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- DB error (partial) -->
+              <div v-if="diskData[row.node_id].error" class="disk-err">
+                <i class="pi pi-exclamation-circle" /> {{ diskData[row.node_id].error }}
+              </div>
+            </template>
           </div>
         </template>
       </div>
@@ -436,4 +561,112 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   flex-shrink: 0;
 }
 .mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs) !important; }
+
+/* ── Disk Details ── */
+.disk-details-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+  user-select: none;
+  transition: color var(--transition-interactive);
+}
+.disk-details-toggle:hover { color: var(--color-primary); }
+.disk-details-toggle .pi { font-size: 0.65rem; }
+
+.disk-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3) 0 0;
+}
+
+.disk-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.disk-err {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  background: var(--color-error-highlight);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.disk-summary {
+  display: flex;
+  gap: var(--space-6);
+}
+.disk-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.disk-stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.disk-stat-val {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.disk-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.disk-section-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.disk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+.disk-table th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-faint);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+.disk-table th.num,
+.disk-table td.num { text-align: right; }
+.disk-table td {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+}
+.disk-table tr:last-child td { border-bottom: none; }
+.disk-table td.muted { color: var(--color-text-muted); }
+.disk-table td.bold  { font-weight: 600; }
+
+.disk-empty {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-style: italic;
+}
 </style>
