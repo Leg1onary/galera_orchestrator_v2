@@ -5,6 +5,12 @@ import { useQuery } from '@tanstack/vue-query'
 import { useClusterStore } from '@/stores/cluster'
 import { advisorApi, type AdvisorSeverity, type AdvisorCard } from '@/api/advisor'
 
+// PrimeVue 4
+import Tag from 'primevue/tag'
+import Button from 'primevue/button'
+import Skeleton from 'primevue/skeleton'
+import Divider from 'primevue/divider'
+
 const router       = useRouter()
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
@@ -17,36 +23,36 @@ const { data, isLoading, isError, refetch } = useQuery({
   refetchInterval: 120_000,
 })
 
-// При смене кластера — сбрасываем кэш
 watch(clusterId, () => refetch())
 
 const SEV_ORDER: AdvisorSeverity[] = ['critical', 'warn', 'info']
 
-const SEV_META: Record<AdvisorSeverity, { label: string; icon: string; cls: string }> = {
-  critical: { label: 'Critical', icon: 'pi-exclamation-circle', cls: 'sev-critical' },
-  warn:     { label: 'Warning',  icon: 'pi-exclamation-triangle', cls: 'sev-warn' },
-  info:     { label: 'Info',     icon: 'pi-info-circle',          cls: 'sev-info' },
+const SEV_META: Record<AdvisorSeverity, {
+  label: string
+  icon: string
+  tagSeverity: string
+  dotCls: string
+}> = {
+  critical: { label: 'Critical', icon: 'pi-times-circle',       tagSeverity: 'danger',    dotCls: 'dot-critical' },
+  warn:     { label: 'Warning',  icon: 'pi-exclamation-circle', tagSeverity: 'warn',      dotCls: 'dot-warn' },
+  info:     { label: 'Info',     icon: 'pi-info-circle',        tagSeverity: 'info',      dotCls: 'dot-info' },
 }
 
-const advisors = computed(() => data.value?.advisors ?? [])
+const advisors   = computed(() => data.value?.advisors ?? [])
+const hasIssues  = computed(() => advisors.value.length > 0)
+const totalCount = computed(() => advisors.value.length)
 
-// Счётчики по severity
 const counts = computed(() => {
   const map: Record<AdvisorSeverity, number> = { critical: 0, warn: 0, info: 0 }
   for (const a of advisors.value) map[a.severity]++
   return map
 })
 
-// Топ-3 карточки: сначала critical, потом warn, потом info
-const topCards = computed<AdvisorCard[]>(() => {
-  const sorted = [...advisors.value].sort(
-    (a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity)
-  )
-  return sorted.slice(0, 3)
-})
-
-const hasIssues = computed(() => advisors.value.length > 0)
-const totalCount = computed(() => advisors.value.length)
+const topCards = computed<AdvisorCard[]>(() =>
+  [...advisors.value]
+    .sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity))
+    .slice(0, 3)
+)
 
 function openAdvisor() {
   router.push({ name: 'diagnostics', query: { tab: 'advisor' } })
@@ -54,167 +60,266 @@ function openAdvisor() {
 </script>
 
 <template>
-  <div v-if="!isLoading && !isError && clusterId" class="advisor-widget" :class="{ 'is-clean': !hasIssues }">
+  <!-- Loading skeleton -->
+  <div v-if="isLoading" class="advisor-widget">
+    <div class="widget-head">
+      <div class="wh-left">
+        <Skeleton width="5rem" height="1.1rem" border-radius="var(--radius-full)" />
+        <Skeleton width="1.5rem" height="1.1rem" border-radius="var(--radius-full)" />
+      </div>
+      <Skeleton width="6rem" height="1.75rem" border-radius="var(--radius-md)" />
+    </div>
+    <div class="skeleton-rows">
+      <div v-for="i in 3" :key="i" class="skeleton-row">
+        <Skeleton shape="circle" size="0.5rem" />
+        <div class="skeleton-row-body">
+          <Skeleton width="55%" height="0.875rem" />
+          <Skeleton width="80%" height="0.75rem" />
+        </div>
+      </div>
+    </div>
+  </div>
 
-    <!-- ALL GOOD -->
-    <div v-if="!hasIssues" class="widget-clean">
-      <i class="pi pi-check-circle" />
-      <span>No advisor recommendations — cluster looks healthy</span>
+  <!-- Error / no cluster -->
+  <div v-else-if="isError || !clusterId" class="advisor-widget advisor-widget--muted">
+    <div class="state-row">
+      <i class="pi pi-exclamation-circle state-icon state-icon--warn" />
+      <span class="state-text">Не удалось загрузить данные Advisor</span>
+      <Button
+        icon="pi pi-refresh"
+        size="small"
+        text
+        severity="secondary"
+        @click="refetch"
+        v-tooltip.top="'Retry'"
+      />
+    </div>
+  </div>
+
+  <!-- All good -->
+  <div v-else-if="!hasIssues" class="advisor-widget advisor-widget--clean">
+    <div class="state-row">
+      <div class="clean-icon-wrap">
+        <i class="pi pi-check-circle" />
+      </div>
+      <div class="clean-body">
+        <span class="clean-title">Cluster is healthy</span>
+        <span class="clean-sub">Нет рекомендаций Advisor</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Has issues -->
+  <div v-else class="advisor-widget">
+
+    <!-- Header -->
+    <div class="widget-head">
+      <div class="wh-left">
+        <i class="pi pi-sparkles wh-icon" />
+        <span class="wh-title">Advisor</span>
+        <Tag
+          :value="String(totalCount)"
+          severity="secondary"
+          rounded
+          class="total-tag"
+        />
+      </div>
+
+      <!-- Severity counters -->
+      <div class="sev-tags">
+        <Tag
+          v-for="sev in SEV_ORDER"
+          :key="sev"
+          v-show="counts[sev] > 0"
+          :icon="`pi ${SEV_META[sev].icon}`"
+          :value="String(counts[sev])"
+          :severity="SEV_META[sev].tagSeverity"
+          rounded
+          class="sev-tag"
+          v-tooltip.top="SEV_META[sev].label"
+        />
+      </div>
+
+      <Button
+        label="Open Advisor"
+        icon="pi pi-arrow-right"
+        icon-pos="right"
+        size="small"
+        outlined
+        severity="secondary"
+        @click="openAdvisor"
+        class="open-btn"
+      />
     </div>
 
-    <!-- HAS ISSUES -->
-    <template v-else>
-      <div class="widget-header">
-        <div class="widget-title">
-          <i class="pi pi-sparkles" />
-          <span>Advisor</span>
-          <span class="total-badge">{{ totalCount }}</span>
-        </div>
+    <Divider class="widget-divider" />
 
-        <div class="sev-counters">
-          <span
-            v-for="sev in SEV_ORDER"
-            :key="sev"
-            v-show="counts[sev] > 0"
-            :class="['sev-chip', SEV_META[sev].cls]"
-          >
-            <i :class="['pi', SEV_META[sev].icon]" />
-            {{ counts[sev] }} {{ SEV_META[sev].label }}
-          </span>
-        </div>
+    <!-- Top cards list -->
+    <ul class="top-cards">
+      <li
+        v-for="(card, idx) in topCards"
+        :key="card.id"
+        class="top-card"
+        @click="openAdvisor"
+      >
+        <!-- Severity indicator dot -->
+        <span :class="['sev-dot', SEV_META[card.severity].dotCls]" />
 
-        <button class="open-btn" @click="openAdvisor">
-          Open Advisor
-          <i class="pi pi-arrow-right" />
-        </button>
-      </div>
-
-      <ul class="top-cards">
-        <li
-          v-for="card in topCards"
-          :key="card.id"
-          class="top-card"
-          :class="'border-' + card.severity"
-        >
-          <span :class="['card-sev-dot', 'dot-' + card.severity]" />
-          <div class="card-body">
+        <!-- Card content -->
+        <div class="card-body">
+          <div class="card-top-row">
             <span class="card-title">{{ card.title }}</span>
-            <span class="card-summary">{{ card.summary }}</span>
+            <Tag
+              :value="card.category"
+              severity="secondary"
+              class="card-cat-tag"
+            />
           </div>
-          <button class="card-link" @click="openAdvisor" :title="'See in Advisor'">
-            <i class="pi pi-external-link" />
-          </button>
-        </li>
-      </ul>
+          <span class="card-summary">{{ card.summary }}</span>
+        </div>
 
-      <div v-if="totalCount > 3" class="more-hint" @click="openAdvisor">
-        +{{ totalCount - 3 }} more — open full Advisor panel
-      </div>
-    </template>
+        <!-- Arrow -->
+        <i class="pi pi-chevron-right card-arrow" />
+      </li>
+    </ul>
+
+    <!-- More hint -->
+    <div v-if="totalCount > 3" class="more-row" @click="openAdvisor">
+      <span>+{{ totalCount - 3 }} больше</span>
+      <i class="pi pi-arrow-right" />
+    </div>
 
   </div>
 </template>
 
 <style scoped>
+/* ── Root ── */
 .advisor-widget {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   overflow: hidden;
-  transition: border-color var(--transition-interactive);
+  display: flex;
+  flex-direction: column;
 }
 
-.advisor-widget.is-clean {
-  border-color: var(--color-success-highlight);
+.advisor-widget--clean {
+  border-color: color-mix(in oklch, var(--color-success) 30%, var(--color-border));
   background: color-mix(in oklch, var(--color-success) 4%, var(--color-surface));
 }
 
-/* --- CLEAN STATE --- */
-.widget-clean {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--color-success);
+.advisor-widget--muted {
+  background: var(--color-surface-offset);
 }
-.widget-clean .pi { font-size: 1rem; }
 
-/* --- HEADER --- */
-.widget-header {
+/* ── Skeleton ── */
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.skeleton-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  border-top: 1px solid oklch(from var(--color-border) l c h / 0.5);
+}
+.skeleton-row-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* ── State rows (clean / error) ── */
+.state-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.state-icon { font-size: 1.1rem; }
+.state-icon--warn { color: var(--color-warning); }
+.state-text {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.clean-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-highlight);
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.clean-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.clean-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-success);
+}
+.clean-sub {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ── Widget head ── */
+.widget-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   flex-wrap: wrap;
 }
 
-.widget-title {
+.wh-left {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-shrink: 0;
+}
+.wh-icon {
+  font-size: 0.875rem;
+  color: var(--color-primary);
+}
+.wh-title {
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--color-text);
-  flex-shrink: 0;
 }
+.total-tag { font-size: 10px !important; }
 
-.total-badge {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  background: var(--color-surface-offset);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  padding: 1px 7px;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono, monospace);
-}
-
-.sev-counters {
+.sev-tags {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   flex: 1;
   flex-wrap: wrap;
 }
-
-.sev-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-}
-
-.sev-critical { color: var(--color-error);   background: var(--color-error-highlight); }
-.sev-warn     { color: var(--color-warning); background: var(--color-warning-highlight); }
-.sev-info     { color: var(--color-blue);    background: var(--color-blue-highlight); }
+.sev-tag { font-size: 11px !important; cursor: default; }
 
 .open-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--color-primary);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  background: transparent;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-  white-space: nowrap;
   flex-shrink: 0;
-}
-.open-btn:hover {
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
+  white-space: nowrap;
 }
 
-/* --- TOP CARDS --- */
+/* ── Divider ── */
+.widget-divider {
+  margin: 0 !important;
+}
+
+/* ── Top cards ── */
 .top-cards {
   list-style: none;
   margin: 0;
@@ -225,40 +330,49 @@ function openAdvisor() {
 
 .top-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
   cursor: pointer;
   transition: background var(--transition-interactive);
+  min-width: 0;
 }
 .top-card:last-child { border-bottom: none; }
-.top-card:hover { background: var(--color-surface-offset); }
+.top-card:hover {
+  background: var(--color-surface-offset);
+}
+.top-card:hover .card-arrow {
+  color: var(--color-primary);
+  transform: translateX(2px);
+}
 
-.border-critical { border-left: 3px solid transparent; border-left-color: var(--color-error); }
-.border-warn      { border-left: 3px solid transparent; border-left-color: var(--color-warning); }
-.border-info      { border-left: 3px solid transparent; border-left-color: var(--color-blue); }
-
-.card-sev-dot {
-  width: 7px;
-  height: 7px;
+/* Severity dot — круглый индикатор без полоски */
+.sev-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  margin-top: 6px;
   flex-shrink: 0;
 }
-.dot-critical { background: var(--color-error); }
-.dot-warn     { background: var(--color-warning); }
-.dot-info     { background: var(--color-blue); }
+.dot-critical { background: var(--color-error);   box-shadow: 0 0 0 2px var(--color-error-highlight); }
+.dot-warn     { background: var(--color-warning); box-shadow: 0 0 0 2px var(--color-warning-highlight); }
+.dot-info     { background: var(--color-blue);    box-shadow: 0 0 0 2px var(--color-blue-highlight); }
 
 .card-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
-
+.card-top-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .card-title {
+  flex: 1;
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--color-text);
@@ -266,6 +380,7 @@ function openAdvisor() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.card-cat-tag { font-size: 10px !important; flex-shrink: 0; }
 
 .card-summary {
   font-size: var(--text-xs);
@@ -275,24 +390,31 @@ function openAdvisor() {
   text-overflow: ellipsis;
 }
 
-.card-link {
+.card-arrow {
   flex-shrink: 0;
+  font-size: 0.65rem;
   color: var(--color-text-faint);
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-interactive);
+  transition: color var(--transition-interactive), transform var(--transition-interactive);
 }
-.card-link:hover { color: var(--color-primary); }
 
-/* --- MORE HINT --- */
-.more-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
+/* ── More row ── */
+.more-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
-  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
   border-top: 1px solid oklch(from var(--color-border) l c h / 0.5);
-  transition: color var(--transition-interactive);
-  text-align: center;
+  cursor: pointer;
+  transition: color var(--transition-interactive), background var(--transition-interactive);
+  background: var(--color-surface-offset);
 }
-.more-hint:hover { color: var(--color-primary); }
+.more-row:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-highlight);
+}
+.more-row .pi { font-size: 0.65rem; }
 </style>
