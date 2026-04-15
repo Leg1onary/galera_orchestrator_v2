@@ -1518,3 +1518,199 @@ async def active_transactions(
             output.append(result)
 
     return output
+
+# ── GET /diagnostics/config-health ───────────────────────────────────────────────────
+# Improvement #17: Check key MariaDB config params against best-practices rules.
+
+import re as _re
+
+
+def _fetch_config_health(node: dict) -> dict:
+    result: dict[str, Any] = {
+        "node_id":   node["id"],
+        "node_name": node["name"],
+        "host":      node["host"],
+        "checks":    [],
+        "error":     None,
+    }
+
+    # ── SSH: RAM + CPU ───────────────────────────────────────────────────────────
+    ram_bytes: int | None = None
+    cpu_cores: int | None = None
+    try:
+        with SSHClient(
+            host=node["host"],
+            port=int(node.get("ssh_port") or 22),
+            username=node.get("ssh_user") or "root",
+        ) as ssh:
+            stdout, _ = ssh.execute("grep MemTotal /proc/meminfo")
+            m = _re.search(r"(\d+)", stdout)
+            if m:
+                ram_bytes = int(m.group(1)) * 1024  # kB → bytes
+
+            stdout, _ = ssh.execute("nproc")
+            cpu_cores = int(stdout.strip()) if stdout.strip().isdigit() else None
+    except Exception as exc:
+        result["error"] = f"SSH error: {exc}"
+        return result
+
+    # ── DB: SHOW GLOBAL VARIABLES ────────────────────────────────────────────────
+    if not node.get("db_user") or not node.get("db_password"):
+        result["error"] = "No DB credentials configured"
+        return result
+
+    try:
+        with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query("SHOW GLOBAL VARIABLES")
+        variables = {r["Variable_name"]: r["Value"] for r in rows}
+    except DBError as exc:
+        result["error"] = str(exc)
+        return result
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    checks = []
+
+    # ── Rule 1: innodb_buffer_pool_size ─────────────────────────────────────────
+    bp_raw = variables.get("innodb_buffer_pool_size")
+    if bp_raw is not None:
+        bp_bytes = int(bp_raw)
+        if ram_bytes:
+            ratio = bp_bytes / ram_bytes
+            bp_gb  = round(bp_bytes  / 1_073_741_824, 2)
+            ram_gb = round(ram_bytes / 1_073_741_824, 2)
+            if ratio >= 0.60:
+                status = "ok"
+                rec = None
+            elif ratio >= 0.40:
+                status = "warn"
+                rec = f"Рекомендуется 60–70% от RAM. Текущее: {round(ratio*100)}% ({bp_gb} GB / {ram_gb} GB). Рекомендовано: ~{round(ram_gb*0.65, 1)} GB"
+            else:
+                status = "error"
+                rec = f"Критично низкое значение: {round(ratio*100)}% от RAM ({bp_gb} GB / {ram_gb} GB). Установите ~{round(ram_gb*0.65, 1)} GB"
+            checks.append({
+                "param":           "innodb_buffer_pool_size",
+                "current_value":   bp_raw,
+                "current_human":   f"{bp_gb} GB",
+                "status":          status,
+                "recommendation":  rec,
+                "context":         f"RAM: {ram_gb} GB, ratio: {round(ratio*100)}%",
+            })
+        else:
+            checks.append({
+                "param":          "innodb_buffer_pool_size",
+                "current_value":  bp_raw,
+                "current_human":  f"{round(int(bp_raw)/1_073_741_824, 2)} GB",
+                "status":         "info",
+                "recommendation": "Не удалось получить RAM для сравнения",
+                "context":        None,
+            })
+
+    # ── Rule 2: max_connections ─────────────────────────────────────────────────
+    mc_raw = variables.get("max_connections")
+    if mc_raw is not None:
+        mc = int(mc_raw)
+        if mc <= 500:
+            status = "ok"; rec = None
+        elif mc <= 1000:
+            status = "warn"; rec = f"max_connections={mc}: при пиковой нагрузке каждое соединение потребляет память. Убедитесь, что RAM достаточно."
+        else:
+            status = "error"; rec = f"max_connections={mc} очень высокое. Риск OOM. Рекомендуется <= 500–1000."
+        checks.append({
+            "param":          "max_connections",
+            "current_value":  mc_raw,
+            "current_human":  str(mc),
+            "status":         status,
+            "recommendation": rec,
+            "context":        None,
+        })
+
+    # ── Rule 3: wsrep_slave_threads ─────────────────────────────────────────────
+    wst_raw = variables.get("wsrep_slave_threads")
+    if wst_raw is not None:
+        wst = int(wst_raw)
+        if cpu_cores:
+            if wst >= cpu_cores:
+                status = "ok"; rec = None
+            elif wst >= max(1, cpu_cores // 2):
+                status = "warn"; rec = f"wsrep_slave_threads={wst}, CPU cores={cpu_cores}. Рекомендуется >= {cpu_cores}."
+            else:
+                status = "error"; rec = f"wsrep_slave_threads={wst} значительно ниже CPU cores={cpu_cores}. Replication lag вероятен."
+            ctx = f"CPU cores: {cpu_cores}"
+        else:
+            status = "info"; rec = "Не удалось получить CPU cores для сравнения"; ctx = None
+        checks.append({
+            "param":          "wsrep_slave_threads",
+            "current_value":  wst_raw,
+            "current_human":  str(wst),
+            "status":         status,
+            "recommendation": rec,
+            "context":        ctx,
+        })
+
+    # ── Rule 4: innodb_flush_log_at_trx_commit ───────────────────────────────────
+    fl_raw = variables.get("innodb_flush_log_at_trx_commit")
+    if fl_raw is not None:
+        if fl_raw == "1":
+            status = "ok"; rec = None
+        else:
+            status = "warn"
+            rec = f"innodb_flush_log_at_trx_commit={fl_raw}. Значение != 1 снижает durability (допустимо в dev/staging, не в prod Galera)."
+        checks.append({
+            "param":          "innodb_flush_log_at_trx_commit",
+            "current_value":  fl_raw,
+            "current_human":  fl_raw,
+            "status":         status,
+            "recommendation": rec,
+            "context":        "1 = полная durability (flush на каждый commit)",
+        })
+
+    # ── Rule 5: wsrep_sync_wait ──────────────────────────────────────────────────
+    sw_raw = variables.get("wsrep_sync_wait")
+    if sw_raw is not None:
+        sw = int(sw_raw)
+        checks.append({
+            "param":          "wsrep_sync_wait",
+            "current_value":  sw_raw,
+            "current_human":  str(sw),
+            "status":         "info" if sw == 0 else "ok",
+            "recommendation": "0 = sync_wait отключён (reads могут быть stale). Включите для causal reads." if sw == 0 else None,
+            "context":        "0=disabled, 1=READ, 2=UPDATE/DELETE, 3=INSERT, 4=REPLACE, 7=all",
+        })
+
+    result["checks"] = checks
+    return result
+
+
+@router.get("/diagnostics/config-health")
+async def config_health(cluster_id: int) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_config_health, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
+                "node_name": node["name"],
+                "host":      node["host"],
+                "checks":    [],
+                "error":     str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
+
