@@ -8,6 +8,7 @@ import NodeCard from '@/components/overview/NodeCard.vue'
 import NodeCardSkeleton from '@/components/overview/NodeCardSkeleton.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
+import ReplicationLagAlert from '@/components/overview/ReplicationLagAlert.vue'
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
@@ -66,6 +67,8 @@ const maxRecvQueue = computed(() => {
         :cluster-id="clusterId!"
         :is-loading="isLoading"
       />
+
+      <ReplicationLagAlert :nodes="nodes" />
 
       <section class="overview-section anim-fade-in">
         <div class="section-header">
