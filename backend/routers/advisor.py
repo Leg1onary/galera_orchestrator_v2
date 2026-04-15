@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from dependencies import get_current_user
+from dependencies import require_auth
 from services.db_client import DBClient
 from database import get_cluster_or_404
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/clusters/{cluster_id}/advisor",
     tags=["advisor"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_auth)],
 )
 
 
@@ -222,9 +222,7 @@ async def _collect_sst_status(cluster_id: int) -> list[dict]:
 
 
 async def _collect_replication_lag(cluster_id: int) -> list[dict]:
-    """
-    Return per-node recv_queue_avg from poller state.
-    """
+
     from services.poller import get_cluster_state
 
     state = get_cluster_state(cluster_id)
@@ -245,9 +243,7 @@ async def _collect_replication_lag(cluster_id: int) -> list[dict]:
 
 
 async def _collect_disk_usage(cluster_id: int) -> list[dict]:
-    """
-    Return disk usage ratios from poller state.
-    """
+
     from services.poller import get_cluster_state
 
     state = get_cluster_state(cluster_id)
@@ -339,7 +335,6 @@ def _rules_active_transactions(trx_results: list[dict]) -> list[AdvisorCard]:
 
         severity = AdvisorSeverity.critical if max_age >= 900 else AdvisorSeverity.warn
 
-        # Top-3 oldest for evidence
         top3 = sorted(node_result["trx_list"], key=lambda t: t.get("trx_age_sec") or 0, reverse=True)[:3]
         evidence_rows = []
         for t in top3:
@@ -524,7 +519,6 @@ async def get_advisor(cluster_id: int):
     if not cluster:
         raise HTTPException(status_code=404, detail="Cluster not found")
 
-    # Collect all data sources concurrently
     (
         config_results,
         trx_results,
@@ -540,7 +534,6 @@ async def get_advisor(cluster_id: int):
         return_exceptions=False,
     )
 
-    # Apply rules
     cards: list[AdvisorCard] = []
     cards.extend(_rules_config_health(config_results))
     cards.extend(_rules_active_transactions(trx_results))
