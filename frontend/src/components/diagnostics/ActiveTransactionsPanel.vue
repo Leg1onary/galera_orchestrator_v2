@@ -284,6 +284,39 @@ function stateBadgeClass(state: string): string {
 
 .age-input { width: 90px; }
 
+:deep(.age-input .p-inputnumber) { display: inline-flex; align-items: center; }
+:deep(.age-input .p-inputnumber-input) {
+  width: 52px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-2);
+  border: none;
+  color: var(--color-text);
+}
+:deep(.age-input .p-inputnumber-input:focus) {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+:deep(.age-input .p-inputnumber-button) {
+  width: 24px;
+  background: var(--color-surface-3);
+  border: none;
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+:deep(.age-input .p-inputnumber-button:hover) {
+  background: var(--color-surface-4);
+  color: var(--color-primary);
+}
+:deep(.age-input .p-inputnumber-button-group) {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-border);
+}
+
 .age-unit {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
