@@ -372,23 +372,27 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 
     <template v-else>
       <!-- HEADER -->
-      <div class="pg-header">
-        <div class="pg-header__left">
-          <span class="section-title">Topology</span>
-          <div class="topo-header-stats">
-            <span class="stat-chip stat-chip--synced">
-              <span class="stat-dot" style="background:var(--color-synced)"/>
-              {{ syncedCount }} / {{ nodes.length }} SYNCED
-            </span>
-            <span v-if="arbitrators.length" class="stat-chip">
-              <span class="stat-dot" style="background:var(--color-text-faint)"/>
-              {{ arbitrators.filter(a => a.ssh_ok).length }} / {{ arbitrators.length }} ARB
-            </span>
-            <span v-if="connectionLines.length" class="stat-chip">
-              <span class="stat-dot" style="background:var(--color-primary)"/>
-              {{ connectionLines.filter(l => l.style === 'synced').length }} / {{ connectionLines.length }} links
-            </span>
+      <div class="pg-head">
+        <div class="pg-head-icon"><i class="pi pi-sitemap" /></div>
+        <div class="pg-head-body">
+          <div class="pg-head-top">
+            <h1 class="pg-title">Topology</h1>
+            <div class="topo-header-stats">
+              <span class="stat-chip stat-chip--synced">
+                <span class="stat-dot" style="background:var(--color-synced)"/>
+                {{ syncedCount }} / {{ nodes.length }} SYNCED
+              </span>
+              <span v-if="arbitrators.length" class="stat-chip">
+                <span class="stat-dot" style="background:var(--color-text-faint)"/>
+                {{ arbitrators.filter(a => a.ssh_ok).length }} / {{ arbitrators.length }} ARB
+              </span>
+              <span v-if="connectionLines.length" class="stat-chip">
+                <span class="stat-dot" style="background:var(--color-primary)"/>
+                {{ connectionLines.filter(l => l.style === 'synced').length }} / {{ connectionLines.length }} links
+              </span>
+            </div>
           </div>
+          <p class="pg-desc">Visual map of cluster nodes, datacenters, and replication links.</p>
         </div>
       </div>
 
@@ -703,20 +707,37 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 }
 
 /* ═══════════════════════════════════════
-   HEADER
+   HEADER — pg-head pattern
 ═══════════════════════════════════════ */
-.pg-header {
+.pg-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
-.pg-header__left {
+.pg-head-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-primary-highlight);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: 0.875rem;
+}
+.pg-head-body { flex: 1; min-width: 0; }
+.pg-head-top {
   display: flex;
   align-items: center;
   gap: var(--space-4);
   flex-wrap: wrap;
+}
+.pg-title {
+  font-size: var(--text-xl); font-weight: 700;
+  color: var(--color-text); letter-spacing: -0.02em; line-height: 1.2;
+}
+.pg-desc {
+  font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px;
 }
 .topo-header-stats {
   display: flex;

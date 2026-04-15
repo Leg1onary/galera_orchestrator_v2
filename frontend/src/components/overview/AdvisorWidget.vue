@@ -223,7 +223,7 @@ function openAdvisor() {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-top: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-top: 1px solid rgba(255,255,255,0.04);
 }
 .skeleton-row-body {
   flex: 1;
@@ -333,7 +333,7 @@ function openAdvisor() {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
   cursor: pointer;
   transition: background var(--transition-interactive);
   min-width: 0;
@@ -407,7 +407,7 @@ function openAdvisor() {
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--color-text-muted);
-  border-top: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-top: 1px solid rgba(255,255,255,0.04);
   cursor: pointer;
   transition: color var(--transition-interactive), background var(--transition-interactive);
   background: var(--color-surface-offset);

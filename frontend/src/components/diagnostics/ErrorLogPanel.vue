@@ -281,16 +281,16 @@ const filteredLines = computed<string[]>(() => {
 
 .log-wrap::-webkit-scrollbar       { width: 4px; }
 .log-wrap::-webkit-scrollbar-track { background: transparent; }
-.log-wrap::-webkit-scrollbar-thumb { background: oklch(from var(--color-terminal-text) l c h / 0.15); border-radius: 2px; }
+.log-wrap::-webkit-scrollbar-thumb { background: rgba(139,148,158,0.15); border-radius: 2px; }
 
 .log-line {
   display: flex; align-items: stretch; gap: 0;
-  border-bottom: 1px solid oklch(from var(--color-terminal-text) l c h / 0.05);
+  border-bottom: 1px solid rgba(139,148,158,0.05);
   line-height: 1.65;
   transition: background 80ms ease;
 }
 .log-line:last-child { border-bottom: none; }
-.log-line:hover { background: oklch(from var(--color-terminal-text) l c h / 0.03); }
+.log-line:hover { background: rgba(139,148,158,0.03); }
 
 .log-gutter { width: 4px; flex-shrink: 0; display: flex; align-items: stretch; }
 .log-bar {
@@ -307,7 +307,7 @@ const filteredLines = computed<string[]>(() => {
   padding: 3px var(--space-2) 3px var(--space-3);
   text-align: right; color: var(--color-text-faint);
   user-select: none; font-variant-numeric: tabular-nums;
-  border-right: 1px solid oklch(from var(--color-terminal-text) l c h / 0.06);
+  border-right: 1px solid rgba(139,148,158,0.06);
   font-size: 0.6rem; opacity: 0.6;
 }
 
@@ -330,7 +330,7 @@ const filteredLines = computed<string[]>(() => {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.20);
+  border: 1px solid rgba(248,113,113,0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 

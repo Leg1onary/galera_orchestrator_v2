@@ -229,7 +229,7 @@ function lineClass(line: string): string {
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border: 1px solid rgba(248,113,113,0.25);
   border-radius: var(--radius-md);
   color: var(--color-error);
   font-size: var(--text-sm);

@@ -293,7 +293,7 @@ watch(
   width: 36px; height: 36px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   background: var(--color-primary-highlight);
-  border: 1px solid oklch(from var(--color-primary) l c h / 0.18);
+  border: 1px solid rgba(45, 212, 191, 0.18);
   border-radius: var(--radius-md);
   color: var(--color-primary);
   font-size: 0.875rem;
@@ -357,19 +357,19 @@ watch(
 .grp-btn--active {
   color: var(--color-primary) !important;
   background: var(--color-primary-highlight) !important;
-  border-color: oklch(from var(--color-primary) l c h / 0.35) !important;
-  box-shadow: 0 0 0 3px oklch(from var(--color-primary) l c h / 0.08);
+  border-color: rgba(45, 212, 191, 0.35) !important;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08);
 }
 
 .grp-icon-wrap {
   width: 24px; height: 24px; border-radius: var(--radius-sm);
   display: flex; align-items: center; justify-content: center;
-  background: oklch(from var(--color-text) l c h / 0.05);
+  background: rgba(255,255,255,0.05);
   font-size: 0.7rem;
   transition: background 160ms ease;
 }
 .grp-btn--active .grp-icon-wrap {
-  background: oklch(from var(--color-primary) l c h / 0.15);
+  background: rgba(45, 212, 191, 0.15);
 }
 
 .grp-label { font-size: var(--text-sm); }
@@ -392,19 +392,20 @@ watch(
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
-  /* overflow: hidden обрезало контент — заменяем на clip по X, scroll по Y */
   overflow-x: clip;
   overflow-y: visible;
+  box-shadow: var(--shadow-sm);
 }
 
 /* Sub-tab header */
 .subtab-header {
-  background: var(--color-surface-offset);
+  background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
-  padding: var(--space-2) var(--space-4) 0;
+  padding: var(--space-3) var(--space-4) 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 
 .subtab-breadcrumb {
@@ -470,7 +471,7 @@ watch(
 }
 .subtab-item:hover {
   color: var(--color-text);
-  background: oklch(from var(--color-text) l c h / 0.04) !important;
+  background: rgba(228,228,231,0.04) !important;
 }
 :deep(.p-tab[data-p-active='true'].subtab-item) {
   color: var(--color-primary);

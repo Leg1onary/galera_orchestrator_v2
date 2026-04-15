@@ -2,10 +2,13 @@
   <div class="docs-page">
     <!-- ── Page header ──────────────────────────────────────────── -->
     <div class="docs-page__header">
-      <h1 class="docs-page__title">Документация</h1>
-      <p class="docs-page__subtitle">
-        Справочник по командам, wsrep-переменным, архитектуре и типовым сценариям.
-      </p>
+      <div class="pg-head-icon"><i class="pi pi-book" /></div>
+      <div>
+        <h1 class="docs-page__title">Документация</h1>
+        <p class="docs-page__subtitle">
+          Справочник по командам, wsrep-переменным, архитектуре и типовым сценариям.
+        </p>
+      </div>
     </div>
 
     <!-- ── Search ──────────────────────────────────────────────── -->
@@ -196,7 +199,20 @@ function handleTabKeydown(event: KeyboardEvent, currentIndex: number) {
 
 /* ── Header ── */
 .docs-page__header {
-  margin-bottom: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.pg-head-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-primary-highlight);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: 0.875rem;
 }
 .docs-page__title {
   font-size: var(--text-xl);

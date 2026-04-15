@@ -252,6 +252,7 @@ function recvClass(val: number | null) {
 }
 :deep(.p-datatable-tbody > tr:hover > td) {
   background: var(--color-surface-offset) !important;
+  transition: background var(--transition-fast);
 }
 
 .val-danger { color: var(--color-notification); }
@@ -271,7 +272,7 @@ function recvClass(val: number | null) {
   font-size: var(--text-xs);
   font-weight: 500;
 }
-.enabled-badge--on  { background: rgba(74,222,128,0.1); color: #4ade80; }
+.enabled-badge--on  { background: var(--color-synced-dim); color: var(--color-synced); }
 .enabled-badge--off { background: rgba(255,255,255,0.05); color: var(--color-text-faint); }
 
 .actions-cell {
@@ -325,7 +326,7 @@ function recvClass(val: number | null) {
   flex-shrink: 0;
 }
 .clone-btn:hover {
-  color: #2dd4bf;
-  background: rgba(45, 212, 191, 0.08);
+  color: var(--color-primary);
+  background: var(--color-primary-dim);
 }
 </style>

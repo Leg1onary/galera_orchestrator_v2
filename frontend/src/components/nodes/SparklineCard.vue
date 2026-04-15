@@ -9,7 +9,23 @@
 defineProps<{ label: string; data: number[]; color?: string; unit?: string; scale?: number }>()
 </script>
 <style scoped>
-.sparkline-stub { padding: 0.5rem; background: var(--color-surface-offset); border-radius: var(--radius-md); }
-.stub-label { font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: 0.25rem; }
-.stub-placeholder { height: 40px; background: var(--color-surface-dynamic); border-radius: var(--radius-sm); }
+.sparkline-stub {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.stub-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+}
+.stub-placeholder {
+  height: 40px;
+  background: var(--color-surface-dynamic);
+  border-radius: var(--radius-sm);
+}
 </style>

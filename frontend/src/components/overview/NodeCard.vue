@@ -368,7 +368,7 @@ function confirmDestructive(action: NodeAction, label: string) {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  padding-bottom: var(--space-1);
+  padding-bottom: var(--space-2);
 }
 .nc-title-group {
   display: flex;
@@ -483,10 +483,10 @@ function confirmDestructive(action: NodeAction, label: string) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3) var(--space-4);
-  padding: var(--space-3);
+  padding: var(--space-4);
   background: var(--color-surface-offset);
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-muted);
   margin-top: var(--space-1);
 }
 .nc-metric   { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -640,6 +640,7 @@ function confirmDestructive(action: NodeAction, label: string) {
   font-size: var(--text-xs);
   color: var(--color-text-faint);
   padding-top: var(--space-2);
+  margin-top: auto;
   border-top: 1px solid var(--color-divider);
   cursor: default;
 }

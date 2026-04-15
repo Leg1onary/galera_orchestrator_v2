@@ -149,7 +149,7 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0a0b0f;
+  background: var(--color-bg);
   position: relative;
   overflow: hidden;
   padding: var(--space-4);
@@ -169,7 +169,7 @@ async function submit() {
   opacity: 1;
 }
 
-/* Radial glows - медленная пульсация, нет резких изменений размера */
+/* Radial glows */
 .glow {
   position: absolute;
   border-radius: 50%;
@@ -192,19 +192,18 @@ async function submit() {
 }
 .glow-3 {
   width: 300px; height: 300px;
-  background: radial-gradient(circle, #2dd4bf, transparent 70%);
+  background: radial-gradient(circle, var(--color-primary), transparent 70%);
   top: 40%; left: 60%;
   animation-delay: -10s;
   opacity: 0.06;
 }
 
-/* Только плавное изменение opacity — никакого scale */
 @keyframes glow-pulse {
   0%, 100% { opacity: 0.14; }
-  50%       { opacity: 0.20; }
+  50%       { opacity: 0.22; }
 }
 
-/* Floating orbs - очень медленный drift, без rotate */
+/* Floating orbs */
 .orb {
   position: absolute;
   border-radius: 50%;
@@ -232,11 +231,10 @@ async function submit() {
   border-color: rgba(45,212,191,0.14);
 }
 
-/* Плавный drift без rotate - движение максимум 6px */
 @keyframes orb-drift {
-  0%, 100% { transform: translate(0,    0);  }
-  33%       { transform: translate(6px,  -8px); }
-  66%       { transform: translate(-4px,  5px); }
+  0%, 100% { transform: translate(0, 0); }
+  33%       { transform: translate(6px, -8px); }
+  66%       { transform: translate(-4px, 5px); }
 }
 
 /* ====== CARD ====== */
@@ -244,20 +242,20 @@ async function submit() {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 380px;
-  background: rgba(15, 16, 21, 0.85);
+  max-width: 400px;
+  background: var(--color-surface);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border: 1px solid rgba(45, 212, 191, 0.12);
-  border-radius: 20px;
+  border: 1px solid rgba(45, 212, 191, 0.13);
+  border-radius: var(--radius-xl);
   padding: var(--space-8);
   box-shadow:
-    0 0 0 1px rgba(45,212,191,0.04) inset,
-    0 32px 64px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(45,212,191,0.05) inset,
+    0 32px 64px rgba(0,0,0,0.55),
     0 0 80px rgba(13,148,136,0.08);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 /* ====== LOGO ====== */
@@ -272,24 +270,25 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  background: rgba(45,212,191,0.07);
-  border: 1px solid rgba(45,212,191,0.2);
-  border-radius: 12px;
+  width: 46px;
+  height: 46px;
+  background: var(--color-primary-highlight);
+  border: 1px solid rgba(45,212,191,0.22);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
+  box-shadow: 0 0 16px rgba(45,212,191,0.1);
 }
 
 .logo-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .logo-name {
   font-size: var(--text-sm);
   font-weight: 700;
-  color: #e4e4e7;
+  color: var(--color-text);
   letter-spacing: -0.01em;
   line-height: 1.2;
 }
@@ -297,7 +296,7 @@ async function submit() {
 .logo-version {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
-  color: #2dd4bf;
+  color: var(--color-primary);
   letter-spacing: 0.05em;
   font-weight: 500;
 }
@@ -308,8 +307,8 @@ async function submit() {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(45,212,191,0.2) 30%,
-    rgba(45,212,191,0.2) 70%,
+    rgba(45,212,191,0.22) 30%,
+    rgba(45,212,191,0.22) 70%,
     transparent
   );
   margin: calc(-1 * var(--space-2)) 0;
@@ -319,16 +318,17 @@ async function submit() {
 .login-heading { display: flex; flex-direction: column; gap: var(--space-1); }
 
 .login-title {
-  font-size: 1.6rem;
+  font-size: 1.65rem;
   font-weight: 700;
-  color: #f4f4f5;
-  letter-spacing: -0.025em;
+  color: var(--color-text);
+  letter-spacing: -0.028em;
   line-height: 1.1;
 }
 
 .login-sub {
   font-size: var(--text-sm);
-  color: #52525b;
+  color: var(--color-text-faint);
+  margin-top: var(--space-1);
 }
 
 /* ====== FORM ====== */
@@ -350,11 +350,14 @@ async function submit() {
   gap: var(--space-2);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: #71717a;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
-.field-label .pi { font-size: 0.65rem; color: #2dd4bf; }
+.field-label .pi {
+  font-size: 0.65rem;
+  color: var(--color-primary);
+}
 
 .login-input { width: 100%; }
 
@@ -364,16 +367,25 @@ async function submit() {
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-sm);
-  color: #f87171;
+  color: var(--color-offline);
   background: rgba(248,113,113,0.07);
-  border: 1px solid rgba(248,113,113,0.18);
+  border: 1px solid rgba(248,113,113,0.2);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
+  animation: shake 0.35s ease;
 }
-.login-error .pi { font-size: 0.75rem; }
+.login-error .pi { font-size: 0.75rem; flex-shrink: 0; }
 
-.err-enter-active, .err-leave-active { transition: all 0.2s ease; }
-.err-enter-from, .err-leave-to { opacity: 0; transform: translateY(-4px); }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-5px); }
+  40%       { transform: translateX(5px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(3px); }
+}
+
+.err-enter-active, .err-leave-active { transition: all 0.22s ease; }
+.err-enter-from, .err-leave-to { opacity: 0; transform: translateY(-6px); }
 
 /* ====== SUBMIT ====== */
 .login-submit {
@@ -385,21 +397,26 @@ async function submit() {
   color: #f0fdfa !important;
   font-weight: 600;
   letter-spacing: 0.02em;
-  box-shadow: 0 0 24px rgba(13,148,136,0.3);
-  transition: box-shadow 0.2s, opacity 0.2s;
+  box-shadow: 0 0 20px rgba(13,148,136,0.28);
+  transition: box-shadow 0.2s, opacity 0.2s, transform 0.15s;
 }
 .login-submit:hover:not(:disabled) {
-  opacity: 0.9;
-  box-shadow: 0 0 36px rgba(13,148,136,0.45) !important;
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 0 36px rgba(13,148,136,0.42) !important;
 }
-.login-submit:disabled { opacity: 0.4; box-shadow: none !important; }
+.login-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+.login-submit:disabled { opacity: 0.38; box-shadow: none !important; }
 
 /* ====== FOOTER ====== */
 .login-footer {
   font-size: var(--text-xs);
-  color: #3f3f46;
+  color: var(--color-text-faint);
   text-align: center;
   letter-spacing: 0.03em;
+  opacity: 0.6;
 }
 
 /* ====== PRIMEVUE OVERRIDES ====== */
@@ -408,11 +425,21 @@ async function submit() {
 
 :deep(.login-input.p-inputtext),
 :deep(.p-password .p-inputtext) {
+  background: var(--color-surface-2) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-text) !important;
   padding-block: 0.75rem;
   padding-inline: 0.875rem;
   font-size: 0.9375rem;
   line-height: 1.5;
   border-radius: 10px;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+:deep(.login-input.p-inputtext:focus),
+:deep(.p-password .p-inputtext:focus) {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(45,212,191,0.14) !important;
+  outline: none !important;
 }
 
 :deep(.login-submit.p-button) {

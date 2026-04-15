@@ -209,7 +209,7 @@ function nodeStatus(node: ConfigHealthNodeResult) {
   width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   background: var(--color-primary-highlight);
-  border: 1px solid oklch(from var(--color-primary) l c h / 0.2);
+  border: 1px solid rgba(45,212,191,0.20);
   border-radius: var(--radius-md);
   color: var(--color-primary);
   font-size: 0.85rem;
@@ -231,7 +231,7 @@ function nodeStatus(node: ConfigHealthNodeResult) {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-4);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border: 1px solid rgba(248,113,113,0.25);
   border-radius: var(--radius-lg);
   color: var(--color-error);
   font-size: var(--text-sm);
@@ -318,12 +318,12 @@ function nodeStatus(node: ConfigHealthNodeResult) {
 }
 :deep(.node-table .p-datatable-tbody > tr > td) {
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
   vertical-align: top;
 }
 :deep(.node-table .p-datatable-tbody > tr:last-child > td) { border-bottom: none; }
 :deep(.node-table .p-datatable-tbody > tr:hover > td) {
-  background: oklch(from var(--color-text) l c h / 0.02);
+  background: rgba(228,228,231,0.02);
 }
 
 /* Param column */
@@ -339,7 +339,7 @@ function nodeStatus(node: ConfigHealthNodeResult) {
 .param-code {
   font-family: monospace;
   font-size: 0.8em;
-  background: oklch(from var(--color-text) l c h / 0.05);
+  background: rgba(228,228,231,0.05);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   color: var(--color-text);

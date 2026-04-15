@@ -201,7 +201,7 @@ async function doFlush(nodeName: string) {
   align-items: center;
   justify-content: center;
   background: var(--color-primary-highlight);
-  border: 1px solid oklch(from var(--color-primary) l c h / 0.18);
+  border: 1px solid rgba(45,212,191,0.18);
   border-radius: var(--radius-md);
   color: var(--color-primary);
   font-size: 0.875rem;
@@ -280,13 +280,13 @@ async function doFlush(nodeName: string) {
 .op-card--active {
   border-color: var(--color-primary);
   background: var(--color-primary-highlight);
-  box-shadow: 0 0 0 2px oklch(from var(--color-primary) l c h / 0.15);
+  box-shadow: 0 0 0 2px rgba(45,212,191,0.15);
 }
 
 .op-card--danger.op-card--active {
   border-color: var(--color-error);
   background: color-mix(in oklch, var(--color-error) 8%, transparent);
-  box-shadow: 0 0 0 2px oklch(from var(--color-error) l c h / 0.15);
+  box-shadow: 0 0 0 2px rgba(248,113,113,0.15);
 }
 
 .op-card--danger:hover:not(.op-card--active) {

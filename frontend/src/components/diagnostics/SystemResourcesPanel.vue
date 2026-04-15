@@ -377,7 +377,7 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border: 1px solid rgba(248,113,113,0.25);
   border-radius: var(--radius-md);
   color: var(--color-error);
   font-size: var(--text-sm);
@@ -429,8 +429,8 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   transition: box-shadow var(--transition-interactive), border-color var(--transition-interactive);
 }
 .res-card:hover { box-shadow: var(--shadow-md); }
-.res-card.status-warn  { border-color: oklch(from var(--color-warning) l c h / 0.35); }
-.res-card.status-crit  { border-color: oklch(from var(--color-error)   l c h / 0.35); }
+.res-card.status-warn  { border-color: rgba(96,165,250,0.35); }
+.res-card.status-crit  { border-color: rgba(248,113,113,0.35); }
 
 .card-head {
   display: flex;
@@ -447,9 +447,9 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
-.dot-ok      { background: var(--color-success); box-shadow: 0 0 0 2px oklch(from var(--color-success) l c h / 0.2); }
-.dot-warn    { background: var(--color-warning); box-shadow: 0 0 0 2px oklch(from var(--color-warning) l c h / 0.2); }
-.dot-crit    { background: var(--color-error);   box-shadow: 0 0 0 2px oklch(from var(--color-error)   l c h / 0.2); }
+.dot-ok      { background: var(--color-success); box-shadow: 0 0 0 2px rgba(74,222,128,0.20); }
+.dot-warn    { background: var(--color-warning); box-shadow: 0 0 0 2px rgba(96,165,250,0.20); }
+.dot-crit    { background: var(--color-error);   box-shadow: 0 0 0 2px rgba(248,113,113,0.20); }
 .dot-unknown { background: var(--color-text-faint); }
 
 .badge {
@@ -530,9 +530,9 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   min-width: 2px;
 }
-.fill-ok      { background: linear-gradient(90deg, var(--color-success), oklch(from var(--color-success) calc(l + 0.08) c h)); }
-.fill-warn    { background: linear-gradient(90deg, var(--color-warning), oklch(from var(--color-warning) calc(l + 0.08) c h)); }
-.fill-crit    { background: linear-gradient(90deg, var(--color-error),   oklch(from var(--color-error)   calc(l + 0.08) c h)); }
+.fill-ok      { background: linear-gradient(90deg, var(--color-success), #6ee7b7); }
+.fill-warn    { background: linear-gradient(90deg, var(--color-warning), #93c5fd); }
+.fill-crit    { background: linear-gradient(90deg, var(--color-error),   #fca5a5); }
 .fill-unknown { background: var(--color-text-faint); }
 
 .card-footer {
@@ -658,7 +658,7 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .disk-table td {
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
-  border-bottom: 1px solid oklch(from var(--color-border) l c h / 0.5);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .disk-table tr:last-child td { border-bottom: none; }
 .disk-table td.muted { color: var(--color-text-muted); }

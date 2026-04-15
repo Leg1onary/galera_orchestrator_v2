@@ -221,7 +221,7 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border: 1px solid rgba(248,113,113,0.25);
   border-radius: var(--radius-md);
   color: var(--color-error);
   font-size: var(--text-sm);
@@ -233,7 +233,7 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
   background: var(--color-success-highlight);
-  border: 1px solid oklch(from var(--color-success) l c h / 0.25);
+  border: 1px solid rgba(74,222,128,0.25);
   border-radius: var(--radius-md);
   color: var(--color-success);
   font-size: var(--text-sm);
@@ -254,7 +254,7 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-highlight);
-  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  border: 1px solid rgba(96,165,250,0.25);
   border-radius: var(--radius-md);
   color: var(--color-warning);
   font-size: var(--text-xs);
@@ -306,8 +306,8 @@ tr:last-child td { border-bottom: none; }
 .mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
 .val-cell { color: var(--color-text-muted); }
 
-.row-diff td { background: oklch(from var(--color-warning) l c h / 0.04); }
-.row-diff:hover td { background: oklch(from var(--color-warning) l c h / 0.07); }
+.row-diff td { background: rgba(96,165,250,0.04); }
+.row-diff:hover td { background: rgba(96,165,250,0.07); }
 .val-diff { color: var(--color-warning) !important; font-weight: 500; }
 
 .val-err { color: var(--color-error) !important; }

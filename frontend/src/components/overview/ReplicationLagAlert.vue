@@ -99,8 +99,8 @@ const show = computed(() => lagNodes.value.length > 0)
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  background: oklch(from var(--color-warning) l c h / 0.12);
-  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  background: rgba(96,165,250,0.12);
+  border: 1px solid rgba(96,165,250,0.25);
   border-radius: var(--radius-full);
   padding: 2px var(--space-3);
   font-size: var(--text-xs);
@@ -125,7 +125,7 @@ const show = computed(() => lagNodes.value.length > 0)
 .rla-hint code {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  background: oklch(from var(--color-text) l c h / 0.08);
+  background: rgba(228,228,231,0.08);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
 }

@@ -51,7 +51,7 @@ const confirmDialogPT = {
       'border: 1px solid var(--color-border)',
       'border-top: 1px solid color-mix(in oklch, var(--color-border) 60%, white)',
       'border-radius: var(--radius-xl)',
-      'box-shadow: 0 2px 4px oklch(0 0 0 / 0.3), 0 16px 48px oklch(0 0 0 / 0.45), 0 0 0 1px oklch(from var(--color-error) l c h / 0.08)',
+      'box-shadow: 0 2px 4px rgba(0,0,0,0.3), 0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(248,113,113,0.08)',
       'padding: 0',
       'min-width: 340px',
       'max-width: 440px',

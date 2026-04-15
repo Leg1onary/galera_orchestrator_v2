@@ -270,7 +270,7 @@ async function copyText(text: string) {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--color-warning-highlight);
-  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  border: 1px solid rgba(96,165,250,0.25);
   color: var(--color-warning);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -279,7 +279,7 @@ async function copyText(text: string) {
 /* ── Deadlock Card (#16) ─────────────────────────────────────────────────── */
 
 .deadlock-card {
-  border: 1px solid oklch(from var(--color-warning) l c h / 0.30);
+  border: 1px solid rgba(96,165,250,0.30);
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--color-surface);
@@ -291,7 +291,7 @@ async function copyText(text: string) {
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-highlight);
-  border-bottom: 1px solid oklch(from var(--color-warning) l c h / 0.20);
+  border-bottom: 1px solid rgba(96,165,250,0.20);
 }
 
 .deadlock-card-title {
@@ -334,7 +334,7 @@ async function copyText(text: string) {
 }
 
 .deadlock-trx.trx-victim {
-  background: oklch(from var(--color-error) l c h / 0.04);
+  background: rgba(248,113,113,0.04);
 }
 
 .trx-header {
@@ -493,14 +493,14 @@ async function copyText(text: string) {
 
 .innodb-pre::-webkit-scrollbar       { width: 4px; }
 .innodb-pre::-webkit-scrollbar-track { background: transparent; }
-.innodb-pre::-webkit-scrollbar-thumb { background: oklch(from var(--color-terminal-ok) l c h / 0.2); border-radius: 2px; }
+.innodb-pre::-webkit-scrollbar-thumb { background: rgba(125,207,173,0.20); border-radius: 2px; }
 
 .error-alert {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.20);
+  border: 1px solid rgba(248,113,113,0.20);
   color: var(--color-error); font-size: var(--text-sm);
 }
 

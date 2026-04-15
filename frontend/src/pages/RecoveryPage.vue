@@ -48,8 +48,11 @@ onUnmounted(() => store.destroy())
 
     <!-- PAGE HEAD -->
     <div class="rp-head">
-      <div class="section-title">Recovery</div>
-      <p class="rp-desc">Step-by-step wizard to restore a Galera cluster when all nodes are down.</p>
+      <div class="pg-head-icon"><i class="pi pi-replay" /></div>
+      <div>
+        <h1 class="pg-title">Recovery</h1>
+        <p class="rp-desc">Step-by-step wizard to restore a Galera cluster when all nodes are down.</p>
+      </div>
     </div>
 
     <!-- Info banner -->
@@ -160,7 +163,26 @@ onUnmounted(() => store.destroy())
   height: 100%;
 }
 
-.rp-head { display: flex; flex-direction: column; gap: var(--space-1); }
+.rp-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.pg-head-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-primary-highlight);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: 0.875rem;
+}
+.pg-title {
+  font-size: var(--text-xl); font-weight: 700;
+  color: var(--color-text); letter-spacing: -0.02em; line-height: 1.2;
+}
 .rp-desc { font-size: var(--text-sm); color: var(--color-text-muted); }
 
 /* ─ Info banner ──────────────────────────────────────────────── */

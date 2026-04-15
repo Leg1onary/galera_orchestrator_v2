@@ -215,7 +215,7 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-highlight);
-  border: 1px solid oklch(from var(--color-error) l c h / 0.25);
+  border: 1px solid rgba(248,113,113,0.25);
   border-radius: var(--radius-md);
   color: var(--color-error);
   font-size: var(--text-sm);
@@ -227,7 +227,7 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-highlight);
-  border: 1px solid oklch(from var(--color-warning) l c h / 0.25);
+  border: 1px solid rgba(96,165,250,0.25);
   border-radius: var(--radius-md);
   color: var(--color-warning);
   font-size: var(--text-sm);
@@ -252,7 +252,7 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 .node-tab:hover { background: var(--color-surface-offset); color: var(--color-text); }
 .node-tab.active {
   background: var(--color-primary-highlight);
-  border-color: oklch(from var(--color-primary) l c h / 0.35);
+  border-color: rgba(45,212,191,0.35);
   color: var(--color-primary);
   font-weight: 600;
 }

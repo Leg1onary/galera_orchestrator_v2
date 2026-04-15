@@ -147,12 +147,14 @@ const maxRecvQueue = computed(() => {
   font-size: var(--text-xs);
   font-weight: 600;
   font-family: var(--font-mono);
-  color: var(--color-text-faint);
-  background: var(--color-surface-offset);
+  color: var(--color-text-muted);
+  background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 1px 7px;
+  padding: 2px 8px;
   line-height: 1.6;
+  min-width: 22px;
+  text-align: center;
 }
 
 .nodes-grid {

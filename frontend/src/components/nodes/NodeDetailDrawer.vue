@@ -313,19 +313,26 @@ function recvColor(v: number | null): string {
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  flex-wrap: wrap;
 }
 .drawer-title {
-  font-weight: 600;
-  font-size: var(--text-base);
+  font-weight: 700;
+  font-size: var(--text-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
 }
 .drawer-host {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
   white-space: nowrap;
+  background: var(--color-surface-3);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
 }
 
 /* ── Tab styles ── */
@@ -354,7 +361,7 @@ function recvColor(v: number | null): string {
   padding: 0;
 }
 :deep(.p-tabpanel) {
-  padding: var(--space-4) 0;
+  padding: var(--space-5) 0;
 }
 
 .overview-body {
@@ -463,14 +470,14 @@ function recvColor(v: number | null): string {
   border-bottom: 1px solid var(--color-border);
   font-variant-numeric: tabular-nums;
 }
-.log-entry.warn  { background: var(--color-warning-highlight); }
-.log-entry.error { background: var(--color-error-highlight); }
+.log-entry.warn  { background: rgba(251,191,36,0.04); }
+.log-entry.error { background: rgba(248,113,113,0.05); }
 .log-ts, .log-source { color: var(--color-text-muted); }
 .log-msg { color: var(--color-text); }
 .log-level { font-weight: 600; }
-.log-entry.info  .log-level { color: var(--color-blue); }
-.log-entry.warn  .log-level { color: var(--color-gold); }
-.log-entry.error .log-level { color: var(--color-notification); }
+.log-entry.info  .log-level { color: var(--color-info); }
+.log-entry.warn  .log-level { color: var(--color-warning); }
+.log-entry.error .log-level { color: var(--color-error); }
 .innodb-toolbar { margin-bottom: var(--space-3); }
 .innodb-deadlock { margin-bottom: var(--space-4); }
 .innodb-deadlock-title {

@@ -197,6 +197,7 @@ const sortedEvents = computed(() =>
 }
 
 .event-log-header {
+  padding: var(--space-4) var(--space-5);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -227,6 +228,7 @@ const sortedEvents = computed(() =>
 }
 
 .el-skeleton {
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -247,6 +249,7 @@ const sortedEvents = computed(() =>
 .el-empty i { color: var(--color-synced); font-size: 0.9rem; }
 
 .el-timeline {
+  padding: var(--space-4) var(--space-5) var(--space-2);
   padding: var(--space-3) var(--space-4);
   max-height: 360px;
   overflow-y: auto;

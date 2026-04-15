@@ -11,8 +11,11 @@ const clusterId    = computed(() => clusterStore.selectedClusterId)
   <div class="maintenance-page anim-fade-in">
 
     <div class="pg-head">
-      <div class="section-title">Maintenance</div>
-      <p class="pg-desc">Controlled maintenance operations for MariaDB Galera cluster nodes.</p>
+      <div class="pg-head-icon"><i class="pi pi-wrench" /></div>
+      <div>
+        <h1 class="pg-title">Maintenance</h1>
+        <p class="pg-desc">Controlled maintenance operations for MariaDB Galera cluster nodes.</p>
+      </div>
     </div>
 
     <!-- Info banner -->
@@ -75,8 +78,23 @@ const clusterId    = computed(() => clusterStore.selectedClusterId)
 
 .pg-head {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.pg-head-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-primary-highlight);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: 0.875rem;
+}
+.pg-title {
+  font-size: var(--text-xl); font-weight: 700;
+  color: var(--color-text); letter-spacing: -0.02em; line-height: 1.2;
 }
 
 .pg-desc {
@@ -138,11 +156,12 @@ const clusterId    = computed(() => clusterStore.selectedClusterId)
 }
 
 .info-card p code {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 0.75em;
-  background: var(--color-surface-offset);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: 1px 5px;
+  padding: 2px 6px;
   color: var(--color-primary);
 }
 
