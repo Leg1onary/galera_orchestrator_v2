@@ -46,11 +46,32 @@ const label = computed(() => props.state ?? '—')
   font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
-.node-state-badge--synced  { background: var(--color-success-highlight); color: var(--color-success); }
-.node-state-badge--donor   { background: var(--color-gold-highlight);    color: var(--color-gold); }
-.node-state-badge--joining { background: var(--color-blue-highlight);    color: var(--color-blue); }
-.node-state-badge--offline { background: var(--color-error-highlight);   color: var(--color-error); }
-.node-state-badge--unknown { background: var(--color-surface-offset);    color: var(--color-text-muted); }
+.node-state-badge--synced  {
+  background: var(--color-synced-dim);
+  color: var(--color-synced);
+  border-color: rgba(74, 222, 128, 0.2);
+}
+.node-state-badge--donor   {
+  background: var(--color-donor-dim);
+  color: var(--color-donor);
+  border-color: rgba(96, 165, 250, 0.2);
+}
+.node-state-badge--joining {
+  background: var(--color-donor-dim);
+  color: var(--color-donor);
+  border-color: rgba(96, 165, 250, 0.2);
+}
+.node-state-badge--offline {
+  background: var(--color-offline-dim);
+  color: var(--color-offline);
+  border-color: rgba(248, 113, 113, 0.2);
+}
+.node-state-badge--unknown {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-faint);
+  border-color: rgba(255, 255, 255, 0.07);
+}
 </style>

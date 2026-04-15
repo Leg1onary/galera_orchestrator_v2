@@ -193,8 +193,8 @@ onMounted(() => versionStore.loadVersion())
   box-shadow: 0 0 7px color-mix(in oklch, var(--color-synced) 75%, transparent);
   animation: blink 2.4s ease-in-out infinite;
 }
-.op-dot--success { background: var(--color-success, #4ade80); box-shadow: 0 0 6px color-mix(in oklch, var(--color-success, #4ade80) 55%, transparent); }
-.op-dot--error   { background: var(--color-offline); box-shadow: 0 0 6px color-mix(in oklch, var(--color-offline) 55%, transparent); }
+.op-dot--success { background: var(--color-success); box-shadow: 0 0 6px color-mix(in oklch, var(--color-success) 55%, transparent); }
+.op-dot--error   { background: var(--color-offline);  box-shadow: 0 0 6px color-mix(in oklch, var(--color-offline) 55%, transparent); }
 
 @keyframes blink {
   0%, 100% { opacity: 1;    box-shadow: 0 0 7px color-mix(in oklch, var(--color-synced) 75%, transparent); }
@@ -204,7 +204,7 @@ onMounted(() => versionStore.loadVersion())
 .op-type   { font-size: 0.78rem; color: var(--color-text-muted); font-family: var(--font-mono, monospace); white-space: nowrap; }
 .op-sep    { font-size: 0.78rem; color: var(--color-text-faint); }
 .op-status { font-size: 0.78rem; color: var(--color-synced); font-family: var(--font-mono, monospace); white-space: nowrap; }
-.op-status--ok  { color: var(--color-success, #4ade80); }
+.op-status--ok  { color: var(--color-success); }
 .op-status--err { color: var(--color-offline); }
 
 .op-elapsed {
@@ -220,7 +220,7 @@ onMounted(() => versionStore.loadVersion())
 .idle-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: var(--color-surface-dynamic, #27272a);
+  background: var(--color-surface-3);
   box-shadow: 0 0 0 1.5px var(--color-text-faint);
   opacity: 0.6;
 }

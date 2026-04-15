@@ -298,7 +298,7 @@ async function logout() {
   padding: 3px 9px 3px 7px;
   border-radius: 99px;
   border: 1px solid transparent;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   font-family: var(--font-mono, monospace);
   font-weight: 500;
   letter-spacing: 0.03em;
@@ -367,7 +367,7 @@ async function logout() {
   padding: 3px 9px 3px 7px;
   border-radius: 99px;
   border: 1px solid transparent;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -586,7 +586,7 @@ async function logout() {
 }
 .user-menu-name { font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
 .user-menu-role { font-size: 0.72rem; color: var(--color-text-faint); margin-top: 1px; }
-.user-menu-divider { height: 1px; background: var(--color-divider); margin: 4px 0; }
+.user-menu-divider { height: 1px; background: var(--color-border-muted); margin: 4px 0; }
 .user-menu-item {
   display: flex;
   align-items: center;
