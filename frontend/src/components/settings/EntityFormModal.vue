@@ -26,71 +26,64 @@
             </label>
 
             <!-- text / password -->
-            <input
+            <InputText
               v-if="field.type === 'text' || field.type === 'password' || !field.type"
               :id="field.key"
               :type="field.type === 'password' ? 'password' : 'text'"
               :placeholder="field.placeholder ?? ''"
               :disabled="field.disabled"
-              :value="form[field.key] as string"
-              class="field-input"
-              @input="form[field.key] = ($event.target as HTMLInputElement).value"
+              :model-value="form[field.key] as string"
+              class="field-primevue"
+              @update:model-value="form[field.key] = $event"
             />
 
             <!-- number -->
             <!-- fix #4: store null for empty number, not 0 -->
-            <input
+            <InputNumber
               v-else-if="field.type === 'number'"
               :id="field.key"
-              type="number"
               :min="field.min"
               :max="field.max"
               :placeholder="field.placeholder ?? ''"
-              :value="(form[field.key] as number | null) ?? ''"
-              class="field-input"
-              @input="form[field.key] = ($event.target as HTMLInputElement).value === ''
-                ? null
-                : Number(($event.target as HTMLInputElement).value)"
+              :model-value="(form[field.key] as number | null)"
+              :use-grouping="false"
+              class="field-primevue"
+              @update:model-value="form[field.key] = $event ?? null"
             />
 
             <!-- select -->
-            <select
+            <Select
               v-else-if="field.type === 'select'"
               :id="field.key"
-              v-model="form[field.key]"
-              class="field-input field-input--select"
-            >
-              <option v-if="field.placeholder" value="" disabled>{{ field.placeholder }}</option>
-              <option
-                v-for="opt in field.options ?? []"
-                :key="String(opt.value)"
-                :value="opt.value"
-              >{{ opt.label }}</option>
-            </select>
+              :model-value="form[field.key]"
+              :options="field.options ?? []"
+              option-label="label"
+              option-value="value"
+              :placeholder="field.placeholder ?? '— Select —'"
+              class="field-primevue"
+              @update:model-value="form[field.key] = $event"
+            />
 
             <!-- toggle -->
             <div v-else-if="field.type === 'toggle'" class="toggle-row">
-              <label class="toggle-switch">
-                <input
-                  type="checkbox"
-                  :id="field.key"
-                  :checked="form[field.key] as boolean"
-                  @change="form[field.key] = ($event.target as HTMLInputElement).checked"
-                />
-                <span class="toggle-thumb" />
-              </label>
+              <ToggleSwitch
+                :id="field.key"
+                :model-value="form[field.key] as boolean"
+                @update:model-value="form[field.key] = $event"
+              />
               <span v-if="field.toggleLabel" class="toggle-label">{{ field.toggleLabel }}</span>
             </div>
 
             <!-- textarea -->
-            <textarea
+            <Textarea
               v-else-if="field.type === 'textarea'"
               :id="field.key"
               :placeholder="field.placeholder ?? ''"
-              :value="form[field.key] as string"
-              rows="3"
-              class="field-input field-input--textarea"
-              @input="form[field.key] = ($event.target as HTMLTextAreaElement).value"
+              :model-value="form[field.key] as string"
+              :rows="3"
+              class="field-primevue"
+              auto-resize
+              @update:model-value="form[field.key] = $event"
             />
 
             <p v-if="field.hint" class="field-hint">{{ field.hint }}</p>
@@ -107,11 +100,19 @@
 
           <!-- Footer -->
           <div class="modal__footer">
-            <button type="button" class="btn-cancel" @click="emit('cancel')" :disabled="loading">Cancel</button>
-            <button type="submit" class="btn-submit" :disabled="loading">
-              <i v-if="loading" class="pi pi-spin pi-spinner" style="font-size:0.85rem" />
-              {{ loading ? 'Saving…' : submitLabel }}
-            </button>
+            <Button
+              type="button"
+              label="Cancel"
+              severity="secondary"
+              :disabled="loading"
+              @click="emit('cancel')"
+            />
+            <Button
+              type="submit"
+              :label="loading ? 'Saving…' : (submitLabel ?? 'Save')"
+              :loading="loading"
+              :disabled="loading"
+            />
           </div>
         </form>
       </div>
@@ -121,6 +122,12 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import InputText   from 'primevue/inputtext'
+import InputNumber from 'primevue/inputnumber'
+import Select      from 'primevue/select'
+import ToggleSwitch from 'primevue/toggleswitch'
+import Textarea    from 'primevue/textarea'
+import Button      from 'primevue/button'
 
 export type FormField = {
   key:          string
@@ -235,7 +242,6 @@ function submit() {
   color: var(--color-text);
   line-height: 1.3;
 }
-/* fix #8: removed stray semicolon in original */
 .modal__close {
   width: 28px;
   height: 28px;
@@ -287,91 +293,16 @@ function submit() {
   line-height: 1;
 }
 
-/* ── Inputs ── */
-.field-input {
+/* ── PrimeVue field full-width ── */
+.field-primevue {
   width: 100%;
-  background: #0f1015;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-family: inherit;
-  padding: var(--space-2) var(--space-3);
-  line-height: 1.5;
-  outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-  -webkit-appearance: none;
-  appearance: none;
-  box-sizing: border-box;
-}
-.field-input::placeholder { color: var(--color-text-faint); }
-.field-input:focus {
-  border-color: rgba(45,212,191,0.45);
-  box-shadow: 0 0 0 3px rgba(45,212,191,0.08);
-}
-.field-input:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
-.field-input--select {
-  cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 2rem;
-}
-select option { background: #1a1b22; color: var(--color-text); }
-
-.field-input--textarea {
-  resize: vertical;
-  min-height: 76px;
-  line-height: 1.6;
-}
-
-/* ── Toggle switch ── */
+/* ── Toggle switch row ── */
 .toggle-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-  cursor: pointer;
-}
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-.toggle-thumb {
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.1);
-  border-radius: var(--radius-full);
-  transition: background 150ms ease;
-}
-.toggle-thumb::before {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  left: 3px;
-  top: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 150ms ease;
-}
-.toggle-switch input:checked + .toggle-thumb {
-  background: rgba(45,212,191,0.8);
-}
-.toggle-switch input:checked + .toggle-thumb::before {
-  transform: translateX(18px);
 }
 
 .toggle-label {
@@ -419,44 +350,23 @@ select option { background: #1a1b22; color: var(--color-text); }
   margin-top: var(--space-2);
 }
 
-.btn-cancel {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.08);
-  cursor: pointer;
-  transition: all 150ms ease;
+/* ── PrimeVue Textarea override (full-width) ── */
+:deep(.p-textarea) {
+  width: 100%;
+  resize: vertical;
+  min-height: 76px;
 }
-.btn-cancel:hover:not(:disabled) {
-  color: var(--color-text);
-  background: rgba(255,255,255,0.05);
-}
-.btn-cancel:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.btn-submit {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  font-family: inherit;
-  color: #0d1117;
-  background: #2dd4bf;
-  border: none;
-  cursor: pointer;
-  transition: all 150ms ease;
+/* ── PrimeVue InputNumber full-width ── */
+:deep(.field-primevue.p-inputnumber) {
+  width: 100%;
 }
-.btn-submit:hover:not(:disabled) {
-  background: #5eead4;
+:deep(.field-primevue.p-inputnumber .p-inputnumber-input) {
+  width: 100%;
 }
-.btn-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+
+/* ── PrimeVue Select full-width ── */
+:deep(.field-primevue.p-select) {
+  width: 100%;
 }
 </style>

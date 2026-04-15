@@ -11,12 +11,13 @@
           Polling interval (seconds)
           <span class="field-hint">How often backend polls node status via SSH/DB</span>
         </label>
-        <input
-          id="polling-interval"
-          type="number"
-          v-model.number="form.polling_interval_sec"
-          :min="5" :max="300"
-          class="field-input"
+        <InputNumber
+          input-id="polling-interval"
+          v-model="form.polling_interval_sec"
+          :min="5"
+          :max="300"
+          :use-grouping="false"
+          class="field-input-num"
         />
       </div>
 
@@ -25,12 +26,13 @@
           Event log limit
           <span class="field-hint">Maximum number of events stored per cluster</span>
         </label>
-        <input
-          id="event-log-limit"
-          type="number"
-          v-model.number="form.event_log_limit"
-          :min="100" :max="10000"
-          class="field-input"
+        <InputNumber
+          input-id="event-log-limit"
+          v-model="form.event_log_limit"
+          :min="100"
+          :max="10000"
+          :use-grouping="false"
+          class="field-input-num"
         />
       </div>
 
@@ -40,12 +42,13 @@
           Rolling restart timeout (seconds)
           <span class="field-hint">Maximum wait time per node during a rolling restart operation</span>
         </label>
-        <input
-          id="rolling-restart-timeout"
-          type="number"
-          v-model.number="form.rolling_restart_timeout_sec"
-          :min="30" :max="3600"
-          class="field-input"
+        <InputNumber
+          input-id="rolling-restart-timeout"
+          v-model="form.rolling_restart_timeout_sec"
+          :min="30"
+          :max="3600"
+          :use-grouping="false"
+          class="field-input-num"
         />
       </div>
 
@@ -55,11 +58,13 @@
       </div>
 
       <div class="form-footer">
-        <button type="submit" class="btn-save" :disabled="saving">
-          <i v-if="saving" class="pi pi-spin pi-spinner" style="font-size:0.85rem" />
-          <i v-else class="pi pi-check" style="font-size:0.85rem" />
-          {{ saving ? 'Saving…' : 'Save settings' }}
-        </button>
+        <Button
+          type="submit"
+          :label="saving ? 'Saving…' : 'Save settings'"
+          :icon="saving ? undefined : 'pi pi-check'"
+          :loading="saving"
+          :disabled="saving"
+        />
         <span v-if="savedAt" class="saved-at">Saved at {{ savedAt }}</span>
       </div>
 
@@ -74,6 +79,8 @@
 import { ref, reactive, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
+import InputNumber from 'primevue/inputnumber'
+import Button      from 'primevue/button'
 import { settingsApi } from '@/api/settings'
 import { extractApiError } from '@/utils/api'
 import { useSettingsStore } from '@/stores/settings'
@@ -139,43 +146,14 @@ async function save() {
 .field-label   { font-size: var(--text-sm); font-weight: 500; color: var(--color-text); }
 .field-hint    { display: block; font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 400; margin-top: 2px; }
 
-.field-input {
-  width: 100%;
-  background: #0f1015;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-family: inherit;
-  padding: var(--space-2) var(--space-3);
-  line-height: 1.5;
-  outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-  -webkit-appearance: none;
-  appearance: none;
-  box-sizing: border-box;
-}
-.field-input::placeholder { color: var(--color-text-faint); }
-.field-input:focus {
-  border-color: rgba(45,212,191,0.45);
-  box-shadow: 0 0 0 3px rgba(45,212,191,0.08);
-}
+/* InputNumber full-width */
+.field-input-num { width: 100%; }
+:deep(.field-input-num.p-inputnumber) { width: 100%; }
+:deep(.field-input-num .p-inputnumber-input) { width: 100%; }
 
 /* ── Form footer ── */
 .form-footer { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
 .saved-at    { font-size: var(--text-xs); color: var(--color-text-muted); }
-
-.btn-save {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm); font-weight: 600; font-family: inherit;
-  color: #0d1117; background: #2dd4bf;
-  border: none; cursor: pointer;
-  transition: all 150ms ease;
-}
-.btn-save:hover:not(:disabled) { background: #5eead4; }
-.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* fix #13: was --color-divider, now --color-border for consistency */
 .system-meta { padding-top: var(--space-4); border-top: 1px solid var(--color-border); }

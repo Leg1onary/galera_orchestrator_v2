@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import DataTable from 'primevue/datatable'
+import Column    from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
@@ -548,62 +550,70 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             <span class="node-table-title">Nodes</span>
             <span class="node-table-count">{{ nodes.length }}</span>
           </div>
-          <table class="node-table">
-            <thead>
-              <tr>
-                <th>Node</th>
-                <th>Host</th>
-                <th>State</th>
-                <th>DC</th>
-                <th>Mode</th>
-                <th>SSH</th>
-                <th>SSH lat</th>
-                <th>DB lat</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="n in nodes"
-                :key="n.id"
-                class="node-row node-row--clickable"
-                @click="openDrawer(n.id)"
-              >
-                <td>
-                  <div class="cell-name">
-                    <span
-                      class="status-dot"
-                      :class="{ 'status-dot--pulse': !n.ssh_ok }"
-                      :style="{ background: nodeColor(n), boxShadow: `0 0 6px ${nodeColor(n)}` }"
-                    />
-                    <span class="name-text">{{ n.name }}</span>
-                    <span v-if="n.maintenance" class="maint-badge">MAINT</span>
-                  </div>
-                </td>
-                <td><span class="cell-mono">{{ n.host }}:{{ n.port }}</span></td>
-                <td><span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span></td>
-                <td><span class="cell-muted">{{ n.dc_name ?? '\u2014' }}</span></td>
-                <td>
-                  <span class="mode-pill" :class="n.readonly ? 'mode-ro' : 'mode-rw'">{{ n.readonly ? 'RO' : 'RW' }}</span>
-                </td>
-                <td>
-                  <span class="ssh-cell" :class="n.ssh_ok ? 'ssh-ok' : 'ssh-fail'">
-                    <i :class="n.ssh_ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
-                    {{ n.ssh_ok ? 'OK' : 'FAIL' }}
-                  </span>
-                </td>
-                <td>
-                  <span class="cell-mono" :class="n.ssh_latency_ms != null && n.ssh_latency_ms > 100 ? 'cell-warn' : ''">
-                    {{ n.ssh_latency_ms != null ? `${n.ssh_latency_ms} ms` : '\u2014' }}
-                  </span>
-                </td>
-                <td>
-                  <span class="cell-mono" :class="n.db_latency_ms != null && n.db_latency_ms > 100 ? 'cell-warn' : ''">
-                    {{ n.db_latency_ms != null ? `${n.db_latency_ms} ms` : '\u2014' }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <DataTable
+            :value="nodes"
+            class="topo-dt"
+            :row-hover="true"
+            :row-class="() => 'node-row--clickable'"
+            size="small"
+            @row-click="(e) => openDrawer(e.data.id)"
+          >
+            <Column header="Node" style="min-width:160px">
+              <template #body="{ data: n }">
+                <div class="cell-name">
+                  <span
+                    class="status-dot"
+                    :class="{ 'status-dot--pulse': !n.ssh_ok }"
+                    :style="{ background: nodeColor(n), boxShadow: `0 0 6px ${nodeColor(n)}` }"
+                  />
+                  <span class="name-text">{{ n.name }}</span>
+                  <span v-if="n.maintenance" class="maint-badge">MAINT</span>
+                </div>
+              </template>
+            </Column>
+            <Column header="Host">
+              <template #body="{ data: n }">
+                <span class="cell-mono">{{ n.host }}:{{ n.port }}</span>
+              </template>
+            </Column>
+            <Column header="State">
+              <template #body="{ data: n }">
+                <span class="cell-state" :style="{ color: nodeColor(n) }">{{ nodeStatLabel(n) }}</span>
+              </template>
+            </Column>
+            <Column header="DC">
+              <template #body="{ data: n }">
+                <span class="cell-muted">{{ n.dc_name ?? '\u2014' }}</span>
+              </template>
+            </Column>
+            <Column header="Mode">
+              <template #body="{ data: n }">
+                <span class="mode-pill" :class="n.readonly ? 'mode-ro' : 'mode-rw'">{{ n.readonly ? 'RO' : 'RW' }}</span>
+              </template>
+            </Column>
+            <Column header="SSH">
+              <template #body="{ data: n }">
+                <span class="ssh-cell" :class="n.ssh_ok ? 'ssh-ok' : 'ssh-fail'">
+                  <i :class="n.ssh_ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" />
+                  {{ n.ssh_ok ? 'OK' : 'FAIL' }}
+                </span>
+              </template>
+            </Column>
+            <Column header="SSH lat">
+              <template #body="{ data: n }">
+                <span class="cell-mono" :class="n.ssh_latency_ms != null && n.ssh_latency_ms > 100 ? 'cell-warn' : ''">
+                  {{ n.ssh_latency_ms != null ? `${n.ssh_latency_ms} ms` : '\u2014' }}
+                </span>
+              </template>
+            </Column>
+            <Column header="DB lat">
+              <template #body="{ data: n }">
+                <span class="cell-mono" :class="n.db_latency_ms != null && n.db_latency_ms > 100 ? 'cell-warn' : ''">
+                  {{ n.db_latency_ms != null ? `${n.db_latency_ms} ms` : '\u2014' }}
+                </span>
+              </template>
+            </Column>
+          </DataTable>
         </div>
 
         <!-- ARBITRATORS TABLE -->
@@ -612,36 +622,44 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
             <span class="node-table-title">Arbitrators</span>
             <span class="node-table-count">{{ arbitrators.length }}</span>
           </div>
-          <table class="node-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Host</th>
-                <th>State</th>
-                <th>DC</th>
-                <th>SSH lat</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="a in arbitrators" :key="a.id" class="node-row">
-                <td>
-                  <div class="cell-name">
-                    <span class="status-dot" :style="{ background: arbColor(a), boxShadow: `0 0 6px ${arbColor(a)}` }"/>
-                    <span class="name-text">{{ a.name }}</span>
-                    <span class="arb-badge">ARB</span>
-                  </div>
-                </td>
-                <td><span class="cell-mono">{{ a.host }}</span></td>
-                <td><span class="cell-state" :style="{ color: arbColor(a) }">{{ arbStatLabel(a) }}</span></td>
-                <td><span class="cell-muted">{{ a.dc_name ?? '\u2014' }}</span></td>
-                <td>
-                  <span class="cell-mono" :class="a.ssh_latency_ms != null && a.ssh_latency_ms > 100 ? 'cell-warn' : ''">
-                    {{ a.ssh_latency_ms != null ? `${a.ssh_latency_ms} ms` : '\u2014' }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <DataTable
+            :value="arbitrators"
+            class="topo-dt"
+            :row-hover="true"
+            size="small"
+          >
+            <Column header="Name" style="min-width:160px">
+              <template #body="{ data: a }">
+                <div class="cell-name">
+                  <span class="status-dot" :style="{ background: arbColor(a), boxShadow: `0 0 6px ${arbColor(a)}` }"/>
+                  <span class="name-text">{{ a.name }}</span>
+                  <span class="arb-badge">ARB</span>
+                </div>
+              </template>
+            </Column>
+            <Column header="Host">
+              <template #body="{ data: a }">
+                <span class="cell-mono">{{ a.host }}</span>
+              </template>
+            </Column>
+            <Column header="State">
+              <template #body="{ data: a }">
+                <span class="cell-state" :style="{ color: arbColor(a) }">{{ arbStatLabel(a) }}</span>
+              </template>
+            </Column>
+            <Column header="DC">
+              <template #body="{ data: a }">
+                <span class="cell-muted">{{ a.dc_name ?? '\u2014' }}</span>
+              </template>
+            </Column>
+            <Column header="SSH lat">
+              <template #body="{ data: a }">
+                <span class="cell-mono" :class="a.ssh_latency_ms != null && a.ssh_latency_ms > 100 ? 'cell-warn' : ''">
+                  {{ a.ssh_latency_ms != null ? `${a.ssh_latency_ms} ms` : '\u2014' }}
+                </span>
+              </template>
+            </Column>
+          </DataTable>
         </div>
       </template>
     </template>
@@ -895,23 +913,38 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   font-family: var(--font-mono);
 }
 
-.node-table           { width: 100%; border-collapse: collapse; }
-.node-table thead tr  { background: var(--color-surface-offset); }
-.node-table th {
-  padding: var(--space-3) var(--space-5);
-  text-align: left; font-size: var(--text-xs); font-weight: 600;
-  text-transform: uppercase; letter-spacing: .08em;
-  color: var(--color-text-faint); white-space: nowrap;
-  border-bottom: 1px solid var(--color-border);
+/* ── DataTable overrides ── */
+:deep(.topo-dt .p-datatable-table-container) {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
 }
-.node-row {
-  border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);
-  transition: background var(--transition-interactive);
+:deep(.topo-dt .p-datatable-thead > tr > th) {
+  padding: var(--space-3) var(--space-5) !important;
+  text-align: left;
+  font-size: var(--text-xs) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint) !important;
+  white-space: nowrap;
+  background: var(--color-surface-offset) !important;
+  border-bottom: 1px solid var(--color-border) !important;
 }
-.node-row:last-child     { border-bottom: none; }
-.node-row:hover          { background: var(--color-surface-offset); }
-.node-row--clickable     { cursor: pointer; }
-.node-table td           { padding: var(--space-3) var(--space-5); vertical-align: middle; }
+:deep(.topo-dt .p-datatable-tbody > tr > td) {
+  padding: var(--space-3) var(--space-5) !important;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent) !important;
+  vertical-align: middle;
+}
+:deep(.topo-dt .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none !important;
+}
+:deep(.topo-dt .p-datatable-tbody > tr:hover > td) {
+  background: var(--color-surface-offset) !important;
+}
+:deep(.topo-dt .p-datatable-tbody > tr.node-row--clickable) {
+  cursor: pointer;
+}
 
 .cell-name { display: flex; align-items: center; gap: var(--space-3); }
 

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Button       from 'primevue/button'
+import DataTable    from 'primevue/datatable'
+import Column       from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ConfigDiffResponse, type ConfigDiffRow } from '@/api/diagnostics'
 
@@ -64,9 +67,15 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
           />
           <span class="toggle-label">Show all variables</span>
         </div>
-        <button class="btn-icon" :disabled="loading" @click="load" title="Refresh">
-          <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
-        </button>
+        <Button
+          icon="pi pi-refresh"
+          severity="secondary"
+          :loading="loading"
+          :disabled="loading"
+          @click="load"
+          v-tooltip.top="'Refresh'"
+          aria-label="Refresh config diff"
+        />
       </div>
     </div>
 
@@ -88,42 +97,41 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
         <i class="pi pi-info-circle" /> No variables fetched.
       </div>
 
-      <div v-else class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Variable</th>
-              <th v-for="n in nodeNames" :key="n">{{ n }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in displayed"
-              :key="row.variable"
-              :class="{ 'row-diff': row.has_diff }"
-            >
-              <td class="var-name">{{ row.variable }}</td>
-              <td
-                v-for="n in nodeNames"
-                :key="n"
-                v-memo="[row.variable, n, row.has_diff]"
+      <DataTable
+        v-else
+        :value="displayed"
+        class="diff-table"
+        :row-class="(row: ConfigDiffRow) => row.has_diff ? 'row-diff' : ''"
+        :row-hover="true"
+        scroll-height="600px"
+        scrollable
+        size="small"
+      >
+        <Column field="variable" header="Variable" style="min-width:200px">
+          <template #body="{ data: row }">
+            <span class="var-name">{{ row.variable }}</span>
+          </template>
+        </Column>
+        <Column
+          v-for="n in nodeNames"
+          :key="n"
+          :field="n"
+          :header="n"
+          style="min-width:120px"
+        >
+          <template #body="{ data: row }">
+            <template v-if="cellValue(row, n).error">
+              <span class="err-mark val-err" title="Fetch error">err</span>
+            </template>
+            <template v-else>
+              <span
                 class="val-cell mono"
-                :class="{
-                  'val-diff': row.has_diff,
-                  'val-err': cellValue(row, n).error
-                }"
-              >
-                <template v-if="cellValue(row, n).error">
-                  <span class="err-mark" title="Fetch error">err</span>
-                </template>
-                <template v-else>
-                  {{ cellValue(row, n).value ?? '—' }}
-                </template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                :class="{ 'val-diff': row.has_diff }"
+              >{{ cellValue(row, n).value ?? '—' }}</span>
+            </template>
+          </template>
+        </Column>
+      </DataTable>
 
       <div
         v-if="data.nodes.some((n) => !n.fetch_ok)"
@@ -199,22 +207,6 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   pointer-events: none;
 }
 
-.btn-icon {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-}
-.btn-icon:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
-.btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
-
 .alert-err {
   display: flex;
   align-items: center;
@@ -273,47 +265,46 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   100% { background-position:  200% 0; }
 }
 
-.table-wrap {
+/* ── DataTable overrides ── */
+:deep(.diff-table .p-datatable-table-container) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow-x: auto;
-  max-height: 600px;
-  overflow-y: auto;
 }
-
-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-thead { background: var(--color-surface-2); position: sticky; top: 0; z-index: 1; }
-th {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 600;
+:deep(.diff-table .p-datatable-thead > tr > th) {
+  padding: var(--space-2) var(--space-3) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 600 !important;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom: 1px solid var(--color-border) !important;
   white-space: nowrap;
 }
-td {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text);
+:deep(.diff-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-2) var(--space-3) !important;
+  border-bottom: 1px solid var(--color-border) !important;
   vertical-align: top;
 }
-tr:last-child td { border-bottom: none; }
-
-.var-name { font-weight: 500; white-space: nowrap; }
-.mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
-.val-cell { color: var(--color-text-muted); }
-
-.row-diff td { background: rgba(96,165,250,0.04); }
-.row-diff:hover td { background: rgba(96,165,250,0.07); }
-.val-diff { color: var(--color-warning) !important; font-weight: 500; }
-
-.val-err { color: var(--color-error) !important; }
-.err-mark {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono, monospace);
-  opacity: 0.7;
+:deep(.diff-table .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none !important;
 }
+/* diff row highlight */
+:deep(.diff-table .p-datatable-tbody > tr.row-diff > td) {
+  background: rgba(96,165,250,0.04) !important;
+}
+:deep(.diff-table .p-datatable-tbody > tr.row-diff:hover > td) {
+  background: rgba(96,165,250,0.07) !important;
+}
+:deep(.diff-table .p-datatable-tbody > tr:not(.row-diff):hover > td) {
+  background: var(--color-surface-2) !important;
+}
+
+.var-name  { font-weight: 500; white-space: nowrap; color: var(--color-text); }
+.mono      { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+.val-cell  { color: var(--color-text-muted); }
+.val-diff  { color: var(--color-warning) !important; font-weight: 500; }
+.val-err   { color: var(--color-error) !important; }
+.err-mark  { font-size: var(--text-xs); font-family: var(--font-mono, monospace); opacity: 0.7; }
 </style>

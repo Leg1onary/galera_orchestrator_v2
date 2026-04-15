@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
+import DataTable from 'primevue/datatable'
+import Column    from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
 import { useSettingsStore } from '@/stores/settings'
 import { diagnosticsApi, type ConnectionCheckRow, type CheckAllResponse } from '@/api/diagnostics'
@@ -75,71 +77,103 @@ function fmtLatency(ms: number | null | undefined) {
     <!-- Nodes -->
     <template v-if="nodes.length > 0">
       <div class="section-label">Nodes</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Host</th>
-              <th class="center">SSH</th>
-              <th class="center">DB</th>
-              <th class="center">SSH Latency</th>
-              <th class="center">DB Latency</th>
-              <th>SSH Error</th>
-              <th>DB Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in nodes" :key="row.node_id">
-              <td class="name-cell">{{ row.node_name }}</td>
-              <td class="mono">{{ row.host }}</td>
-              <td class="center">
-                <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
-              </td>
-              <td class="center">
-                <i :class="['pi', statusIcon(row.db_ok).icon, statusIcon(row.db_ok).cls]" />
-              </td>
-              <td class="center mono">{{ fmtLatency(row.ssh_latency_ms) }}</td>
-              <td class="center mono">{{ fmtLatency(row.db_latency_ms) }}</td>
-              <td class="error-cell mono">{{ row.ssh_error ?? '—' }}</td>
-              <td class="error-cell mono">{{ row.db_error ?? '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        :value="nodes"
+        class="conn-table"
+        :row-hover="true"
+        size="small"
+      >
+        <Column field="node_name" header="Name">
+          <template #body="{ data: row }">
+            <span class="name-cell">{{ row.node_name }}</span>
+          </template>
+        </Column>
+        <Column field="host" header="Host">
+          <template #body="{ data: row }">
+            <span class="mono">{{ row.host }}</span>
+          </template>
+        </Column>
+        <Column header="SSH" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center">
+              <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
+            </div>
+          </template>
+        </Column>
+        <Column header="DB" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center">
+              <i :class="['pi', statusIcon(row.db_ok).icon, statusIcon(row.db_ok).cls]" />
+            </div>
+          </template>
+        </Column>
+        <Column header="SSH Latency" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center mono">{{ fmtLatency(row.ssh_latency_ms) }}</div>
+          </template>
+        </Column>
+        <Column header="DB Latency" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center mono">{{ fmtLatency(row.db_latency_ms) }}</div>
+          </template>
+        </Column>
+        <Column header="SSH Error">
+          <template #body="{ data: row }">
+            <span class="error-cell mono">{{ row.ssh_error ?? '—' }}</span>
+          </template>
+        </Column>
+        <Column header="DB Error">
+          <template #body="{ data: row }">
+            <span class="error-cell mono">{{ row.db_error ?? '—' }}</span>
+          </template>
+        </Column>
+      </DataTable>
     </template>
 
     <!-- Arbitrators -->
     <template v-if="arbs.length > 0">
       <div class="section-label" style="margin-top: var(--space-6)">Arbitrators</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Host</th>
-              <th class="center">SSH</th>
-              <th class="center">garbd</th>
-              <th class="center">SSH Latency</th>
-              <th>SSH Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in arbs" :key="row.node_id">
-              <td class="name-cell">{{ row.node_name }}</td>
-              <td class="mono">{{ row.host }}</td>
-              <td class="center">
-                <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
-              </td>
-              <td class="center">
-                <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
-              </td>
-              <td class="center mono">{{ fmtLatency(arbLatency(row)) }}</td>
-              <td class="error-cell mono">{{ row.ssh_error ?? '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        :value="arbs"
+        class="conn-table"
+        :row-hover="true"
+        size="small"
+      >
+        <Column field="node_name" header="Name">
+          <template #body="{ data: row }">
+            <span class="name-cell">{{ row.node_name }}</span>
+          </template>
+        </Column>
+        <Column field="host" header="Host">
+          <template #body="{ data: row }">
+            <span class="mono">{{ row.host }}</span>
+          </template>
+        </Column>
+        <Column header="SSH" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center">
+              <i :class="['pi', statusIcon(row.ssh_ok).icon, statusIcon(row.ssh_ok).cls]" />
+            </div>
+          </template>
+        </Column>
+        <Column header="garbd" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center">
+              <i :class="['pi', statusIcon(row.garbd_running).icon, statusIcon(row.garbd_running).cls]" />
+            </div>
+          </template>
+        </Column>
+        <Column header="SSH Latency" header-class="center-header">
+          <template #body="{ data: row }">
+            <div class="center mono">{{ fmtLatency(arbLatency(row)) }}</div>
+          </template>
+        </Column>
+        <Column header="SSH Error">
+          <template #body="{ data: row }">
+            <span class="error-cell mono">{{ row.ssh_error ?? '—' }}</span>
+          </template>
+        </Column>
+      </DataTable>
     </template>
   </div>
 </template>
@@ -179,36 +213,42 @@ function fmtLatency(ms: number | null | undefined) {
   color: var(--color-text-muted);
 }
 
-.table-wrap {
+/* ── DataTable overrides ── */
+:deep(.conn-table .p-datatable-table-container) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
-
-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-thead { background: var(--color-surface-2); }
-th {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 600;
+:deep(.conn-table .p-datatable-thead > tr > th) {
+  padding: var(--space-2) var(--space-3) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 600 !important;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom: 1px solid var(--color-border) !important;
 }
-td {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+:deep(.conn-table .p-datatable-thead > tr > th.center-header) {
+  text-align: center !important;
+}
+:deep(.conn-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-2) var(--space-3) !important;
+  border-bottom: 1px solid var(--color-border) !important;
   color: var(--color-text);
+  vertical-align: middle;
 }
-tr:last-child td { border-bottom: none; }
-tr:hover td { background: var(--color-surface-2); }
+:deep(.conn-table .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none !important;
+}
+:deep(.conn-table .p-datatable-tbody > tr:hover > td) {
+  background: var(--color-surface-2) !important;
+}
 
-.center { text-align: center; }
-.mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
-.name-cell { font-weight: 500; }
-.error-cell { color: var(--color-text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.center      { text-align: center; }
+.mono        { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+.name-cell   { font-weight: 500; }
+.error-cell  { color: var(--color-text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
 .st-ok      { color: var(--color-success); }
 .st-err     { color: var(--color-error); }

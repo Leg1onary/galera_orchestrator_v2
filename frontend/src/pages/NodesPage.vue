@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import { useClusterStore } from '@/stores/cluster'
 import { useClusterStatus } from '@/composables/useClusterStatus'
+import Button      from 'primevue/button'
 import NodeTable from '@/components/nodes/NodeTable.vue'
 import NodeDetailDrawer from '@/components/nodes/NodeDetailDrawer.vue'
 import EntityFormModal, { type FormField } from '@/components/settings/EntityFormModal.vue'
@@ -160,10 +161,12 @@ async function handleModalSubmit(values: Record<string, unknown>) {
           </div>
         </div>
         <div class="pg-header__actions">
-          <button class="btn-add" @click="openAddModal">
-            <i class="pi pi-plus" />
-            Add node
-          </button>
+          <Button
+            label="Add node"
+            icon="pi pi-plus"
+            @click="openAddModal"
+            class="btn-add-primevue"
+          />
           <Button
             icon="pi pi-refresh"
             severity="secondary"
@@ -266,23 +269,16 @@ async function handleModalSubmit(values: Record<string, unknown>) {
   gap: var(--space-2);
 }
 
-.btn-add {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: rgba(45,212,191,0.1);
-  border: 1px solid rgba(45,212,191,0.25);
-  border-radius: var(--radius-md);
-  color: var(--color-primary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 150ms ease;
+/* PrimeVue Add button — teal ghost style */
+:deep(.btn-add-primevue.p-button) {
+  background: rgba(45,212,191,0.1) !important;
+  border: 1px solid rgba(45,212,191,0.25) !important;
+  color: var(--color-primary) !important;
 }
-.btn-add:hover { background: rgba(45,212,191,0.18); border-color: rgba(45,212,191,0.4); }
-.btn-add .pi  { font-size: 0.75rem; }
+:deep(.btn-add-primevue.p-button:hover) {
+  background: rgba(45,212,191,0.18) !important;
+  border-color: rgba(45,212,191,0.4) !important;
+}
 
 .pg-count {
   font-size: var(--text-xs);

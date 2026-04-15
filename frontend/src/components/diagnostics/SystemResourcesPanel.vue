@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import Button    from 'primevue/button'
+import DataTable from 'primevue/datatable'
+import Column    from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type NodeResourceRow, type DiskUsageNodeResult } from '@/api/diagnostics'
 
@@ -114,10 +117,14 @@ function cardStatusLevel(row: NodeResourceRow): Level {
         <span>System Resources</span>
         <span v-if="lastRun" class="last-run">last run {{ lastRun }}</span>
       </div>
-      <button class="btn-run" :disabled="loading" @click="run">
-        <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
-        {{ loading ? 'Fetching…' : 'Refresh' }}
-      </button>
+      <Button
+        :label="loading ? 'Fetching…' : 'Refresh'"
+        icon="pi pi-refresh"
+        severity="secondary"
+        :loading="loading"
+        :disabled="loading"
+        @click="run"
+      />
     </div>
 
     <div v-if="error" class="alert-err">
@@ -274,46 +281,45 @@ function cardStatusLevel(row: NodeResourceRow): Level {
               <!-- Top tables -->
               <div v-if="diskData[row.node_id].top_tables.length" class="disk-section">
                 <div class="disk-section-title">Top 10 tables by size</div>
-                <table class="disk-table">
-                  <thead>
-                    <tr>
-                      <th>Schema</th>
-                      <th>Table</th>
-                      <th class="num">Data</th>
-                      <th class="num">Index</th>
-                      <th class="num">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="t in diskData[row.node_id].top_tables" :key="t.schema + '.' + t.table">
-                      <td class="muted">{{ t.schema }}</td>
-                      <td>{{ t.table }}</td>
-                      <td class="num mono">{{ fmtMb(t.data_mb) }}</td>
-                      <td class="num mono">{{ fmtMb(t.index_mb) }}</td>
-                      <td class="num mono bold">{{ fmtMb(t.total_mb) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <DataTable
+                  :value="diskData[row.node_id].top_tables"
+                  class="disk-dt"
+                  size="small"
+                  :show-gridlines="false"
+                >
+                  <Column field="schema" header="Schema">
+                    <template #body="{ data: t }"><span class="muted">{{ t.schema }}</span></template>
+                  </Column>
+                  <Column field="table" header="Table" />
+                  <Column header="Data" header-class="num-header">
+                    <template #body="{ data: t }"><span class="num mono">{{ fmtMb(t.data_mb) }}</span></template>
+                  </Column>
+                  <Column header="Index" header-class="num-header">
+                    <template #body="{ data: t }"><span class="num mono">{{ fmtMb(t.index_mb) }}</span></template>
+                  </Column>
+                  <Column header="Total" header-class="num-header">
+                    <template #body="{ data: t }"><span class="num mono bold">{{ fmtMb(t.total_mb) }}</span></template>
+                  </Column>
+                </DataTable>
               </div>
               <div v-else class="disk-empty">No user tables found or no DB credentials.</div>
 
               <!-- Binary logs list -->
               <div v-if="diskData[row.node_id].binary_logs.length" class="disk-section">
                 <div class="disk-section-title">Binary logs ({{ diskData[row.node_id].binary_logs.length }})</div>
-                <table class="disk-table">
-                  <thead>
-                    <tr>
-                      <th>Log file</th>
-                      <th class="num">Size</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="bl in diskData[row.node_id].binary_logs" :key="bl.log_name">
-                      <td class="mono">{{ bl.log_name }}</td>
-                      <td class="num mono">{{ fmtBytes(bl.file_size) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <DataTable
+                  :value="diskData[row.node_id].binary_logs"
+                  class="disk-dt"
+                  size="small"
+                  :show-gridlines="false"
+                >
+                  <Column field="log_name" header="Log file">
+                    <template #body="{ data: bl }"><span class="mono">{{ bl.log_name }}</span></template>
+                  </Column>
+                  <Column header="Size" header-class="num-header">
+                    <template #body="{ data: bl }"><span class="num mono">{{ fmtBytes(bl.file_size) }}</span></template>
+                  </Column>
+                </DataTable>
               </div>
 
               <!-- DB error (partial) -->
@@ -356,22 +362,7 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   font-size: var(--text-xs);
   margin-left: var(--space-2);
 }
-.btn-run {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-}
-.btn-run:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
-.btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+/* btn-run replaced by PrimeVue Button */
 
 .alert-err {
   display: flex; align-items: center; gap: var(--space-2);
@@ -639,30 +630,37 @@ function cardStatusLevel(row: NodeResourceRow): Level {
   color: var(--color-text-muted);
 }
 
-.disk-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-xs);
+/* ── Disk DataTable overrides ── */
+:deep(.disk-dt .p-datatable-table-container) {
+  border: none;
+  box-shadow: none;
 }
-.disk-table th {
-  text-align: left;
-  padding: var(--space-1) var(--space-2);
-  color: var(--color-text-faint);
-  font-weight: 500;
+:deep(.disk-dt .p-datatable-thead > tr > th) {
+  padding: var(--space-1) var(--space-2) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 500 !important;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-faint) !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--color-border) !important;
 }
-.disk-table th.num,
-.disk-table td.num { text-align: right; }
-.disk-table td {
-  padding: var(--space-1) var(--space-2);
+:deep(.disk-dt .p-datatable-thead > tr > th.num-header) {
+  text-align: right !important;
+}
+:deep(.disk-dt .p-datatable-tbody > tr > td) {
+  padding: var(--space-1) var(--space-2) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
   color: var(--color-text);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: var(--text-xs);
+  background: transparent !important;
 }
-.disk-table tr:last-child td { border-bottom: none; }
-.disk-table td.muted { color: var(--color-text-muted); }
-.disk-table td.bold  { font-weight: 600; }
+:deep(.disk-dt .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none !important;
+}
+:deep(.disk-dt .p-datatable-tbody > tr:hover > td) {
+  background: rgba(45,212,191,0.03) !important;
+}
 
 .disk-empty {
   font-size: var(--text-xs);

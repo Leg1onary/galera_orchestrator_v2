@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
+import Select from 'primevue/select'
+import Button from 'primevue/button'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type ArbitratorLogResult } from '@/api/diagnostics'
 import { api } from '@/api/client'
@@ -92,6 +94,12 @@ watch([selectedId, lines], () => {
 
 const logLines = computed(() => logResult.value?.lines ?? [])
 
+const linesOptions = [
+  { label: '20 lines', value: 20 as const },
+  { label: '50 lines', value: 50 as const },
+  { label: '100 lines', value: 100 as const },
+]
+
 function lineClass(line: string): string {
   const l = line.toLowerCase()
   if (l.includes('error') || l.includes('err]')) return 'line-err'
@@ -108,24 +116,32 @@ function lineClass(line: string): string {
         <span>Arbitrator Log</span>
       </div>
       <div class="header-actions">
-        <select
+        <Select
           v-model="selectedId"
-          class="sel"
+          :options="arbitrators.length === 0 ? [{ id: null, name: 'No arbitrators' }] : arbitrators"
+          option-label="name"
+          option-value="id"
           :disabled="loadingArbs || arbitrators.length === 0"
-        >
-          <option v-if="arbitrators.length === 0" :value="null">No arbitrators</option>
-          <option v-for="a in arbitrators" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
+          class="sel-primevue"
+        />
 
-        <select v-model="lines" class="sel sel-lines">
-          <option :value="20">20 lines</option>
-          <option :value="50">50 lines</option>
-          <option :value="100">100 lines</option>
-        </select>
+        <Select
+          v-model="lines"
+          :options="linesOptions"
+          option-label="label"
+          option-value="value"
+          class="sel-primevue sel-primevue--lines"
+        />
 
-        <button class="btn-icon" :disabled="loading || !selectedId" @click="fetchLog" title="Refresh">
-          <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
-        </button>
+        <Button
+          icon="pi pi-refresh"
+          severity="secondary"
+          :loading="loading"
+          :disabled="loading || !selectedId"
+          @click="fetchLog"
+          v-tooltip.top="'Refresh'"
+          aria-label="Refresh log"
+        />
       </div>
     </div>
 
@@ -192,36 +208,9 @@ function lineClass(line: string): string {
 
 .header-actions { display: flex; align-items: center; gap: var(--space-2); }
 
-.sel {
-  padding: var(--space-1) var(--space-3);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  cursor: pointer;
-  outline: none;
-  transition: border-color var(--transition-interactive);
-}
-.sel:focus { border-color: var(--color-primary); }
-.sel:disabled { opacity: 0.5; cursor: not-allowed; }
-.sel-lines { width: 100px; }
-
-.btn-icon {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-}
-.btn-icon:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
-.btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+/* PrimeVue Select styling in this panel */
+.sel-primevue { min-width: 140px; }
+.sel-primevue--lines { min-width: 100px; }
 
 .alert-err {
   display: flex;

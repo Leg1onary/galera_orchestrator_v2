@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import InputText from 'primevue/inputtext'
+import Button    from 'primevue/button'
+import DataTable from 'primevue/datatable'
+import Column    from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
 import { diagnosticsApi, type KVRow } from '@/api/diagnostics'
 
@@ -74,16 +78,21 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
       <div class="header-actions">
         <div class="search-wrap">
           <i class="pi pi-search search-icon" />
-          <input
+          <InputText
             v-model="search"
             class="search-input"
-            type="text"
             placeholder="Filter variables…"
           />
         </div>
-        <button class="btn-icon" :disabled="loading" @click="load" title="Refresh">
-          <i :class="['pi', loading ? 'pi-spin pi-spinner' : 'pi-refresh']" />
-        </button>
+        <Button
+          icon="pi pi-refresh"
+          severity="secondary"
+          :loading="loading"
+          :disabled="loading"
+          @click="load"
+          v-tooltip.top="'Refresh'"
+          aria-label="Refresh variables"
+        />
       </div>
     </div>
 
@@ -118,22 +127,26 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
       {{ search ? 'No variables match the filter.' : 'No data available.' }}
     </div>
 
-    <div v-else class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:50%">Variable</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in currentRows" :key="row.variable_name">
-            <td class="var-name">{{ row.variable_name }}</td>
-            <td class="mono val">{{ row.value }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      v-else
+      :value="currentRows"
+      class="vars-table"
+      :row-hover="true"
+      scroll-height="600px"
+      scrollable
+      size="small"
+    >
+      <Column field="variable_name" header="Variable" style="width:50%">
+        <template #body="{ data: row }">
+          <span class="var-name">{{ row.variable_name }}</span>
+        </template>
+      </Column>
+      <Column field="value" header="Value">
+        <template #body="{ data: row }">
+          <span class="mono val">{{ row.value }}</span>
+        </template>
+      </Column>
+    </DataTable>
   </div>
 </template>
 
@@ -179,35 +192,13 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   color: var(--color-text-faint);
   font-size: 0.75rem;
   pointer-events: none;
+  z-index: 1;
 }
-.search-input {
-  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 16px);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  color: var(--color-text);
+/* Override PrimeVue InputText padding so icon fits */
+:deep(.search-input.p-inputtext) {
+  padding-left: calc(var(--space-3) + 16px) !important;
   width: 220px;
-  outline: none;
-  transition: border-color var(--transition-interactive);
 }
-.search-input:focus { border-color: var(--color-primary); }
-
-.btn-icon {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-}
-.btn-icon:hover:not(:disabled) { background: var(--color-surface-offset); color: var(--color-text); }
-.btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .alert-err {
   display: flex;
@@ -279,32 +270,33 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   font-size: var(--text-sm);
 }
 
-.table-wrap {
+/* ── DataTable overrides ── */
+:deep(.vars-table .p-datatable-table-container) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
-  max-height: 600px;
-  overflow-y: auto;
 }
-
-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-thead { background: var(--color-surface-2); position: sticky; top: 0; z-index: 1; }
-th {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 600;
+:deep(.vars-table .p-datatable-thead > tr > th) {
+  padding: var(--space-2) var(--space-4) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom: 1px solid var(--color-border) !important;
 }
-td {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+:deep(.vars-table .p-datatable-tbody > tr > td) {
+  padding: var(--space-2) var(--space-4) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  vertical-align: middle;
 }
-tr:last-child td { border-bottom: none; }
-tr:hover td { background: var(--color-surface-2); }
+:deep(.vars-table .p-datatable-tbody > tr:last-child > td) {
+  border-bottom: none !important;
+}
+:deep(.vars-table .p-datatable-tbody > tr:hover > td) {
+  background: var(--color-surface-2) !important;
+}
 
 .var-name { color: var(--color-text); }
 .mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
