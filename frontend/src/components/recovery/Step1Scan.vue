@@ -327,7 +327,7 @@ function stateClass(state: string | null): string {
 .ssh-badge {
   display: inline-flex; align-items: center;
   gap: 4px; font-size: 0.68rem; font-weight: 700;
-  letter-spacing: 0.06em; padding: 2px 7px;
+  letter-spacing: 0.06em; padding: 3px 9px;
   border-radius: var(--radius-full);
 }
 .ssh-badge--ok {
@@ -343,7 +343,7 @@ function stateClass(state: string | null): string {
 .stb-badge {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 0.68rem; font-weight: 700;
-  letter-spacing: 0.08em; padding: 2px 8px;
+  letter-spacing: 0.08em; padding: 3px 10px;
   border-radius: var(--radius-full);
 }
 .stb-badge--yes {

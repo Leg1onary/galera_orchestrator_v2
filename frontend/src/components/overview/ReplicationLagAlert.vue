@@ -102,7 +102,7 @@ const show = computed(() => lagNodes.value.length > 0)
   background: rgba(96,165,250,0.12);
   border: 1px solid rgba(96,165,250,0.25);
   border-radius: var(--radius-full);
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
   font-size: var(--text-xs);
 }
 

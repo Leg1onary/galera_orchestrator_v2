@@ -330,7 +330,7 @@ function recvColor(v: number | null): string {
   font-family: var(--font-mono);
   white-space: nowrap;
   background: var(--color-surface-3);
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
 }

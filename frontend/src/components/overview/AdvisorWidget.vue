@@ -298,7 +298,7 @@ function openAdvisor() {
   font-weight: 600;
   color: var(--color-text);
 }
-.total-tag { font-size: 10px !important; }
+.total-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; }
 
 .sev-tags {
   display: flex;
@@ -307,7 +307,7 @@ function openAdvisor() {
   flex: 1;
   flex-wrap: wrap;
 }
-.sev-tag { font-size: 11px !important; cursor: default; }
+.sev-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; cursor: default; }
 
 .open-btn {
   flex-shrink: 0;
@@ -380,7 +380,7 @@ function openAdvisor() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.card-cat-tag { font-size: 10px !important; flex-shrink: 0; }
+.card-cat-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; flex-shrink: 0; }
 
 .card-summary {
   font-size: var(--text-xs);

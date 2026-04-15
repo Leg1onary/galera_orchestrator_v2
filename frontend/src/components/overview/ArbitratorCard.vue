@@ -140,7 +140,7 @@ const latencyLabel = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;

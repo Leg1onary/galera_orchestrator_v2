@@ -158,7 +158,7 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
 }
 
 .badge-diff {
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   background: var(--color-warning-highlight);
   color: var(--color-warning);
   border-radius: var(--radius-full);
@@ -200,8 +200,8 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
 }
 
 .btn-icon {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;

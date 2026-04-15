@@ -593,7 +593,7 @@ async function doKill(row: { _key: string; id: number; node_id: number; node_nam
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
 }
 
 :deep(.diag-table .p-datatable-table) {
@@ -700,7 +700,7 @@ async function doKill(row: { _key: string; id: number; node_id: number; node_nam
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-full);
   border: 1px solid transparent;
   white-space: nowrap;

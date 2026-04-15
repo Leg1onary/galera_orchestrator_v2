@@ -23,7 +23,7 @@
         :x="CX"
         :y="CY + 7"
         text-anchor="middle"
-        style="font-size: 10px;"
+        style="font-size: 0.75rem;"
         fill="var(--color-text-muted)"
     >ARB</text>
 

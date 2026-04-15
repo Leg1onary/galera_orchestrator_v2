@@ -317,7 +317,7 @@ async function doRestart(row: SstStatusItem & { node_name: string }) {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-full);
   border: 1px solid transparent;
   white-space: nowrap;

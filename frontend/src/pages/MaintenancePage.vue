@@ -161,7 +161,7 @@ const clusterId    = computed(() => clusterStore.selectedClusterId)
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: 2px 6px;
+  padding: 3px 8px;
   color: var(--color-primary);
 }
 

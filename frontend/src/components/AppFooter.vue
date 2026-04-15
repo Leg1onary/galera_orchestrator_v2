@@ -212,7 +212,7 @@ onMounted(() => versionStore.loadVersion())
   color: var(--color-text-muted);
   font-family: var(--font-mono, monospace);
   background: rgba(255,255,255,0.05);
-  padding: 2px 7px;
+  padding: 3px 9px;
   border-radius: 4px;
   white-space: nowrap;
 }

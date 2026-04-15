@@ -444,7 +444,7 @@ function generatedAt(iso: string) {
 .group-label--critical { color: var(--color-error); }
 .group-label--warn     { color: var(--color-warning); }
 .group-label--info     { color: var(--color-blue); }
-.group-count-tag { font-size: 11px !important; }
+.group-count-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; }
 
 /* ── Cards stack ── */
 .cards-stack {
@@ -496,7 +496,7 @@ function generatedAt(iso: string) {
   flex-shrink: 0;
   min-width: 90px;
 }
-.cat-tag { font-size: 11px !important; }
+.cat-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; }
 .source-text {
   font-size: var(--text-xs);
   color: var(--color-text-faint);
@@ -539,7 +539,7 @@ function generatedAt(iso: string) {
   gap: var(--space-1);
   flex-wrap: wrap;
 }
-.node-tag { font-size: 10px !important; }
+.node-tag { font-size: var(--text-xs) !important; padding: 3px 10px !important; }
 .action-btn { flex-shrink: 0; }
 
 /* ── Expanded content ── */

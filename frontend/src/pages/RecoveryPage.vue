@@ -238,6 +238,10 @@ onUnmounted(() => store.destroy())
 }
 .rp-guard-msg  { width: 100%; }
 .rp-guard-body { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
+:deep(.rp-guard-msg .p-message-content) {
+  padding: var(--space-4) var(--space-5);
+  gap: var(--space-3);
+}
 
 /* ═══ WIZARD ═════════════════════════════════════════════════ */
 .rp-wizard {

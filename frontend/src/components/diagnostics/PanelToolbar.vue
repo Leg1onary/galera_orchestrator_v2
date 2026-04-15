@@ -53,13 +53,13 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-5);
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   gap: var(--space-3);
   flex-wrap: wrap;
-  min-height: 44px;
+  min-height: 52px;
 }
 
 .toolbar-left {
@@ -123,8 +123,8 @@ const emit = defineEmits<{
 }
 
 .toolbar-btn {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -133,7 +133,7 @@ const emit = defineEmits<{
   background: transparent;
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all var(--transition-normal);
 }

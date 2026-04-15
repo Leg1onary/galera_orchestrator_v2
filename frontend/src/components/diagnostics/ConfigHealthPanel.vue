@@ -291,7 +291,7 @@ function nodeStatus(node: ConfigHealthNodeResult) {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-5);
   background: var(--color-surface-offset);
   border-bottom: 1px solid var(--color-border);
 }
@@ -299,8 +299,12 @@ function nodeStatus(node: ConfigHealthNodeResult) {
 .node-name { font-weight: 600; font-size: var(--text-sm); color: var(--color-text); }
 .node-host { font-size: var(--text-xs); color: var(--color-text-muted); font-family: monospace; }
 
-.node-stats { display: flex; gap: var(--space-1); flex-wrap: wrap; }
-.node-stat-tag { font-size: 10px !important; }
+.node-stats { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.node-stat-tag {
+  font-size: var(--text-xs) !important;
+  padding: 3px 10px !important;
+  font-weight: 600 !important;
+}
 .node-err-tag  { font-size: var(--text-xs) !important; }
 
 /* DataTable overrides */
@@ -351,10 +355,11 @@ function nodeStatus(node: ConfigHealthNodeResult) {
   display: inline-flex !important;
   align-items: center;
   gap: 4px;
-  font-size: 10px !important;
-  padding: 2px 8px !important;
+  font-size: var(--text-xs) !important;
+  padding: 3px 10px !important;
+  font-weight: 600 !important;
 }
-.status-tag .pi { font-size: 10px; }
+.status-tag .pi { font-size: var(--text-xs); }
 
 /* Rec column */
 .col-rec { max-width: 380px; }

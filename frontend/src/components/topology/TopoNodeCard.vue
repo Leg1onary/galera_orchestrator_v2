@@ -55,7 +55,7 @@
       />
       <text
           :x="W - 17" :y="15"
-          style="font-size: 10px; font-weight: 700;"
+          style="font-size: 0.75rem; font-weight: 700;"
           text-anchor="middle"
           fill="#b07a00"
       >RO</text>
@@ -73,7 +73,7 @@
       />
       <text
           :x="W - 26" :y="H - 8"
-          style="font-size: 10px; font-weight: 600;"
+          style="font-size: 0.75rem; font-weight: 600;"
           text-anchor="middle"
           fill="#b07a00"
       >MAINT</text>

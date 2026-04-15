@@ -392,8 +392,9 @@ async function doDesync(nodeId: number, desync: boolean) {
 
 .cell-actions {
   display: flex;
-  gap: var(--space-1);
+  gap: var(--space-2);
   flex-wrap: wrap;
+  align-items: center;
 }
 
 /* ── Empty state ─────────────────────────────────────── */

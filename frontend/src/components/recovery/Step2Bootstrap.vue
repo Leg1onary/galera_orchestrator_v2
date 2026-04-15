@@ -210,7 +210,7 @@ async function handleBootstrap() {
 .node-stb {
   display: inline-flex; align-items: center;
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.07em;
-  padding: 2px 8px; border-radius: var(--radius-full);
+  padding: 3px 10px; border-radius: var(--radius-full);
 }
 .node-stb--connected {
   background: color-mix(in oklch, var(--color-success) 14%, transparent);
@@ -225,7 +225,7 @@ async function handleBootstrap() {
 .node-recommended {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.07em;
-  padding: 2px 8px; border-radius: var(--radius-full);
+  padding: 3px 10px; border-radius: var(--radius-full);
   background: color-mix(in oklch, var(--color-success) 14%, transparent);
   color: var(--color-success);
   border: 1px solid color-mix(in oklch, var(--color-success) 30%, transparent);
@@ -234,7 +234,7 @@ async function handleBootstrap() {
 .node-risky {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 0.68rem; font-weight: 700; letter-spacing: 0.07em;
-  padding: 2px 8px; border-radius: var(--radius-full);
+  padding: 3px 10px; border-radius: var(--radius-full);
   background: color-mix(in oklch, var(--color-warning) 14%, transparent);
   color: var(--color-warning);
   border: 1px solid color-mix(in oklch, var(--color-warning) 30%, transparent);

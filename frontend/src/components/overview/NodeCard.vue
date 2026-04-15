@@ -469,7 +469,7 @@ function confirmDestructive(action: NodeAction, label: string) {
   font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.12em;
-  padding: 2px 7px;
+  padding: 3px 9px;
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }

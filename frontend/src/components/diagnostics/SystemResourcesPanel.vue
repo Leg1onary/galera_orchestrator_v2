@@ -453,7 +453,7 @@ function cardStatusLevel(row: NodeResourceRow): Level {
 .dot-unknown { background: var(--color-text-faint); }
 
 .badge {
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;

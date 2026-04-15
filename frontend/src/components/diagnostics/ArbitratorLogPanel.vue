@@ -208,8 +208,8 @@ function lineClass(line: string): string {
 .sel-lines { width: 100px; }
 
 .btn-icon {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;

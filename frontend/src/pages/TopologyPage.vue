@@ -748,7 +748,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -861,7 +861,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 .legend-item   { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--color-text-muted); }
 .legend-item--hint { color: var(--color-text-faint); }
 .legend-dot    { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.legend-icon   { font-size: 10px; line-height: 1; }
+.legend-icon   { font-size: 0.75rem; line-height: 1; }
 .legend-arc    { display: inline-block; width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
 .legend-arc--synced  { background: var(--color-synced);      opacity: 0.95; }
 .legend-arc--active  { background: var(--color-readonly);    opacity: 0.85; }
@@ -937,7 +937,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 
 .mode-pill {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 32px; padding: 2px 8px;
+  min-width: 32px; padding: 3px 10px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs); font-weight: 700; letter-spacing: .06em;
 }

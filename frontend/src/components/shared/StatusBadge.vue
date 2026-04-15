@@ -46,11 +46,11 @@ const label = computed(() => props.status ?? '—')
 .status-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
   border: 1px solid transparent;
 }

@@ -270,6 +270,10 @@ function stateBadgeClass(state: string): string {
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
 }
 
 .age-label {
@@ -349,7 +353,7 @@ function stateBadgeClass(state: string): string {
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
 }
 
 :deep(.diag-table .p-datatable-table) {
@@ -458,7 +462,7 @@ function stateBadgeClass(state: string): string {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-full);
   border: 1px solid transparent;
   white-space: nowrap;

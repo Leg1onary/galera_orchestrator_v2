@@ -326,7 +326,7 @@ async function doFlush(nodeName: string) {
   font-size: var(--text-xs);
   color: var(--color-warning);
   background: var(--color-surface-dynamic);
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   border-radius: var(--radius-sm);
 }
 

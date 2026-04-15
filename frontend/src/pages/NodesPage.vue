@@ -292,7 +292,7 @@ async function handleModalSubmit(values: Record<string, unknown>) {
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 2px 8px;
+  padding: 3px 10px;
   margin-left: var(--space-2);
   min-width: 22px;
   text-align: center;

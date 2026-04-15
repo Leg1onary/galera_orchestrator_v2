@@ -376,11 +376,11 @@ watch(
 
 .grp-count {
   opacity: 0.65;
-  font-size: 10px !important;
-  padding: 0 5px !important;
-  height: 16px !important;
-  line-height: 16px !important;
-  min-width: 16px !important;
+  font-size: var(--text-xs) !important;
+  padding: 0 6px !important;
+  height: 18px !important;
+  line-height: 18px !important;
+  min-width: 18px !important;
 }
 .grp-btn--active .grp-count { opacity: 1; }
 

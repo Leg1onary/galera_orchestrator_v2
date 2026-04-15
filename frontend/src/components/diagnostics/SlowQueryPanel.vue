@@ -537,7 +537,7 @@ async function toggleSlowLog(nodeId: number, enable: boolean) {
   background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: 2px var(--space-3);
+  padding: 3px var(--space-3);
 }
 .row-count-total {
   color: var(--color-text-faint);

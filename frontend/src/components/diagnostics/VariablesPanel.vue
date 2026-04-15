@@ -158,7 +158,7 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 }
 
 .count-badge {
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-3);
   background: var(--color-primary-highlight);
   color: var(--color-primary);
   border-radius: var(--radius-full);
@@ -194,8 +194,8 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 .search-input:focus { border-color: var(--color-primary); }
 
 .btn-icon {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
