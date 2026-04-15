@@ -22,6 +22,7 @@
 | 10 | **Desync / Resync ноды** | `SET GLOBAL wsrep_desync = ON/OFF` — вывод ноды из репликации для тяжёлых операций без тормозов кластера. | `nodes.py`, `NodeActionsPanel.vue` |
 | 11 | **Stuck SST detector + restart** | Детект ноды в `Joining`/`Donor/Desynced` дольше порога. `GET /nodes/sst-status`, `POST /nodes/{node_id}/restart-sst`. | `nodes.py`, `poller.py`, `SstStatusPanel.vue` |
 | 12 | **FLUSH операции** | `FLUSH LOGS`, `FLUSH TABLES WITH READ LOCK`, `UNLOCK TABLES`. | `nodes.py`, `NodeActionsPanel.vue` |
+| 13 | **Disk usage детализация** | Топ-10 самых больших таблиц (`information_schema.TABLES`), размер бинлогов (`SHOW BINARY LOGS`), размер ibdata1. Панель в секции System Resources на DiagnosticsPage. | `diagnostics.py` (`POST /diagnostics/disk-usage`), `diagnostics.ts`, `DiskUsagePanel.vue` · коммиты: `34f35f5`, `ef45663` |
 
 ---
 
@@ -31,8 +32,7 @@
 
 | # | Фича | Описание | Статус |
 |---|---|---|---|
-| 13 | **Disk usage детализация** | Топ-10 самых больших таблиц (`information_schema.TABLES`), размер бинлогов (`SHOW BINARY LOGS`), размер ibdata1. | 🔲 Запланировано |
-| 14 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией увеличить `wsrep_slave_threads`. | 🔲 Запланировано |
+| 14 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией увеличить `wsrep_slave_threads`. | 🔲 Следующий |
 | 15 | **Активные транзакции** | `information_schema.INNODB_TRX` — транзакции старше N секунд. Отдельно от processlist. | 🔲 Запланировано |
 | 16 | **Deadlock история** | Парсинг последнего дедлока из `SHOW ENGINE INNODB STATUS` и отображение в читаемом виде (сейчас есть raw текст). | 🔲 Запланировано |
 
@@ -70,5 +70,5 @@
 **Репозиторий:** `Leg1onary/galera_orchestrator_v2`  
 **Стек:** Python 3.11 / FastAPI / SQLAlchemy Core / SQLite / paramiko / pymysql + Vue 3 / Vite / Pinia / TanStack Vue Query / PrimeVue  
 **Эталон:** `galera-orchestrator-v2-final-spec.docx` — базовый контракт, всё новое помечается как "вне MVP"  
-**Текущая задача:** реализуем аварийные инструменты поштучно (#7 → #19), затем Advisor (#20)  
-**Следующий шаг:** #13 — Disk usage детализация
+**Текущая задача:** реализуем улучшения поштучно (#14 → #20), затем Advisor (#20)  
+**Следующий шаг:** #14 — Replication lag alert widget
