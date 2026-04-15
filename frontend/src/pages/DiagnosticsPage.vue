@@ -14,6 +14,7 @@ import ErrorLogPanel            from '@/components/diagnostics/ErrorLogPanel.vue
 import PurgeBinaryLogsPanel     from '@/components/diagnostics/PurgeBinaryLogsPanel.vue'
 import SstStatusPanel           from '@/components/diagnostics/SstStatusPanel.vue'
 import FlushPanel               from '@/components/diagnostics/FlushPanel.vue'
+import ConfigHealthPanel        from '@/components/diagnostics/ConfigHealthPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -36,6 +37,7 @@ const TABS = [
   { value: 'error-log',    label: 'Error Log',              icon: 'pi-exclamation-triangle' },
   { value: 'purge-binlog', label: 'Purge Binary Logs',      icon: 'pi-trash' },
   { value: 'sst-status',   label: 'SST Status',             icon: 'pi-sync' },
+  { value: 'config-health', label: 'Config Health',         icon: 'pi-shield' },
   { value: 'flush',        label: 'Flush',                  icon: 'pi-replay' },
 ]
 </script>
@@ -102,6 +104,9 @@ const TABS = [
         </TabPanel>
         <TabPanel value="sst-status">
           <SstStatusPanel :active="activeTab === 'sst-status'" />
+        </TabPanel>
+        <TabPanel value="config-health">
+          <ConfigHealthPanel :active="activeTab === 'config-health'" />
         </TabPanel>
         <TabPanel value="flush">
           <FlushPanel />
