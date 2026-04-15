@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Generator
 
+from fastapi import HTTPException
 from sqlalchemy import Connection, create_engine, text
 
 from config import settings
@@ -47,6 +48,23 @@ def get_connection() -> Generator[Connection, None, None]:
         except Exception:
             logger.exception("Database error inside request")
             raise
+
+
+# ── Cluster helper ────────────────────────────────────────────────────────────
+
+def get_cluster_or_404(cluster_id: int) -> dict:
+    """
+    Return cluster row as dict or raise HTTP 404.
+    Used by routers that need to verify cluster existence before acting.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id, name FROM clusters WHERE id = :cid"),
+            {"cid": cluster_id},
+        ).mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
+    return dict(row)
 
 
 # ── Migrations (additive, safe to re-run) ────────────────────────────────────
