@@ -110,8 +110,6 @@ const confirmDialogPT = {
       'border-radius: 0 0 var(--radius-xl) var(--radius-xl)',
     ].join(';'),
   },
-  // PrimeVue 4.x: пробрасываем style напрямую через PT root.style —
-  // это inline style, он всегда перебивает любые CSS-классы
   rejectButton: {
     root: {
       style: 'padding: 10px 24px !important; font-size: var(--text-sm) !important; font-weight: 600 !important;',
@@ -143,11 +141,6 @@ const confirmDialogPT = {
 </template>
 
 <style>
-/*
-  PrimeVue 4.x — дополнительный пояс через data-pc-section атрибуты.
-  [data-pc-section="footer"] [data-pc-section="root"] — любая кнопка в футере диалога.
-  В качестве запасного варианта на случай если inline style не пробьётся.
-*/
 [data-pc-section="footer"] [data-pc-section="root"].p-button {
   padding: 10px 24px !important;
   font-size: var(--text-sm) !important;
@@ -180,8 +173,20 @@ const confirmDialogPT = {
 
 .app-content {
   flex: 1;
+  /*
+    overflow-y: auto  +  overflow-x: visible — невалидная комбинация по CSS-спеке:
+    когда одна ось не visible, вторая тоже не может быть visible, браузер
+    принудительно делает её auto → контент обрезается.
+
+    Решение: скроллим только по Y, по X позволяем контенту вытекать наружу
+    через overflow-x: clip (не создаёт scroll-контейнер, не обрезает sticky).
+  */
   overflow-y: auto;
+  overflow-x: clip;
   padding: var(--space-6);
   min-height: 0;
+  /* Гарантируем что дочерние flex/grid не схлопываются */
+  width: 100%;
+  min-width: 0;
 }
 </style>
