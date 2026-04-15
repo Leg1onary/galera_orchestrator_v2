@@ -379,8 +379,11 @@ export const diagnosticsApi = {
             )
             .then((r) => r.data),
 
-    diskUsage: (clusterId: number): Promise<DiskUsageNodeResult[]> =>
+    diskUsage: (clusterId: number, nodeId: number): Promise<DiskUsageNodeResult> =>
         api
-            .post<{ nodes: DiskUsageNodeResult[] }>(`/api/clusters/${clusterId}/diagnostics/disk-usage`)
-            .then((r) => r.data.nodes),
+            .post<DiskUsageNodeResult>(
+                `/api/clusters/${clusterId}/diagnostics/disk-usage`,
+                { node_id: nodeId },
+            )
+            .then((r) => r.data),
 }

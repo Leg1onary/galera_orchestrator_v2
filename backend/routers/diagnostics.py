@@ -26,8 +26,8 @@
 #
 # Improvement #13:
 #   POST /api/clusters/{cluster_id}/diagnostics/disk-usage
-#        → { nodes: [{ node_id, node_name, top_tables, binary_logs,
-#                       binary_logs_total_mb, ibdata1_mb, error }] }
+#        body: { node_id: int }
+#        → { node_id, node_name, top_tables, binary_logs, binary_logs_total_mb, ibdata1_mb, error }
 #
 # innodb-status lives in routers/nodes.py — not duplicated here.
 # Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
@@ -416,9 +416,6 @@ _ERROR_LOG_CANDIDATES = [
 
 def _fetch_error_log(node: dict, lines: int) -> dict:
     try:
-
-
-
         with SSHClient(
                 host=node["host"],
                 port=int(node.get("ssh_port") or 22),
@@ -891,15 +888,12 @@ async def kill_process(
             user=node["db_user"],
             encrypted_password=node["db_password"],
         ) as client:
-            # KILL accepts only a literal integer — no parameter binding possible.
-            # process_id is validated as int by FastAPI path param type, safe to interpolate.
             client.execute(f"KILL {process_id}")
 
     try:
         await asyncio.to_thread(_do_kill)
     except DBError as exc:
         msg = str(exc)
-        # 1094: Unknown thread id (process already gone — treat as success)
         if "1094" in msg:
             pass
         elif any(code in msg for code in ("1227", "1044", "1142", "Access denied")):
@@ -921,13 +915,6 @@ async def kill_process(
 
 # ── POST /nodes/{node_id}/kill-processes ─────────────────────────────────────────────
 # Improvement #6: Kill ALL processes matching a filter on a given node.
-#
-# Filters:
-#   sleep  — kill all Command=Sleep with Time >= min_time (default 5s)
-#   user   — kill all processes for a specific DB user (excluding system users)
-#
-# System processes (Daemon, system user, own connection) are always excluded.
-# Response: { killed: [int], skipped: int, errors: [str], node_name: str }
 
 _SYSTEM_USERS = frozenset({"system user", "event_scheduler"})
 _SYSTEM_COMMANDS = frozenset({"Daemon", "Binlog Dump", "Binlog Dump GTID"})
@@ -940,8 +927,8 @@ class _KillFilter(str, Enum):
 
 class _KillProcessesBody(BaseModel):
     filter: _KillFilter
-    min_time: int = 5      # seconds; used only for filter=sleep
-    user: str | None = None  # required for filter=user
+    min_time: int = 5
+    user: str | None = None
 
     @field_validator("user")
     @classmethod
@@ -952,10 +939,6 @@ class _KillProcessesBody(BaseModel):
 
 
 def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
-    """
-    Synchronous: fetch processlist, apply filter, KILL each matching process.
-    Returns { killed, skipped, errors }.
-    """
     if not node.get("db_user") or not node.get("db_password"):
         raise DBError("No DB credentials configured")
 
@@ -967,7 +950,6 @@ def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
     ) as client:
         rows = client.query("SHOW FULL PROCESSLIST")
 
-        # determine our own connection id to never kill ourselves
         own_id_rows = client.query("SELECT CONNECTION_ID() AS cid")
         own_id = own_id_rows[0]["cid"] if own_id_rows else None
 
@@ -980,7 +962,6 @@ def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
             command = r.get("Command") or ""
             time_s  = int(r.get("Time") or 0)
 
-            # always skip own connection and system processes
             if pid == own_id:
                 skipped += 1
                 continue
@@ -993,7 +974,7 @@ def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
                     candidates.append(pid)
                 else:
                     skipped += 1
-            else:  # user filter
+            else:
                 if user == body.user:
                     candidates.append(pid)
                 else:
@@ -1009,7 +990,6 @@ def _do_kill_processes(node: dict, body: _KillProcessesBody) -> dict:
             except DBError as exc:
                 msg = str(exc)
                 if "1094" in msg:
-                    # process already gone — count as killed
                     killed.append(pid)
                 else:
                     errors.append(f"pid {pid}: {msg}")
@@ -1325,9 +1305,11 @@ async def set_slow_query_log(
 
 
 # ── POST /diagnostics/disk-usage ─────────────────────────────────────────────────────
-# Improvement #13: per-node disk usage details.
-# Combines DB queries (top tables, binary logs) with SSH (ibdata1 size).
-# Each source is independently fault-tolerant: SSH failure only nullifies ibdata1_mb.
+# Improvement #13: per-node disk details — top tables, binary logs, ibdata1
+
+class _DiskUsageBody(BaseModel):
+    node_id: int
+
 
 def _fetch_disk_usage(node: dict) -> dict:
     result: dict[str, Any] = {
@@ -1340,7 +1322,6 @@ def _fetch_disk_usage(node: dict) -> dict:
         "error":                None,
     }
 
-    # ── DB part: top-10 tables + binary logs ──────────────────────────────────
     if node.get("db_user") and node.get("db_password"):
         try:
             with DBClient(
@@ -1362,16 +1343,7 @@ def _fetch_disk_usage(node: dict) -> dict:
                     ORDER BY (data_length + index_length) DESC
                     LIMIT 10
                 """)
-                result["top_tables"] = [
-                    {
-                        "schema":   r["schema"],
-                        "table":    r["table"],
-                        "data_mb":  float(r["data_mb"] or 0),
-                        "index_mb": float(r["index_mb"] or 0),
-                        "total_mb": float(r["total_mb"] or 0),
-                    }
-                    for r in rows
-                ]
+                result["top_tables"] = rows
 
                 try:
                     blrows = client.query("SHOW BINARY LOGS")
@@ -1384,18 +1356,12 @@ def _fetch_disk_usage(node: dict) -> dict:
                         sum(r["file_size"] for r in logs) / 1_048_576, 2
                     )
                 except Exception:
-                    # binary logging may be disabled — non-fatal
                     pass
-
         except DBError as exc:
             result["error"] = str(exc)
         except Exception as exc:
             result["error"] = str(exc)
-    else:
-        result["error"] = "No DB credentials configured"
 
-    # ── SSH part: ibdata1 size ────────────────────────────────────────────────
-    # Failure here is non-fatal: ibdata1_mb stays None, error is not overwritten.
     try:
         with SSHClient(
             host=node["host"],
@@ -1417,29 +1383,18 @@ def _fetch_disk_usage(node: dict) -> dict:
 
 
 @router.post("/diagnostics/disk-usage")
-async def disk_usage(cluster_id: int) -> dict:
+async def disk_usage(
+    cluster_id: int,
+    body: _DiskUsageBody,
+    _user: dict = Depends(require_auth),
+) -> dict:
     _assert_cluster_exists(cluster_id)
-    nodes = _get_enabled_nodes(cluster_id)
+    node = _get_node_for_cluster(body.node_id, cluster_id)
+    if node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node {body.node_id} not found or disabled in cluster {cluster_id}",
+        )
 
-    if not nodes:
-        return {"nodes": []}
-
-    tasks   = [asyncio.to_thread(_fetch_disk_usage, node) for node in nodes]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    output = []
-    for node, result in zip(nodes, results):
-        if isinstance(result, Exception):
-            output.append({
-                "node_id":              node["id"],
-                "node_name":            node["name"],
-                "top_tables":           [],
-                "binary_logs":          [],
-                "binary_logs_total_mb": None,
-                "ibdata1_mb":           None,
-                "error":                str(result),
-            })
-        else:
-            output.append(result)
-
-    return {"nodes": output}
+    result = await asyncio.to_thread(_fetch_disk_usage, node)
+    return result
