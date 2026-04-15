@@ -377,12 +377,14 @@ async def get_innodb_status(cluster_id: int, node_id: int) -> dict:
         full_text = normalised.get("status", "")
 
     deadlock_section = _extract_deadlock_section(full_text)
+    deadlock_parsed = _parse_deadlock(deadlock_section) if deadlock_section else None
 
     return {
         "node_id":         node_id,
         "full_status":     full_text,
         "latest_deadlock": deadlock_section,
         "has_deadlock":    deadlock_section is not None,
+        "deadlock_parsed": deadlock_parsed,
     }
 
 
@@ -393,6 +395,129 @@ def _extract_deadlock_section(innodb_text: str) -> str | None:
         re.DOTALL,
     )
     return match.group(1).strip() if match else None
+
+
+def _parse_deadlock(text: str) -> dict | None:
+    """
+    (#16) Structured parser for InnoDB LATEST DETECTED DEADLOCK section.
+
+    Пример секции (MariaDB / InnoDB):
+    *** (1) TRANSACTION:
+    TRANSACTION 421093, ACTIVE 0 sec starting index read
+    ...
+    *** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+    RECORD LOCKS space id 123 page no 5 n bits 72 index PRIMARY of table `mydb`.`orders` ...
+    lock_mode X locks rec but not gap waiting
+    *** (2) TRANSACTION:
+    ...
+    *** WE ROLL BACK TRANSACTION (1)
+
+    Возвращает dict или None если распарсить не удалось.
+    """
+    try:
+        result: dict = {
+            "ts": None,
+            "transaction_a": None,
+            "transaction_b": None,
+            "victim": None,
+        }
+
+        # Timestamp строка обычно первая: "2026-04-10 14:23:01 0x7f..."
+        ts_match = re.match(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", text)
+        if ts_match:
+            result["ts"] = ts_match.group(1)
+
+        # Разбиваем на блоки транзакций
+        trx_blocks = re.split(r"\*\*\* \(\d+\) TRANSACTION:", text)
+        # trx_blocks[0] — заголовок/timestamp, [1] — TRX 1, [2] — TRX 2
+
+        transactions = []
+        for i, block in enumerate(trx_blocks[1:3], start=1):
+            trx: dict = {
+                "id": None,
+                "query": None,
+                "table": None,
+                "lock_type": None,
+                "lock_mode": None,
+                "waiting": None,
+            }
+
+            # Transaction ID
+            trx_id_match = re.search(r"TRANSACTION (\d+)", block)
+            if trx_id_match:
+                trx["id"] = trx_id_match.group(1)
+
+            # Query — строка после "MySQL thread id" или после "---TRANSACTION"
+            # InnoDB печатает последний SQL после "THE QUERY:"  (MariaDB 10.6+)
+            # или перед строкой "---" после заголовка транзакции
+            query_match = re.search(
+                r"(?:THE QUERY:|query currently executing:|waiting for this lock)"
+                r".*?\n(.*?)(?:\n|$)",
+                block,
+                re.IGNORECASE,
+            )
+            if not query_match:
+                # Fallback: ищем первую SQL-подобную строку
+                query_match = re.search(
+                    r"\n((?:SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\s.+?)(?:\n|$)",
+                    block,
+                    re.IGNORECASE,
+                )
+            if query_match:
+                trx["query"] = query_match.group(1).strip()[:200]
+
+            # Lock info — ищем блок WAITING FOR THIS LOCK / HOLDS THE LOCK
+            lock_block_match = re.search(
+                r"\*\*\* \(%d\) (?:WAITING FOR THIS LOCK TO BE GRANTED|HOLDS THE LOCK\(S\)):"
+                r"(.*?)(?=\*\*\*|\Z)" % i,
+                text,
+                re.DOTALL,
+            )
+            if lock_block_match:
+                lock_text = lock_block_match.group(1)
+
+                # Table name: `db`.`table`
+                table_match = re.search(r"of table `[^`]+`\.`([^`]+)`", lock_text)
+                if table_match:
+                    trx["table"] = table_match.group(1)
+
+                # Lock type: RECORD LOCKS / TABLE LOCK
+                lock_type_match = re.search(r"(RECORD LOCKS|TABLE LOCK)", lock_text, re.IGNORECASE)
+                if lock_type_match:
+                    trx["lock_type"] = lock_type_match.group(1).upper().replace(" LOCKS", "").replace(" LOCK", "")
+
+                # Lock mode: X, S, X,GAP, X,REC_NOT_GAP ...
+                lock_mode_match = re.search(r"lock_mode\s+([\w,]+)", lock_text, re.IGNORECASE)
+                if lock_mode_match:
+                    trx["lock_mode"] = lock_mode_match.group(1)
+
+                trx["waiting"] = "WAITING FOR THIS LOCK" in text.upper() and bool(
+                    re.search(r"\*\*\* \(%d\) WAITING FOR THIS LOCK" % i, text)
+                )
+
+            transactions.append(trx)
+
+        if len(transactions) >= 1:
+            result["transaction_a"] = transactions[0]
+        if len(transactions) >= 2:
+            result["transaction_b"] = transactions[1]
+
+        # Victim: WE ROLL BACK TRANSACTION (N)
+        victim_match = re.search(r"WE ROLL BACK TRANSACTION \((\d+)\)", text)
+        if victim_match:
+            victim_idx = int(victim_match.group(1))
+            victim_trx = transactions[victim_idx - 1] if victim_idx - 1 < len(transactions) else None
+            result["victim"] = victim_trx["id"] if victim_trx else None
+
+        # Если не нашли ни одной транзакции — возвращаем None (fallback на raw)
+        if result["transaction_a"] is None and result["transaction_b"] is None:
+            return None
+
+        return result
+
+    except Exception:
+        logger.debug("_parse_deadlock failed, returning None for fallback", exc_info=True)
+        return None
 
 
 # ── POST /api/clusters/{cluster_id}/nodes/{node_id}/actions ───────────────────────────────
