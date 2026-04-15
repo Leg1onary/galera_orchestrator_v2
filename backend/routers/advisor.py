@@ -8,10 +8,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 
+from database import engine, get_cluster_or_404
 from dependencies import require_auth
-from services.db_client import DBClient
-from database import get_cluster_or_404
+from services.db_client import DBClient, DBError
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class AdvisorAction(BaseModel):
     action_type: AdvisorActionType = AdvisorActionType.none
     action_id: str | None = None
     description: str | None = None
-    ui_hint: str | None = None  # e.g. "open-diagnostics-tab:config-health"
+    ui_hint: str | None = None
     danger_level: AdvisorSeverity | None = None
 
 
@@ -83,123 +84,152 @@ class AdvisorResponse(BaseModel):
     advisors: list[AdvisorCard]
 
 
+# ── Internal DB helpers ───────────────────────────────────────────────────────
+
+def _get_enabled_nodes(cluster_id: int) -> list[dict]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                 SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                 FROM nodes
+                 WHERE cluster_id = :cid AND enabled = 1
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
 # ── Data collectors ───────────────────────────────────────────────────────────
-
-async def _get_cluster_nodes(cluster_id: int) -> list[dict]:
-    """Return list of node dicts from DB for the given cluster."""
-    from database import engine
-    import sqlalchemy as sa
-    from models import nodes_table, datacenters_table
-
-    def _query():
-        with engine.connect() as conn:
-            stmt = (
-                sa.select(
-                    nodes_table.c.id,
-                    nodes_table.c.name,
-                    nodes_table.c.host,
-                    nodes_table.c.port,
-                    nodes_table.c.db_user,
-                    nodes_table.c.db_password,
-                )
-                .where(nodes_table.c.cluster_id == cluster_id)
-                .where(nodes_table.c.is_active == True)
-            )
-            return [dict(r._mapping) for r in conn.execute(stmt)]
-
-    return await asyncio.to_thread(_query)
-
 
 async def _collect_config_health(cluster_id: int) -> list[dict]:
     """
-    Re-use logic from diagnostics config-health:
-    return list of {node_id, node_name, host, checks: [{param, status, current_human,
-    recommendation, context}], error}
+    Re-use _fetch_config_health from diagnostics module.
+    Returns list of {node_id, node_name, host, checks, error}.
     """
-    from routers.diagnostics import _run_config_health_for_node
+    from routers.diagnostics import _fetch_config_health
 
-    nodes = await _get_cluster_nodes(cluster_id)
-    results = []
-    for node in nodes:
-        try:
-            checks = await asyncio.to_thread(_run_config_health_for_node, node)
-            results.append({
-                "node_id": node["id"],
+    nodes = await asyncio.to_thread(_get_enabled_nodes, cluster_id)
+    tasks = [asyncio.to_thread(_fetch_config_health, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
                 "node_name": node["name"],
-                "host": node["host"],
-                "checks": checks,
-                "error": None,
+                "host":      node["host"],
+                "checks":    [],
+                "error":     str(result),
             })
-        except Exception as e:
-            results.append({
-                "node_id": node["id"],
-                "node_name": node["name"],
-                "host": node["host"],
-                "checks": [],
-                "error": str(e),
-            })
-    return results
+        else:
+            output.append(result)
+    return output
+
+
+def _fetch_active_transactions_for_node(node: dict, min_age_sec: int = 60) -> dict:
+    """Fetch long-running transactions from a single node."""
+    if not node.get("db_user") or not node.get("db_password"):
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "trx_list":  [],
+            "error":     "No DB credentials configured",
+        }
+    try:
+        with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query(
+                """
+                SELECT
+                    t.trx_id,
+                    t.trx_state,
+                    DATE_FORMAT(t.trx_started, '%Y-%m-%dT%H:%i:%S') AS trx_started,
+                    TIMESTAMPDIFF(SECOND, t.trx_started, NOW())      AS trx_age_sec,
+                    t.trx_mysql_thread_id,
+                    t.trx_query,
+                    t.trx_tables_locked,
+                    t.trx_rows_locked,
+                    t.trx_rows_modified,
+                    p.user,
+                    p.host AS process_host
+                FROM information_schema.INNODB_TRX t
+                LEFT JOIN information_schema.PROCESSLIST p
+                       ON p.ID = t.trx_mysql_thread_id
+                WHERE TIMESTAMPDIFF(SECOND, t.trx_started, NOW()) >= %s
+                ORDER BY trx_age_sec DESC
+                LIMIT 20
+                """,
+                (min_age_sec,),
+            )
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "trx_list":  [
+                {
+                    "trx_id":              r.get("trx_id"),
+                    "trx_state":           r.get("trx_state"),
+                    "trx_started":         r.get("trx_started"),
+                    "trx_age_sec":         r.get("trx_age_sec"),
+                    "trx_mysql_thread_id": r.get("trx_mysql_thread_id"),
+                    "trx_query":           r.get("trx_query"),
+                    "trx_tables_locked":   r.get("trx_tables_locked"),
+                    "trx_rows_locked":     r.get("trx_rows_locked"),
+                    "trx_rows_modified":   r.get("trx_rows_modified"),
+                    "user":                r.get("user"),
+                    "host":                r.get("process_host"),
+                }
+                for r in rows
+            ],
+            "error": None,
+        }
+    except DBError as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "trx_list":  [],
+            "error":     str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "trx_list":  [],
+            "error":     str(exc),
+        }
 
 
 async def _collect_active_transactions(cluster_id: int) -> list[dict]:
-    """
-    Return long-running transactions (age >= 60 sec) across all nodes.
-    Returns list of {node_id, node_name, host, trx_list, error}.
-    """
-    nodes = await _get_cluster_nodes(cluster_id)
-    results = []
-    for node in nodes:
-        try:
-            db = DBClient(
-                host=node["host"],
-                port=node["port"],
-                user=node["db_user"],
-                password=node["db_password"],
-            )
+    """Return long-running transactions (age >= 60s) across all nodes."""
+    nodes = await asyncio.to_thread(_get_enabled_nodes, cluster_id)
+    tasks = [asyncio.to_thread(_fetch_active_transactions_for_node, node, 60) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            def _query(db=db):
-                with db.connect() as conn:
-                    rows = conn.execute("""
-                        SELECT
-                            trx_id,
-                            trx_state,
-                            trx_started,
-                            TIMESTAMPDIFF(SECOND, trx_started, NOW()) AS trx_age_sec,
-                            trx_mysql_thread_id,
-                            trx_query,
-                            trx_tables_in_use,
-                            trx_tables_locked,
-                            trx_rows_locked
-                        FROM information_schema.INNODB_TRX
-                        WHERE TIMESTAMPDIFF(SECOND, trx_started, NOW()) >= 60
-                        ORDER BY trx_age_sec DESC
-                        LIMIT 20
-                    """).fetchall()
-                    return [dict(r._mapping) for r in rows]
-
-            trx_list = await asyncio.to_thread(_query)
-            results.append({
-                "node_id": node["id"],
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":   node["id"],
                 "node_name": node["name"],
-                "host": node["host"],
-                "trx_list": trx_list,
-                "error": None,
+                "host":      node["host"],
+                "trx_list":  [],
+                "error":     str(result),
             })
-        except Exception as e:
-            results.append({
-                "node_id": node["id"],
-                "node_name": node["name"],
-                "host": node["host"],
-                "trx_list": [],
-                "error": str(e),
-            })
-    return results
+        else:
+            output.append(result)
+    return output
 
 
 async def _collect_sst_status(cluster_id: int) -> list[dict]:
-    """
-    Return SST-stuck nodes from poller state.
-    """
+    """Return SST-stuck nodes from poller state."""
     from services.poller import get_cluster_state
 
     state = get_cluster_state(cluster_id)
@@ -211,18 +241,17 @@ async def _collect_sst_status(cluster_id: int) -> list[dict]:
         wsrep_state = node.get("wsrep_local_state_comment", "")
         if wsrep_state in ("Joining", "Donor/Desynced", "Joined"):
             stuck.append({
-                "node_id": node.get("id"),
-                "node_name": node.get("name"),
-                "host": node.get("host"),
-                "wsrep_state": wsrep_state,
-                "is_stuck": node.get("sst_stuck", False),
+                "node_id":       node.get("id"),
+                "node_name":     node.get("name"),
+                "host":          node.get("host"),
+                "wsrep_state":   wsrep_state,
+                "is_stuck":      node.get("sst_stuck", False),
                 "stuck_for_sec": node.get("sst_stuck_for_sec", 0),
             })
     return stuck
 
 
 async def _collect_replication_lag(cluster_id: int) -> list[dict]:
-
     from services.poller import get_cluster_state
 
     state = get_cluster_state(cluster_id)
@@ -233,17 +262,19 @@ async def _collect_replication_lag(cluster_id: int) -> list[dict]:
     for node in state.get("nodes", []):
         avg = node.get("wsrep_local_recv_queue_avg")
         if avg is not None:
-            lag_data.append({
-                "node_id": node.get("id"),
-                "node_name": node.get("name"),
-                "host": node.get("host"),
-                "recv_queue_avg": float(avg),
-            })
+            try:
+                lag_data.append({
+                    "node_id":        node.get("id"),
+                    "node_name":      node.get("name"),
+                    "host":           node.get("host"),
+                    "recv_queue_avg": float(avg),
+                })
+            except (TypeError, ValueError):
+                pass
     return lag_data
 
 
 async def _collect_disk_usage(cluster_id: int) -> list[dict]:
-
     from services.poller import get_cluster_state
 
     state = get_cluster_state(cluster_id)
@@ -253,17 +284,17 @@ async def _collect_disk_usage(cluster_id: int) -> list[dict]:
     disk_data = []
     for node in state.get("nodes", []):
         disk = node.get("disk")
-        if disk and disk.get("total_bytes") and disk["total_bytes"] > 0:
-            used = disk.get("used_bytes", 0)
-            total = disk["total_bytes"]
+        if disk and disk.get("total_bytes") and int(disk["total_bytes"]) > 0:
+            used  = int(disk.get("used_bytes", 0))
+            total = int(disk["total_bytes"])
             ratio = used / total
             disk_data.append({
-                "node_id": node.get("id"),
-                "node_name": node.get("name"),
-                "host": node.get("host"),
-                "used_bytes": used,
+                "node_id":     node.get("id"),
+                "node_name":   node.get("name"),
+                "host":        node.get("host"),
+                "used_bytes":  used,
                 "total_bytes": total,
-                "ratio": ratio,
+                "ratio":       ratio,
             })
     return disk_data
 
@@ -282,18 +313,18 @@ def _rules_config_health(config_results: list[dict]) -> list[AdvisorCard]:
     }
 
     for node_result in config_results:
-        if node_result["error"]:
+        if node_result.get("error"):
             continue
-        for chk in node_result["checks"]:
+        for chk in node_result.get("checks", []):
             if chk["status"] not in ("error", "warn"):
                 continue
             if chk["param"] not in ACTIONABLE_PARAMS:
                 continue
 
-            severity = SEVERITY_MAP.get(chk["status"], AdvisorSeverity.warn)
-            param = chk["param"]
+            severity  = SEVERITY_MAP.get(chk["status"], AdvisorSeverity.warn)
+            param     = chk["param"]
             node_name = node_result["node_name"]
-            node_id = node_result["node_id"]
+            node_id   = node_result["node_id"]
 
             cards.append(AdvisorCard(
                 id=f"config-{param.replace('_', '-')}-{node_id}",
@@ -325,25 +356,27 @@ def _rules_active_transactions(trx_results: list[dict]) -> list[AdvisorCard]:
     cards: list[AdvisorCard] = []
 
     for node_result in trx_results:
-        if node_result["error"] or not node_result["trx_list"]:
+        if node_result.get("error") or not node_result.get("trx_list"):
             continue
 
-        max_age = max((t.get("trx_age_sec") or 0) for t in node_result["trx_list"])
-        count = len(node_result["trx_list"])
+        trx_list  = node_result["trx_list"]
+        max_age   = max((t.get("trx_age_sec") or 0) for t in trx_list)
+        count     = len(trx_list)
         node_name = node_result["node_name"]
-        node_id = node_result["node_id"]
+        node_id   = node_result["node_id"]
 
         severity = AdvisorSeverity.critical if max_age >= 900 else AdvisorSeverity.warn
 
-        top3 = sorted(node_result["trx_list"], key=lambda t: t.get("trx_age_sec") or 0, reverse=True)[:3]
-        evidence_rows = []
-        for t in top3:
-            evidence_rows.append({
-                "trx_id": t.get("trx_id"),
+        top3 = sorted(trx_list, key=lambda t: t.get("trx_age_sec") or 0, reverse=True)[:3]
+        evidence_rows = [
+            {
+                "trx_id":    t.get("trx_id"),
                 "thread_id": t.get("trx_mysql_thread_id"),
-                "age_sec": t.get("trx_age_sec"),
-                "query": (t.get("trx_query") or "")[:120],
-            })
+                "age_sec":   t.get("trx_age_sec"),
+                "query":     (t.get("trx_query") or "")[:120],
+            }
+            for t in top3
+        ]
 
         cards.append(AdvisorCard(
             id=f"long-trx-{node_id}",
@@ -407,17 +440,17 @@ def _rules_sst(sst_results: list[dict]) -> list[AdvisorCard]:
 def _rules_replication_lag(lag_results: list[dict]) -> list[AdvisorCard]:
     cards: list[AdvisorCard] = []
 
-    LAG_WARN = 0.5
+    LAG_WARN     = 0.5
     LAG_CRITICAL = 2.0
 
     lagging = [n for n in lag_results if n["recv_queue_avg"] >= LAG_WARN]
     if not lagging:
         return cards
 
-    max_lag = max(n["recv_queue_avg"] for n in lagging)
-    severity = AdvisorSeverity.critical if max_lag >= LAG_CRITICAL else AdvisorSeverity.warn
+    max_lag    = max(n["recv_queue_avg"] for n in lagging)
+    severity   = AdvisorSeverity.critical if max_lag >= LAG_CRITICAL else AdvisorSeverity.warn
     node_names = [n["node_name"] for n in lagging]
-    node_ids = [n["node_id"] for n in lagging]
+    node_ids   = [n["node_id"]   for n in lagging]
 
     cards.append(AdvisorCard(
         id="replication-lag",
@@ -447,7 +480,7 @@ def _rules_replication_lag(lag_results: list[dict]) -> list[AdvisorCard]:
 def _rules_disk(disk_results: list[dict]) -> list[AdvisorCard]:
     cards: list[AdvisorCard] = []
 
-    WARN_RATIO = 0.80
+    WARN_RATIO     = 0.80
     CRITICAL_RATIO = 0.90
 
     for node in disk_results:
@@ -456,7 +489,7 @@ def _rules_disk(disk_results: list[dict]) -> list[AdvisorCard]:
             continue
 
         severity = AdvisorSeverity.critical if ratio >= CRITICAL_RATIO else AdvisorSeverity.warn
-        used_gb = node["used_bytes"] / (1024 ** 3)
+        used_gb  = node["used_bytes"]  / (1024 ** 3)
         total_gb = node["total_bytes"] / (1024 ** 3)
 
         cards.append(AdvisorCard(
@@ -471,9 +504,9 @@ def _rules_disk(disk_results: list[dict]) -> list[AdvisorCard]:
                 node_ids=[node["node_id"]],
                 node_names=[node["node_name"]],
                 params={
-                    "used_bytes": node["used_bytes"],
+                    "used_bytes":  node["used_bytes"],
                     "total_bytes": node["total_bytes"],
-                    "ratio": round(ratio, 4),
+                    "ratio":       round(ratio, 4),
                 },
             ),
             recommended_action=AdvisorAction(
@@ -492,13 +525,13 @@ def _rules_disk(disk_results: list[dict]) -> list[AdvisorCard]:
 
 _SEVERITY_ORDER = {
     AdvisorSeverity.critical: 0,
-    AdvisorSeverity.warn: 1,
-    AdvisorSeverity.info: 2,
+    AdvisorSeverity.warn:     1,
+    AdvisorSeverity.info:     2,
 }
 
 
 def _sort_and_dedup(cards: list[AdvisorCard]) -> list[AdvisorCard]:
-    seen: set[str] = set()
+    seen:   set[str]       = set()
     unique: list[AdvisorCard] = []
     for card in sorted(cards, key=lambda c: _SEVERITY_ORDER.get(c.severity, 99)):
         if card.id not in seen:
@@ -510,14 +543,13 @@ def _sort_and_dedup(cards: list[AdvisorCard]) -> list[AdvisorCard]:
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=AdvisorResponse)
-async def get_advisor(cluster_id: int):
+async def get_advisor(cluster_id: int) -> AdvisorResponse:
     """
     Aggregate diagnostic signals for the cluster and return advisor cards.
     Each card has severity (info/warn/critical), evidence, and a recommended action.
     """
-    cluster = await asyncio.to_thread(get_cluster_or_404, cluster_id)
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    # Validate cluster exists (raises 404 if not)
+    await asyncio.to_thread(get_cluster_or_404, cluster_id)
 
     (
         config_results,
