@@ -302,6 +302,25 @@ export type ActiveTrxNodeResult = {
     error: string | null
 }
 
+
+// ── Config Health — #17 ────────────────────────────────────────────────────────
+export type ConfigHealthCheck = {
+    param: string
+    current_value: string
+    current_human: string
+    status: 'ok' | 'warn' | 'error' | 'info'
+    recommendation: string | null
+    context: string | null
+}
+
+export type ConfigHealthNodeResult = {
+    node_id: number
+    node_name: string
+    host: string
+    checks: ConfigHealthCheck[]
+    error: string | null
+}
+
 export const diagnosticsApi = {
 
     configDiff: (clusterId: number): Promise<ConfigDiffResponse> =>
@@ -447,5 +466,11 @@ export const diagnosticsApi = {
                     min_age_sec: minAgeSec,
                 }},
             )
+            .then((r) => r.data),
+
+    // ── Config Health — #17 ───────────────────────────────────────────────────
+    getConfigHealth: (clusterId: number): Promise<ConfigHealthNodeResult[]> =>
+        api
+            .get<ConfigHealthNodeResult[]>(`/api/clusters/${clusterId}/diagnostics/config-health`)
             .then((r) => r.data),
 }
