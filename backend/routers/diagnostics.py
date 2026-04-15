@@ -29,6 +29,10 @@
 #        body: { node_id: int }
 #        → { node_id, node_name, top_tables, binary_logs, binary_logs_total_mb, ibdata1_mb, error }
 #
+# Improvement #15:
+#   GET  /api/clusters/{cluster_id}/diagnostics/active-transactions?node_id=N&min_age_sec=N
+#        → [{ node_id, node_name, transactions: [...], error }]
+#
 # innodb-status lives in routers/nodes.py — not duplicated here.
 # Timeouts (ТЗ 15.11): SSH connect=5s, DB connect=3s, SSH exec=10s.
 
@@ -1398,3 +1402,119 @@ async def disk_usage(
 
     result = await asyncio.to_thread(_fetch_disk_usage, node)
     return result
+
+
+# ── GET /diagnostics/active-transactions ─────────────────────────────────────────────
+# Improvement #15: active transactions from information_schema.INNODB_TRX
+# older than min_age_sec seconds.
+
+def _fetch_active_transactions(node: dict, min_age_sec: int) -> dict:
+    if not node.get("db_user") or not node.get("db_password"):
+        return {
+            "node_id":      node["id"],
+            "node_name":    node["name"],
+            "transactions": [],
+            "error":        "No DB credentials configured",
+        }
+    try:
+        with DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node["db_user"],
+            encrypted_password=node["db_password"],
+        ) as client:
+            rows = client.query(
+                """
+                SELECT
+                    t.trx_id,
+                    DATE_FORMAT(t.trx_started, '%Y-%m-%dT%H:%i:%S') AS trx_started,
+                    TIMESTAMPDIFF(SECOND, t.trx_started, NOW())      AS trx_age_sec,
+                    t.trx_state,
+                    t.trx_mysql_thread_id,
+                    t.trx_query,
+                    t.trx_tables_locked,
+                    t.trx_rows_locked,
+                    t.trx_rows_modified,
+                    p.user,
+                    p.host
+                FROM information_schema.INNODB_TRX t
+                LEFT JOIN information_schema.PROCESSLIST p
+                       ON p.ID = t.trx_mysql_thread_id
+                WHERE TIMESTAMPDIFF(SECOND, t.trx_started, NOW()) >= %s
+                ORDER BY trx_age_sec DESC
+                """,
+                (min_age_sec,),
+            )
+        return {
+            "node_id":      node["id"],
+            "node_name":    node["name"],
+            "transactions": [
+                {
+                    "trx_id":             r.get("trx_id"),
+                    "trx_started":        r.get("trx_started"),
+                    "trx_age_sec":        r.get("trx_age_sec"),
+                    "trx_state":          r.get("trx_state"),
+                    "trx_mysql_thread_id": r.get("trx_mysql_thread_id"),
+                    "trx_query":          r.get("trx_query"),
+                    "trx_tables_locked":  r.get("trx_tables_locked"),
+                    "trx_rows_locked":    r.get("trx_rows_locked"),
+                    "trx_rows_modified":  r.get("trx_rows_modified"),
+                    "user":               r.get("user"),
+                    "host":               r.get("host"),
+                }
+                for r in rows
+            ],
+            "error": None,
+        }
+    except DBError as exc:
+        return {
+            "node_id":      node["id"],
+            "node_name":    node["name"],
+            "transactions": [],
+            "error":        str(exc),
+        }
+    except Exception as exc:
+        return {
+            "node_id":      node["id"],
+            "node_name":    node["name"],
+            "transactions": [],
+            "error":        str(exc),
+        }
+
+
+@router.get("/diagnostics/active-transactions")
+async def active_transactions(
+    cluster_id: int,
+    node_id: int | None = Query(None, description="Filter by node id; omit for all nodes"),
+    min_age_sec: int    = Query(default=0, ge=0, description="Minimum transaction age in seconds"),
+) -> list[dict]:
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    if node_id is not None:
+        nodes = [n for n in nodes if n["id"] == node_id]
+        if not nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} not found or disabled in cluster {cluster_id}",
+            )
+
+    if not nodes:
+        return []
+
+    tasks   = [asyncio.to_thread(_fetch_active_transactions, node, min_age_sec) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for node, result in zip(nodes, results):
+        if isinstance(result, Exception):
+            output.append({
+                "node_id":      node["id"],
+                "node_name":    node["name"],
+                "transactions": [],
+                "error":        str(result),
+            })
+        else:
+            output.append(result)
+
+    return output
