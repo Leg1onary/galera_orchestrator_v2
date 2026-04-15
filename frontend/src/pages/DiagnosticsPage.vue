@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useClusterStore } from '@/stores/cluster'
-import ConnectionCheckPanel  from '@/components/diagnostics/ConnectionCheckPanel.vue'
-import ConfigDiffPanel       from '@/components/diagnostics/ConfigDiffPanel.vue'
-import VariablesPanel        from '@/components/diagnostics/VariablesPanel.vue'
-import SystemResourcesPanel  from '@/components/diagnostics/SystemResourcesPanel.vue'
-import InnodbStatusPanel     from '@/components/diagnostics/InnodbStatusPanel.vue'
-import ArbitratorLogPanel    from '@/components/diagnostics/ArbitratorLogPanel.vue'
-import ProcessListPanel      from '@/components/diagnostics/ProcessListPanel.vue'
-import SlowQueryPanel        from '@/components/diagnostics/SlowQueryPanel.vue'
-import ErrorLogPanel         from '@/components/diagnostics/ErrorLogPanel.vue'
-import PurgeBinaryLogsPanel  from '@/components/diagnostics/PurgeBinaryLogsPanel.vue'
-import SstStatusPanel        from '@/components/diagnostics/SstStatusPanel.vue'
-import FlushPanel            from '@/components/diagnostics/FlushPanel.vue'
+import ConnectionCheckPanel     from '@/components/diagnostics/ConnectionCheckPanel.vue'
+import ConfigDiffPanel          from '@/components/diagnostics/ConfigDiffPanel.vue'
+import VariablesPanel           from '@/components/diagnostics/VariablesPanel.vue'
+import SystemResourcesPanel     from '@/components/diagnostics/SystemResourcesPanel.vue'
+import InnodbStatusPanel        from '@/components/diagnostics/InnodbStatusPanel.vue'
+import ArbitratorLogPanel       from '@/components/diagnostics/ArbitratorLogPanel.vue'
+import ProcessListPanel         from '@/components/diagnostics/ProcessListPanel.vue'
+import ActiveTransactionsPanel  from '@/components/diagnostics/ActiveTransactionsPanel.vue'
+import SlowQueryPanel           from '@/components/diagnostics/SlowQueryPanel.vue'
+import ErrorLogPanel            from '@/components/diagnostics/ErrorLogPanel.vue'
+import PurgeBinaryLogsPanel     from '@/components/diagnostics/PurgeBinaryLogsPanel.vue'
+import SstStatusPanel           from '@/components/diagnostics/SstStatusPanel.vue'
+import FlushPanel               from '@/components/diagnostics/FlushPanel.vue'
 
 const clusterStore = useClusterStore()
 const activeTab    = ref('connections')
@@ -23,18 +24,19 @@ watch(
 )
 
 const TABS = [
-  { value: 'connections',  label: 'Connection Check',   icon: 'pi-wifi' },
-  { value: 'config-diff',  label: 'Config Diff',        icon: 'pi-code' },
-  { value: 'variables',    label: 'Variables',           icon: 'pi-sliders-h' },
-  { value: 'resources',    label: 'System Resources',    icon: 'pi-server' },
-  { value: 'innodb',       label: 'InnoDB Status',       icon: 'pi-database' },
-  { value: 'arb-log',      label: 'Arbitrator Log',      icon: 'pi-file-edit' },
-  { value: 'process-list', label: 'Process List',        icon: 'pi-list' },
-  { value: 'slow-query',   label: 'Slow Queries',        icon: 'pi-clock' },
-  { value: 'error-log',    label: 'Error Log',           icon: 'pi-exclamation-triangle' },
-  { value: 'purge-binlog', label: 'Purge Binary Logs',   icon: 'pi-trash' },
-  { value: 'sst-status',   label: 'SST Status',          icon: 'pi-sync' },
-  { value: 'flush',        label: 'Flush',               icon: 'pi-replay' },
+  { value: 'connections',  label: 'Connection Check',      icon: 'pi-wifi' },
+  { value: 'config-diff',  label: 'Config Diff',           icon: 'pi-code' },
+  { value: 'variables',    label: 'Variables',              icon: 'pi-sliders-h' },
+  { value: 'resources',    label: 'System Resources',       icon: 'pi-server' },
+  { value: 'innodb',       label: 'InnoDB Status',          icon: 'pi-database' },
+  { value: 'arb-log',      label: 'Arbitrator Log',         icon: 'pi-file-edit' },
+  { value: 'process-list', label: 'Process List',           icon: 'pi-list' },
+  { value: 'active-trx',   label: 'Active Transactions',    icon: 'pi-arrows-h' },
+  { value: 'slow-query',   label: 'Slow Queries',           icon: 'pi-clock' },
+  { value: 'error-log',    label: 'Error Log',              icon: 'pi-exclamation-triangle' },
+  { value: 'purge-binlog', label: 'Purge Binary Logs',      icon: 'pi-trash' },
+  { value: 'sst-status',   label: 'SST Status',             icon: 'pi-sync' },
+  { value: 'flush',        label: 'Flush',                  icon: 'pi-replay' },
 ]
 </script>
 
@@ -85,6 +87,9 @@ const TABS = [
         </TabPanel>
         <TabPanel value="process-list">
           <ProcessListPanel :active="activeTab === 'process-list'" />
+        </TabPanel>
+        <TabPanel value="active-trx">
+          <ActiveTransactionsPanel :active="activeTab === 'active-trx'" />
         </TabPanel>
         <TabPanel value="slow-query">
           <SlowQueryPanel :active="activeTab === 'slow-query'" />
