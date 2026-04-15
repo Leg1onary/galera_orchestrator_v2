@@ -229,74 +229,111 @@ async def _collect_active_transactions(cluster_id: int) -> list[dict]:
 
 
 async def _collect_sst_status(cluster_id: int) -> list[dict]:
-    """Return SST-stuck nodes from poller state."""
-    from services.poller import get_cluster_state
+    """
+    Return SST-stuck nodes from poller live state.
 
-    state = get_cluster_state(cluster_id)
-    if not state:
+    Reads directly from services.poller.live_node_states (dict[cluster_id → dict[node_id → LiveNodeState]])
+    and cross-references with DB node names.
+    A node is considered stuck when wsrep_local_state_comment is in SST_STUCK_STATES
+    and state_since_ts is set (meaning it has been in that state since state_since_ts).
+    SST_STUCK_THRESHOLD_SEC is imported from poller to stay in sync.
+    """
+    from services.poller import live_node_states, SST_STUCK_THRESHOLD_SEC, SST_STUCK_STATES
+
+    cluster_states = live_node_states.get(cluster_id)
+    if not cluster_states:
         return []
 
-    stuck = []
-    for node in state.get("nodes", []):
-        wsrep_state = node.get("wsrep_local_state_comment", "")
-        if wsrep_state in ("Joining", "Donor/Desynced", "Joined"):
-            stuck.append({
-                "node_id":       node.get("id"),
-                "node_name":     node.get("name"),
-                "host":          node.get("host"),
-                "wsrep_state":   wsrep_state,
-                "is_stuck":      node.get("sst_stuck", False),
-                "stuck_for_sec": node.get("sst_stuck_for_sec", 0),
-            })
-    return stuck
+    # Load node meta from DB for names/hosts (cached per request — small table)
+    nodes_meta = await asyncio.to_thread(_get_enabled_nodes_with_id, cluster_id)
+    node_meta_map: dict[int, dict] = {n["id"]: n for n in nodes_meta}
+
+    now = datetime.now(timezone.utc)
+    result = []
+
+    for node_id, state in cluster_states.items():
+        wsrep_state = state.wsrep_local_state_comment
+        if wsrep_state.upper() not in SST_STUCK_STATES:
+            continue
+
+        # Calculate how long the node has been in this state
+        stuck_for_sec = 0
+        is_stuck = False
+        if state.state_since_ts is not None:
+            stuck_for_sec = int((now - state.state_since_ts).total_seconds())
+            is_stuck = stuck_for_sec >= SST_STUCK_THRESHOLD_SEC
+
+        meta = node_meta_map.get(node_id, {})
+        result.append({
+            "node_id":       node_id,
+            "node_name":     meta.get("name", f"node-{node_id}"),
+            "host":          meta.get("host", ""),
+            "wsrep_state":   wsrep_state,
+            "is_stuck":      is_stuck,
+            "stuck_for_sec": stuck_for_sec,
+        })
+
+    return result
 
 
 async def _collect_replication_lag(cluster_id: int) -> list[dict]:
-    from services.poller import get_cluster_state
+    """
+    Return recv_queue average per node from poller ring buffer.
 
-    state = get_cluster_state(cluster_id)
-    if not state:
+    Uses recv_queue_history deque (up to 30 points) from LiveNodeState.
+    avg = mean of last N points in the ring buffer.
+    Only includes nodes that are reachable (ssh_ok=True) and have data.
+    """
+    from services.poller import live_node_states
+
+    cluster_states = live_node_states.get(cluster_id)
+    if not cluster_states:
         return []
 
+    nodes_meta = await asyncio.to_thread(_get_enabled_nodes_with_id, cluster_id)
+    node_meta_map: dict[int, dict] = {n["id"]: n for n in nodes_meta}
+
     lag_data = []
-    for node in state.get("nodes", []):
-        avg = node.get("wsrep_local_recv_queue_avg")
-        if avg is not None:
-            try:
-                lag_data.append({
-                    "node_id":        node.get("id"),
-                    "node_name":      node.get("name"),
-                    "host":           node.get("host"),
-                    "recv_queue_avg": float(avg),
-                })
-            except (TypeError, ValueError):
-                pass
+    for node_id, state in cluster_states.items():
+        if not state.ssh_ok:
+            continue
+        history = list(state.recv_queue_history)
+        if not history:
+            continue
+        avg = sum(history) / len(history)
+        meta = node_meta_map.get(node_id, {})
+        lag_data.append({
+            "node_id":        node_id,
+            "node_name":      meta.get("name", f"node-{node_id}"),
+            "host":           meta.get("host", ""),
+            "recv_queue_avg": avg,
+        })
+
     return lag_data
 
 
 async def _collect_disk_usage(cluster_id: int) -> list[dict]:
-    from services.poller import get_cluster_state
+    """
+    Disk usage data is NOT collected by the poller (LiveNodeState has no disk fields).
+    Returns empty list — disk advisor cards will not fire until disk collection is implemented.
+    """
+    return []
 
-    state = get_cluster_state(cluster_id)
-    if not state:
-        return []
 
-    disk_data = []
-    for node in state.get("nodes", []):
-        disk = node.get("disk")
-        if disk and disk.get("total_bytes") and int(disk["total_bytes"]) > 0:
-            used  = int(disk.get("used_bytes", 0))
-            total = int(disk["total_bytes"])
-            ratio = used / total
-            disk_data.append({
-                "node_id":     node.get("id"),
-                "node_name":   node.get("name"),
-                "host":        node.get("host"),
-                "used_bytes":  used,
-                "total_bytes": total,
-                "ratio":       ratio,
-            })
-    return disk_data
+# ── Internal helper: nodes with id ───────────────────────────────────────────
+
+def _get_enabled_nodes_with_id(cluster_id: int) -> list[dict]:
+    """Like _get_enabled_nodes but always includes id, name, host."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                 SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                 FROM nodes
+                 WHERE cluster_id = :cid AND enabled = 1
+                 """),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
 
 
 # ── Rules engine ──────────────────────────────────────────────────────────────
@@ -458,7 +495,7 @@ def _rules_replication_lag(lag_results: list[dict]) -> list[AdvisorCard]:
         category=AdvisorCategory.replication,
         source="replication-lag",
         title=f"Replication lag detected on {len(lagging)} node(s)",
-        summary=f"wsrep_local_recv_queue_avg={max_lag:.2f} — receiver queue is growing. Consider increasing wsrep_slave_threads.",
+        summary=f"wsrep_local_recv_queue avg={max_lag:.2f} — receiver queue is growing. Consider increasing wsrep_slave_threads.",
         details="A non-zero recv_queue indicates the node can't apply writesets fast enough. This may lead to stale reads and OOM under load.",
         evidence=AdvisorEvidence(
             node_ids=node_ids,
