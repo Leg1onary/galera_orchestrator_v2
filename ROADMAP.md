@@ -22,33 +22,21 @@
 | 10 | **Desync / Resync ноды** | `SET GLOBAL wsrep_desync = ON/OFF` — вывод ноды из репликации для тяжёлых операций без тормозов кластера. | `nodes.py`, `NodeActionsPanel.vue` |
 | 11 | **Stuck SST detector + restart** | Детект ноды в `Joining`/`Donor/Desynced` дольше порога. `GET /nodes/sst-status`, `POST /nodes/{node_id}/restart-sst`. | `nodes.py`, `poller.py`, `SstStatusPanel.vue` |
 | 12 | **FLUSH операции** | `FLUSH LOGS`, `FLUSH TABLES WITH READ LOCK`, `UNLOCK TABLES`. | `nodes.py`, `NodeActionsPanel.vue` |
-| 13 | **Disk usage детализация** | Топ-10 самых больших таблиц (`information_schema.TABLES`), размер бинлогов (`SHOW BINARY LOGS`), размер ibdata1. Панель в секции System Resources на DiagnosticsPage. | `diagnostics.py` (`POST /diagnostics/disk-usage`), `diagnostics.ts`, `DiskUsagePanel.vue` · коммиты: `34f35f5`, `ef45663` |
+| 13 | **Disk usage детализация** | Топ-10 самых больших таблиц (`information_schema.TABLES`), размер бинлогов (`SHOW BINARY LOGS`), размер ibdata1. Панель в секции System Resources на DiagnosticsPage. | `diagnostics.py` (`POST /diagnostics/disk-usage`), `diagnostics.ts`, `DiskUsagePanel.vue` |
+| 14 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией увеличить `wsrep_slave_threads`. | `diagnostics.py`, `diagnostics.ts`, `ReplicationLagAlert.vue` |
+| 15 | **Активные транзакции** | `information_schema.INNODB_TRX` — транзакции старше N секунд, с кнопкой Kill. Отдельно от processlist. | `diagnostics.py`, `diagnostics.ts`, `ActiveTransactionsPanel.vue` |
+| 16 | **Deadlock история** | Парсинг последнего дедлока из `SHOW ENGINE INNODB STATUS`, отображение victim/blocker trx в читаемом виде. | `diagnostics.py`, `diagnostics.ts`, `DeadlockPanel.vue` |
+| 17 | **Config Health Check** | Проверка ключевых параметров (`innodb_buffer_pool_size` ~70% RAM, `max_connections`, `wsrep_slave_threads` >= CPU cores) — статусы ok/warn/error с рекомендациями. | `diagnostics.py`, `diagnostics.ts`, `ConfigHealthPanel.vue` |
 
 ---
 
 ## 🚧 В работе / Запланировано
 
-### Блок 2 — Мониторинг и диагностика
+### Блок — Smart Advisor
 
 | # | Фича | Описание | Статус |
 |---|---|---|---|
-| 14 | **Replication lag alert widget** | Виджет на Overview: `wsrep_local_recv_queue_avg` > порога → алерт с рекомендацией увеличить `wsrep_slave_threads`. | 🔲 Следующий |
-| 15 | **Активные транзакции** | `information_schema.INNODB_TRX` — транзакции старше N секунд. Отдельно от processlist. | 🔲 Запланировано |
-| 16 | **Deadlock история** | Парсинг последнего дедлока из `SHOW ENGINE INNODB STATUS` и отображение в читаемом виде (сейчас есть raw текст). | 🔲 Запланировано |
-
-### Блок 3 — Конфигурация
-
-| # | Фича | Описание | Статус |
-|---|---|---|---|
-| 17 | **Config Health Check** | Проверка ключевых параметров: `innodb_buffer_pool_size` (~70% RAM), `max_connections`, `wsrep_slave_threads` (>= CPU cores) — с рекомендациями в UI. | 🔲 Запланировано |
-| 18 | **Изменение wsrep_provider_options на лету** | `pc.weight`, `evs.suspect_timeout` и др. без рестарта. | 🔲 Запланировано |
-| 19 | **Проверка и починка таблиц** | `CHECK TABLE` / `REPAIR TABLE` с выбором таблицы из списка. | 🔲 Запланировано |
-
-### Блок 4 — Smart Advisor
-
-| # | Фича | Описание | Статус |
-|---|---|---|---|
-| 20 | **Advisor panel** | `GET /api/clusters/{id}/advisor` — детерминированные правила поверх существующих данных. Карточки проблем с кнопками действий из блоков 1–3. Виджет на дашборде + полная панель в Diagnostics. | 🔲 После блоков 1–3 |
+| 20 | **Advisor panel** | `GET /api/clusters/{cluster_id}/advisor` — детерминированные правила поверх существующих диагностических данных. Карточки проблем (severity, evidence, recommended action) с кнопками действий. Виджет на Overview + полная панель в Diagnostics. | 🔲 Запланировано |
 
 ---
 
@@ -70,5 +58,5 @@
 **Репозиторий:** `Leg1onary/galera_orchestrator_v2`  
 **Стек:** Python 3.11 / FastAPI / SQLAlchemy Core / SQLite / paramiko / pymysql + Vue 3 / Vite / Pinia / TanStack Vue Query / PrimeVue  
 **Эталон:** `galera-orchestrator-v2-final-spec.docx` — базовый контракт, всё новое помечается как "вне MVP"  
-**Текущая задача:** реализуем улучшения поштучно (#14 → #20), затем Advisor (#20)  
-**Следующий шаг:** #14 — Replication lag alert widget
+**Текущая задача:** все аварийные инструменты, мониторинг и конфигурационные проверки (#1–#17) реализованы; следующий шаг — Advisor (#20)  
+**Следующий шаг:** #20 — Advisor panel (backend endpoint + AdvisorPanel.vue + Overview widget)
