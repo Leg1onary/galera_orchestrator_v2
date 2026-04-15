@@ -15,18 +15,20 @@ import PurgeBinaryLogsPanel     from '@/components/diagnostics/PurgeBinaryLogsPa
 import SstStatusPanel           from '@/components/diagnostics/SstStatusPanel.vue'
 import FlushPanel               from '@/components/diagnostics/FlushPanel.vue'
 import ConfigHealthPanel        from '@/components/diagnostics/ConfigHealthPanel.vue'
+import AdvisorPanel             from '@/components/diagnostics/AdvisorPanel.vue'
 
 const clusterStore = useClusterStore()
-const activeTab    = ref('connections')
+const activeTab    = ref('advisor')
 
 watch(
   () => clusterStore.selectedClusterId,
-  (id, prev) => { if (id && prev && id !== prev) activeTab.value = 'connections' }
+  (id, prev) => { if (id && prev && id !== prev) activeTab.value = 'advisor' }
 )
 
 const TABS = [
-  { value: 'connections',  label: 'Connection Check',      icon: 'pi-wifi' },
-  { value: 'config-diff',  label: 'Config Diff',           icon: 'pi-code' },
+  { value: 'advisor',      label: 'Advisor',                icon: 'pi-lightbulb' },
+  { value: 'connections',  label: 'Connection Check',       icon: 'pi-wifi' },
+  { value: 'config-diff',  label: 'Config Diff',            icon: 'pi-code' },
   { value: 'variables',    label: 'Variables',              icon: 'pi-sliders-h' },
   { value: 'resources',    label: 'System Resources',       icon: 'pi-server' },
   { value: 'innodb',       label: 'InnoDB Status',          icon: 'pi-database' },
@@ -69,6 +71,9 @@ const TABS = [
       </TabList>
 
       <TabPanels class="diag-panels">
+        <TabPanel value="advisor">
+          <AdvisorPanel :active="activeTab === 'advisor'" />
+        </TabPanel>
         <TabPanel value="connections">
           <ConnectionCheckPanel :active="activeTab === 'connections'" />
         </TabPanel>
