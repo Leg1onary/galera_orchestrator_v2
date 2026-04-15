@@ -235,15 +235,15 @@ function recvClass(val: number | null) {
 <style scoped>
 /* ── Header spacing ────────────────────────────────────────────────── */
 :deep(.p-datatable-thead > tr > th) {
-  padding: var(--space-3) var(--space-4) !important;
-  font-size: var(--text-sm) !important;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--color-text-muted);
+  padding: var(--space-4) var(--space-6) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
   white-space: nowrap;
 }
 :deep(.p-datatable-tbody > tr > td) {
-  padding: var(--space-3) var(--space-4) !important;
+  padding: var(--space-4) var(--space-6) !important;
 }
 
 /* Кликабельные строки — показываем пойнтер и подсвечиваем строку */

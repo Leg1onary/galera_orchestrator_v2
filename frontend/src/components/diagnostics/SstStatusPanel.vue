@@ -264,15 +264,15 @@ async function doRestart(row: SstStatusItem & { node_name: string }) {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
-  padding: var(--space-3) var(--space-5);
+  color: var(--color-text-faint);
+  padding: var(--space-4) var(--space-6);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
 :deep(.diag-table .p-datatable-tbody > tr > td) {
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-6);
   vertical-align: middle;
   border: none;
   border-bottom: 1px solid var(--color-border-muted);

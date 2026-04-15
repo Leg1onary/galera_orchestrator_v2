@@ -311,23 +311,23 @@ function nodeStatus(node: ConfigHealthNodeResult) {
 .node-table { font-size: var(--text-sm); }
 :deep(.node-table .p-datatable-table) { border-collapse: collapse; }
 :deep(.node-table .p-datatable-thead > tr > th) {
-  background: var(--color-surface) !important;
-  color: var(--color-text-muted);
+  background: var(--color-surface-2) !important;
+  color: var(--color-text-faint);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: var(--space-2) var(--space-3);
+  letter-spacing: 0.08em;
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-border);
 }
 :deep(.node-table .p-datatable-tbody > tr > td) {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-muted);
   vertical-align: top;
 }
 :deep(.node-table .p-datatable-tbody > tr:last-child > td) { border-bottom: none; }
 :deep(.node-table .p-datatable-tbody > tr:hover > td) {
-  background: rgba(228,228,231,0.02);
+  background: rgba(45, 212, 191, 0.035);
 }
 
 /* Param column */
