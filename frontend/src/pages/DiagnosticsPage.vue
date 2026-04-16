@@ -20,6 +20,9 @@ import SstStatusPanel          from '@/components/diagnostics/SstStatusPanel.vue
 import FlushPanel              from '@/components/diagnostics/FlushPanel.vue'
 import ConfigHealthPanel       from '@/components/diagnostics/ConfigHealthPanel.vue'
 import AdvisorPanel            from '@/components/diagnostics/AdvisorPanel.vue'
+import FlowControlPanel        from '@/components/diagnostics/FlowControlPanel.vue'
+import CertConflictPanel       from '@/components/diagnostics/CertConflictPanel.vue'
+import DiskSentinelPanel       from '@/components/diagnostics/DiskSentinelPanel.vue'
 
 const clusterStore = useClusterStore()
 const route  = useRoute()
@@ -81,6 +84,17 @@ const GROUPS = [
       { value: 'flush',        label: 'Flush',          icon: 'pi-replay'               },
     ],
   },
+  {
+    value: 'galera-health',
+    label: 'Galera Health',
+    icon:  'pi-heartbeat',
+    desc:  'Flow control, cert conflicts, disk sentinel',
+    tabs: [
+      { value: 'flow-control',    label: 'Flow Control',    icon: 'pi-chart-line'   },
+      { value: 'cert-conflicts',  label: 'Cert Conflicts',  icon: 'pi-shield'       },
+      { value: 'disk-sentinel',   label: 'Disk Sentinel',   icon: 'pi-hdd'          },
+    ],
+  },
 ] as const
 
 type GroupValue = typeof GROUPS[number]['value']
@@ -89,11 +103,12 @@ type TabValue   = typeof GROUPS[number]['tabs'][number]['value']
 const activeGroup = ref<GroupValue>('analysis')
 
 const innerTab = ref<Record<GroupValue, TabValue>>({
-  analysis: 'advisor',
-  config:   'connections',
-  engine:   'resources',
-  activity: 'process-list',
-  logs:     'error-log',
+  analysis:       'advisor',
+  config:         'connections',
+  engine:         'resources',
+  activity:       'process-list',
+  logs:           'error-log',
+  'galera-health': 'flow-control',
 })
 
 const currentGroup = computed(() => GROUPS.find(g => g.value === activeGroup.value)!)
@@ -140,7 +155,7 @@ watch(
   (id, prev) => {
     if (id && prev && id !== prev) {
       activeGroup.value = 'analysis'
-      innerTab.value = { analysis: 'advisor', config: 'connections', engine: 'resources', activity: 'process-list', logs: 'error-log' }
+      innerTab.value = { analysis: 'advisor', config: 'connections', engine: 'resources', activity: 'process-list', logs: 'error-log', 'galera-health': 'flow-control' }
     }
   }
 )
@@ -251,6 +266,12 @@ watch(
               <ArbitratorLogPanel   v-if="currentTab === 'arb-log'"      :active="isActive('arb-log')" />
               <PurgeBinaryLogsPanel v-if="currentTab === 'purge-binlog'" />
               <FlushPanel           v-if="currentTab === 'flush'" />
+            </template>
+
+            <template v-else-if="activeGroup === 'galera-health'">
+              <FlowControlPanel   v-if="currentTab === 'flow-control'"   :active="isActive('flow-control')" />
+              <CertConflictPanel  v-if="currentTab === 'cert-conflicts'" :active="isActive('cert-conflicts')" />
+              <DiskSentinelPanel  v-if="currentTab === 'disk-sentinel'"  :active="isActive('disk-sentinel')" />
             </template>
 
           </div>

@@ -10,6 +10,7 @@ import NodeCardSkeleton from '@/components/overview/NodeCardSkeleton.vue'
 import ArbitratorCard from '@/components/overview/ArbitratorCard.vue'
 import EventLog from '@/components/overview/EventLog.vue'
 import ReplicationLagAlert from '@/components/overview/ReplicationLagAlert.vue'
+import QuorumHealthWidget  from '@/components/overview/QuorumHealthWidget.vue'
 
 const clusterStore = useClusterStore()
 const clusterId    = computed(() => clusterStore.selectedClusterId)
@@ -70,6 +71,8 @@ const maxRecvQueue = computed(() => {
       />
 
       <AdvisorWidget />
+
+      <QuorumHealthWidget :cluster-id="clusterId" />
 
       <ReplicationLagAlert :nodes="nodes" />
 

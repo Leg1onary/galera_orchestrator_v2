@@ -1718,3 +1718,394 @@ async def config_health(cluster_id: int) -> list[dict]:
             output.append(result)
 
     return output
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IMPROVEMENTS BATCH v2
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── #11 Flow Control Monitor ───────────────────────────────────────────────────
+@router.get("/diagnostics/flow-control")
+async def get_flow_control(cluster_id: int) -> list[dict]:
+    """
+    #11 Flow Control Monitor — live wsrep_flow_control_paused per node.
+    Also returns wsrep_flow_control_sent, wsrep_flow_control_recv.
+    Alert threshold: paused > 0.05 (5%).
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    async def fetch_fc(node: dict) -> dict:
+        result = {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "wsrep_flow_control_paused": None,
+            "wsrep_flow_control_sent":   None,
+            "wsrep_flow_control_recv":   None,
+            "wsrep_local_recv_queue_avg": None,
+            "wsrep_local_send_queue_avg": None,
+            "alert":  False,
+            "error":  None,
+        }
+        try:
+            db = DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node.get("db_user") or "root",
+                encrypted_password=node.get("db_password") or "",
+            )
+            db.connect()
+            try:
+                rows = db.query(
+                    "SHOW GLOBAL STATUS WHERE Variable_name IN ("
+                    "'wsrep_flow_control_paused',"
+                    "'wsrep_flow_control_sent',"
+                    "'wsrep_flow_control_recv',"
+                    "'wsrep_local_recv_queue_avg',"
+                    "'wsrep_local_send_queue_avg')"
+                )
+                sm = {(r.get("Variable_name") or r.get("variable_name") or "").lower():
+                      (r.get("Value") or r.get("value") or "0") for r in rows}
+                for field_name in ("wsrep_flow_control_paused", "wsrep_local_recv_queue_avg",
+                                   "wsrep_local_send_queue_avg"):
+                    try:
+                        result[field_name] = float(sm.get(field_name, "0") or "0")
+                    except ValueError:
+                        pass
+                for field_name in ("wsrep_flow_control_sent", "wsrep_flow_control_recv"):
+                    try:
+                        result[field_name] = int(sm.get(field_name, "0") or "0")
+                    except ValueError:
+                        pass
+                fcp = result.get("wsrep_flow_control_paused")
+                result["alert"] = fcp is not None and fcp > 0.05
+            finally:
+                db.close()
+        except DBError as exc:
+            result["error"] = str(exc)
+        return result
+
+    tasks = [fetch_fc(node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            output.append({"node_id": nodes[i]["id"], "node_name": nodes[i]["name"],
+                           "host": nodes[i]["host"], "error": str(r)})
+        else:
+            output.append(r)
+    return output
+
+
+# ── #14 Cert Conflict Rate ─────────────────────────────────────────────────────
+@router.get("/diagnostics/cert-conflicts")
+async def get_cert_conflicts(cluster_id: int) -> list[dict]:
+    """
+    #14 Certificate Conflict Rate — wsrep_local_cert_failures + wsrep_local_replays.
+    High cert failures = concurrent write conflicts between nodes.
+    Alert threshold: cert_failures > 0 in the last interval.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    async def fetch_cert(node: dict) -> dict:
+        result = {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "wsrep_local_cert_failures": None,
+            "wsrep_local_replays":       None,
+            "wsrep_cert_deps_distance":  None,
+            "wsrep_local_bf_aborts":     None,
+            "alert":  False,
+            "error":  None,
+        }
+        try:
+            db = DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node.get("db_user") or "root",
+                encrypted_password=node.get("db_password") or "",
+            )
+            db.connect()
+            try:
+                rows = db.query(
+                    "SHOW GLOBAL STATUS WHERE Variable_name IN ("
+                    "'wsrep_local_cert_failures',"
+                    "'wsrep_local_replays',"
+                    "'wsrep_cert_deps_distance',"
+                    "'wsrep_local_bf_aborts')"
+                )
+                sm = {(r.get("Variable_name") or r.get("variable_name") or "").lower():
+                      (r.get("Value") or r.get("value") or "0") for r in rows}
+                for field_name in ("wsrep_local_cert_failures", "wsrep_local_replays",
+                                   "wsrep_local_bf_aborts"):
+                    try:
+                        result[field_name] = int(sm.get(field_name, "0") or "0")
+                    except ValueError:
+                        pass
+                try:
+                    result["wsrep_cert_deps_distance"] = float(sm.get("wsrep_cert_deps_distance", "0") or "0")
+                except ValueError:
+                    pass
+                cf = result.get("wsrep_local_cert_failures")
+                result["alert"] = cf is not None and cf > 0
+            finally:
+                db.close()
+        except DBError as exc:
+            result["error"] = str(exc)
+        return result
+
+    tasks = [fetch_cert(node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            output.append({"node_id": nodes[i]["id"], "node_name": nodes[i]["name"],
+                           "host": nodes[i]["host"], "error": str(r)})
+        else:
+            output.append(r)
+    return output
+
+
+# ── #13 Disk Space Sentinel ────────────────────────────────────────────────────
+@router.get("/diagnostics/disk-sentinel")
+async def get_disk_sentinel(cluster_id: int) -> list[dict]:
+    """
+    #13 Disk Space Sentinel — Galera-aware disk check.
+    Per node: gcache.size (from wsrep_provider_options), actual galera.cache file size,
+    ibdata1 size (SSH du), data dir free space.
+    Alert if: free < 10GB, or gcache file > configured size (cache overflow), or ibdata1 > 10GB.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+
+    def fetch_sentinel(node: dict) -> dict:
+        result = {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "gcache_configured_bytes":  None,
+            "gcache_file_size_bytes":   None,
+            "ibdata1_size_bytes":       None,
+            "datadir_free_bytes":       None,
+            "datadir_total_bytes":      None,
+            "sst_method":               None,
+            "alert_free_space":         False,
+            "alert_gcache_overflow":    False,
+            "alert_ibdata1_large":      False,
+            "error":                    None,
+        }
+        ssh_err = None
+        db_err  = None
+
+        # SSH: file sizes
+        try:
+            with SSHClient(
+                host=node["host"],
+                port=int(node.get("ssh_port") or 22),
+                username=node.get("ssh_user") or "root",
+            ) as ssh:
+                # ibdata1 size
+                ibdata, _ = ssh.execute(
+                    "du -sb /var/lib/mysql/ibdata1 2>/dev/null | awk '{print $1}' || echo ''"
+                )
+                try:
+                    result["ibdata1_size_bytes"] = int(ibdata.strip())
+                except ValueError:
+                    pass
+
+                # galera.cache size
+                gcache, _ = ssh.execute(
+                    "stat -c%s /var/lib/mysql/galera.cache 2>/dev/null || echo ''"
+                )
+                try:
+                    result["gcache_file_size_bytes"] = int(gcache.strip())
+                except ValueError:
+                    pass
+
+                # Data dir free space
+                df_out, _ = ssh.execute(
+                    "df -B1 /var/lib/mysql 2>/dev/null | tail -1"
+                )
+                parts = df_out.strip().split()
+                if len(parts) >= 4:
+                    try:
+                        result["datadir_total_bytes"] = int(parts[1])
+                        result["datadir_free_bytes"]  = int(parts[3])
+                    except ValueError:
+                        pass
+        except SSHError as exc:
+            ssh_err = str(exc)
+
+        # DB: wsrep_provider_options for gcache.size, sst method
+        try:
+            db = DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node.get("db_user") or "root",
+                encrypted_password=node.get("db_password") or "",
+            )
+            db.connect()
+            try:
+                prov_rows = db.query("SHOW GLOBAL VARIABLES LIKE 'wsrep_provider_options'")
+                if prov_rows:
+                    prov_val = prov_rows[0].get("Value") or prov_rows[0].get("value") or ""
+                    for part in prov_val.split(";"):
+                        part = part.strip()
+                        if "gcache.size" in part:
+                            try:
+                                val_str = part.split("=", 1)[1].strip()
+                                if val_str.endswith("M"):
+                                    result["gcache_configured_bytes"] = int(float(val_str[:-1]) * 1024 * 1024)
+                                elif val_str.endswith("G"):
+                                    result["gcache_configured_bytes"] = int(float(val_str[:-1]) * 1024 * 1024 * 1024)
+                                else:
+                                    result["gcache_configured_bytes"] = int(val_str)
+                            except (ValueError, IndexError):
+                                pass
+
+                sst_rows = db.query("SHOW GLOBAL VARIABLES LIKE 'wsrep_sst_method'")
+                if sst_rows:
+                    result["sst_method"] = sst_rows[0].get("Value") or sst_rows[0].get("value")
+            finally:
+                db.close()
+        except DBError as exc:
+            db_err = str(exc)
+
+        if ssh_err and db_err:
+            result["error"] = f"SSH: {ssh_err}; DB: {db_err}"
+        elif ssh_err:
+            result["error"] = f"SSH: {ssh_err}"
+        elif db_err:
+            result["error"] = f"DB: {db_err}"
+
+        # Alerts
+        free = result.get("datadir_free_bytes")
+        result["alert_free_space"] = free is not None and free < 10 * 1024 * 1024 * 1024  # < 10GB
+
+        gc_conf = result.get("gcache_configured_bytes")
+        gc_file = result.get("gcache_file_size_bytes")
+        result["alert_gcache_overflow"] = (
+            gc_conf is not None and gc_file is not None and gc_file > gc_conf * 1.2
+        )
+
+        ibdata = result.get("ibdata1_size_bytes")
+        result["alert_ibdata1_large"] = ibdata is not None and ibdata > 10 * 1024 * 1024 * 1024  # > 10GB
+
+        return result
+
+    tasks = [asyncio.to_thread(fetch_sentinel, node) for node in nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            output.append({"node_id": nodes[i]["id"], "node_name": nodes[i]["name"],
+                           "host": nodes[i]["host"], "error": str(r)})
+        else:
+            output.append(r)
+    return output
+
+
+# ── #15 Quorum Status ─────────────────────────────────────────────────────────
+@router.get("/diagnostics/quorum-status")
+async def get_quorum_status(cluster_id: int) -> dict:
+    """
+    #15 Quorum Status — cluster-level quorum health.
+    Returns: primary_count, non_primary_count, expected_nodes from settings,
+    quorum_ok, wsrep_cluster_status per node.
+    """
+    _assert_cluster_exists(cluster_id)
+    nodes = _get_enabled_nodes(cluster_id)
+    total_configured = len(nodes)
+
+    async def fetch_wsrep_status(node: dict) -> dict:
+        r: dict = {
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "wsrep_cluster_status": None,
+            "wsrep_cluster_size":   None,
+            "wsrep_local_state_comment": None,
+            "wsrep_connected": None,
+            "error": None,
+        }
+        try:
+            db = DBClient(
+                host=node["host"],
+                port=int(node.get("port") or 3306),
+                user=node.get("db_user") or "root",
+                encrypted_password=node.get("db_password") or "",
+            )
+            db.connect()
+            try:
+                rows = db.query(
+                    "SHOW GLOBAL STATUS WHERE Variable_name IN ("
+                    "'wsrep_cluster_status','wsrep_cluster_size',"
+                    "'wsrep_local_state_comment','wsrep_connected')"
+                )
+                sm = {(row.get("Variable_name") or row.get("variable_name") or "").lower():
+                      (row.get("Value") or row.get("value") or "") for row in rows}
+                r["wsrep_cluster_status"]        = sm.get("wsrep_cluster_status", "NON-PRIMARY")
+                r["wsrep_local_state_comment"]   = sm.get("wsrep_local_state_comment", "OFFLINE")
+                r["wsrep_connected"]             = sm.get("wsrep_connected", "OFF")
+                try:
+                    r["wsrep_cluster_size"] = int(sm.get("wsrep_cluster_size", "0") or "0")
+                except ValueError:
+                    r["wsrep_cluster_size"] = 0
+            finally:
+                db.close()
+        except DBError as exc:
+            r["error"] = str(exc)
+            r["wsrep_cluster_status"] = "OFFLINE"
+        return r
+
+    tasks = [fetch_wsrep_status(node) for node in nodes]
+    node_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    node_statuses = []
+    for i, r in enumerate(node_results):
+        if isinstance(r, Exception):
+            node_statuses.append({
+                "node_id": nodes[i]["id"],
+                "node_name": nodes[i]["name"],
+                "host": nodes[i]["host"],
+                "wsrep_cluster_status": "OFFLINE",
+                "error": str(r),
+            })
+        else:
+            node_statuses.append(r)
+
+    primary_nodes     = [n for n in node_statuses if (n.get("wsrep_cluster_status") or "").upper() == "PRIMARY"]
+    non_primary_nodes = [n for n in node_statuses if (n.get("wsrep_cluster_status") or "").upper() != "PRIMARY"
+                         and not n.get("error")]
+    offline_nodes     = [n for n in node_statuses if n.get("error") or
+                         (n.get("wsrep_cluster_status") or "OFFLINE") == "OFFLINE"]
+
+    primary_count = len(primary_nodes)
+    quorum_ok     = primary_count > 0 and primary_count > total_configured // 2
+
+    # Get cluster_size from first primary node
+    cluster_size = next(
+        (n.get("wsrep_cluster_size") for n in primary_nodes if n.get("wsrep_cluster_size")),
+        None,
+    )
+
+    status = "healthy" if quorum_ok and primary_count == total_configured else \
+             "degraded" if quorum_ok else "critical"
+
+    return {
+        "cluster_id":          cluster_id,
+        "total_configured":    total_configured,
+        "primary_count":       primary_count,
+        "non_primary_count":   len(non_primary_nodes),
+        "offline_count":       len(offline_nodes),
+        "cluster_size":        cluster_size,
+        "quorum_ok":           quorum_ok,
+        "status":              status,
+        "nodes":               node_statuses,
+    }

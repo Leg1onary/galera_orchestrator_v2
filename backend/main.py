@@ -25,6 +25,7 @@ from routers import (
     maintenance_router,
     nodes_router,
     recovery_router,
+    recovery_advanced_router,
     settings_router,
     version_router,
     ws_router,
@@ -109,7 +110,8 @@ app.include_router(auth_router,        prefix="/api")
 app.include_router(advisor_router,     prefix="/api")
 app.include_router(backup_router,      prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
-app.include_router(recovery_router,    prefix="/api")
+app.include_router(recovery_router,          prefix="/api")
+app.include_router(recovery_advanced_router,  prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
 app.include_router(clusters_router,    prefix="/api")
 app.include_router(nodes_router,       prefix="/api")

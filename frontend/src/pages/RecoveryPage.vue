@@ -4,10 +4,16 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useRouter } from 'vue-router'
 import { useClusterStore } from '@/stores/cluster'
 import { useRecoveryStore } from '@/stores/recovery'
-import Step1Scan from '@/components/recovery/Step1Scan.vue'
-import Step2Bootstrap from '@/components/recovery/Step2Bootstrap.vue'
-import Step3Rejoin from '@/components/recovery/Step3Rejoin.vue'
-import Step4Done from '@/components/recovery/Step4Done.vue'
+import { ref } from 'vue'
+import Step1Scan           from '@/components/recovery/Step1Scan.vue'
+import Step2Bootstrap      from '@/components/recovery/Step2Bootstrap.vue'
+import Step3Rejoin         from '@/components/recovery/Step3Rejoin.vue'
+import Step4Done           from '@/components/recovery/Step4Done.vue'
+import GrastateInspectorPanel from '@/components/recovery/GrastateInspectorPanel.vue'
+import SnapshotPanel          from '@/components/recovery/SnapshotPanel.vue'
+import IstSstHelper           from '@/components/recovery/IstSstHelper.vue'
+import SplitBrainWizard       from '@/components/recovery/SplitBrainWizard.vue'
+import FullClusterRecovery    from '@/components/recovery/FullClusterRecovery.vue'
 import type { ClusterStatusResponse } from '@/composables/useClusterStatus'
 
 const router       = useRouter()
@@ -41,6 +47,17 @@ const STEPS = [
 watch(() => clusterStore.selectedClusterId, (id) => { if (id) store.init(id) })
 onMounted(() => { if (clusterStore.selectedClusterId) store.init(clusterStore.selectedClusterId) })
 onUnmounted(() => store.destroy())
+
+/* ─ Recovery Tools tabs ─ */
+const TOOL_TABS = [
+  { value: 'grastate',    label: 'grastate.dat',        icon: 'pi-file-edit'   },
+  { value: 'snapshot',    label: 'Node Snapshot',       icon: 'pi-camera'      },
+  { value: 'ist-sst',     label: 'IST vs SST Helper',   icon: 'pi-directions'  },
+  { value: 'split-brain', label: 'Split-Brain Wizard',  icon: 'pi-sitemap'     },
+  { value: 'full-cluster',label: 'Full Cluster Recovery', icon: 'pi-refresh'   },
+] as const
+type ToolTab = typeof TOOL_TABS[number]['value']
+const activeTool = ref<ToolTab>('grastate')
 </script>
 
 <template>
@@ -151,6 +168,46 @@ onUnmounted(() => store.destroy())
         </Transition>
       </main>
     </div>
+
+    <!-- ════ RECOVERY TOOLS ════════════════════════════════════════ -->
+    <div v-if="clusterStore.selectedClusterId" class="rt-section">
+
+      <!-- Section header -->
+      <div class="rt-head">
+        <div class="rt-head-icon"><i class="pi pi-wrench" /></div>
+        <div>
+          <h2 class="rt-title">Recovery Tools</h2>
+          <p class="rt-desc">Diagnostic and recovery utilities — use independently of the wizard.</p>
+        </div>
+      </div>
+
+      <!-- Tab rail -->
+      <div class="rt-tabs">
+        <button
+          v-for="t in TOOL_TABS"
+          :key="t.value"
+          class="rt-tab"
+          :class="{ 'rt-tab--active': activeTool === t.value }"
+          @click="activeTool = t.value"
+        >
+          <i :class="['pi', t.icon]" />
+          <span>{{ t.label }}</span>
+        </button>
+      </div>
+
+      <!-- Tool panels -->
+      <div class="rt-panel">
+        <Transition name="rt-fade" mode="out-in">
+          <GrastateInspectorPanel  v-if="activeTool === 'grastate'"     key="grastate" />
+          <SnapshotPanel           v-else-if="activeTool === 'snapshot'"    key="snapshot" />
+          <IstSstHelper            v-else-if="activeTool === 'ist-sst'"     key="ist-sst" />
+          <SplitBrainWizard        v-else-if="activeTool === 'split-brain'" key="split-brain" />
+          <FullClusterRecovery     v-else-if="activeTool === 'full-cluster'" key="full-cluster" />
+        </Transition>
+      </div>
+
+    </div>
+
   </div>
 </template>
 
@@ -368,4 +425,99 @@ onUnmounted(() => store.destroy())
 .step-leave-active  { transition: opacity 280ms ease, transform 280ms ease; }
 .step-enter-from    { opacity: 0; transform: translateX(12px); }
 .step-leave-to      { opacity: 0; transform: translateX(-12px); }
+
+/* ═══ RECOVERY TOOLS SECTION ════════════════════════════════ */
+.rt-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-2);
+}
+
+.rt-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.rt-head-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--color-info);
+  font-size: 0.875rem;
+}
+.rt-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.rt-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* Tab rail */
+.rt-tabs {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.rt-tab .pi { font-size: 0.75rem; opacity: 0.7; }
+
+.rt-tab:hover:not(.rt-tab--active) {
+  color: var(--color-text);
+  background: var(--color-surface-offset);
+}
+
+.rt-tab--active {
+  color: var(--color-info) !important;
+  background: rgba(96, 165, 250, 0.08) !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.07);
+}
+.rt-tab--active .pi { opacity: 1; }
+
+/* Panel */
+.rt-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+@media (max-width: 600px) {
+  .rt-panel { padding: var(--space-4); }
+}
+
+/* Transition */
+.rt-fade-enter-active,
+.rt-fade-leave-active  { transition: opacity 160ms ease, transform 160ms ease; }
+.rt-fade-enter-from    { opacity: 0; transform: translateY(6px); }
+.rt-fade-leave-to      { opacity: 0; transform: translateY(-4px); }
 </style>
