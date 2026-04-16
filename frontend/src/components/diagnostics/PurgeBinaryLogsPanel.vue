@@ -362,4 +362,50 @@ async function doPurge(beforeDateStr: string, _nodeName: string) {
   font-family: var(--font-mono);
   white-space: pre-line;
 }
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+}
+
+
+:deep(.field-number .p-inputnumber) { display: inline-flex; align-items: center; }
+:deep(.field-number .p-inputnumber-input) {
+  width: 52px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-2);
+  border: none;
+  color: var(--color-text);
+}
+:deep(.field-number .p-inputnumber-input:focus) {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+:deep(.field-number .p-inputnumber-button) {
+  width: 24px;
+  background: var(--color-surface-3);
+  border: none;
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+:deep(.field-number .p-inputnumber-button:hover) {
+  background: var(--color-surface-4);
+  color: var(--color-primary);
+}
+:deep(.field-number .p-inputnumber-button-group) {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-border);
+}
+
 </style>

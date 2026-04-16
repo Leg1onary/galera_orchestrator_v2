@@ -62,10 +62,9 @@ const CAT_ICONS: Record<string, string> = {
 // ── SelectButton options ──────────────────────────────────────────────────────
 const sevFilterOptions = computed(() => [
   { label: 'All', value: 'all' },
-  ...(['critical', 'warn', 'info'] as AdvisorSeverity[]).map(s => ({
-    label: SEV_META[s].label,
-    value: s,
-  }))
+  { label: 'Critical', value: 'critical' },
+  { label: 'Warning', value: 'warn' },
+  { label: 'Info', value: 'info' },
 ])
 
 // ── Computed ──────────────────────────────────────────────────────────────────
@@ -200,13 +199,20 @@ function generatedAt(iso: string) {
         <!-- Severity filter via SelectButton -->
         <div class="summary-filter">
           <SelectButton
-            v-model="filterSeverity"
-            :options="sevFilterOptions"
-            option-label="label"
-            option-value="value"
-            size="small"
-            :allow-empty="false"
-          />
+              v-model="filterSeverity"
+              :options="sevFilterOptions"
+              option-label="label"
+              option-value="value"
+              size="small"
+              :allow-empty="false"
+              class="severity-select"
+          >
+            <template #option="{ option }">
+              <span :class="['sev-opt-label', `sev-opt-label--${option.value}`]">
+                  {{ option.label }}
+              </span>
+            </template>
+          </SelectButton>
         </div>
       </div>
 
@@ -473,9 +479,103 @@ function generatedAt(iso: string) {
   background: var(--color-surface-offset) !important;
 }
 :deep(.p-panel-toggle-button) {
-  width: 28px !important;
-  height: 28px !important;
+  width: 40px !important;
+  height: 40px !important;
+  margin-left:10px;
   flex-shrink: 0;
+}
+
+:deep(.p-selectbutton) {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+:deep(.p-selectbutton .p-button) {
+  padding: 6px 10px;
+  border-radius: var(--radius-lg);
+}
+
+:deep(.p-selectbutton .p-button.p-highlight) {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+.summary-filter {
+  flex-shrink: 0;
+}
+
+:deep(.severity-select.p-selectbutton) {
+  display: inline-flex;
+  gap: var(--space-2);
+  padding: 2px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--color-surface-offset) 88%, transparent);
+}
+
+:deep(.severity-select .p-togglebutton) {
+  min-height: 34px;
+  padding: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklch, var(--color-border) 70%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  box-shadow: none;
+  transition:
+      background var(--transition-interactive),
+      color var(--transition-interactive),
+      border-color var(--transition-interactive),
+      transform var(--transition-interactive);
+}
+
+:deep(.severity-select .p-togglebutton:hover) {
+  background: color-mix(in oklch, var(--color-surface) 86%, var(--color-text) 14%);
+  color: var(--color-text);
+}
+
+:deep(.severity-select .p-togglebutton.p-highlight) {
+  box-shadow: none;
+}
+
+:deep(.severity-select .p-button-label) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* default active */
+:deep(.severity-select .p-togglebutton.p-highlight .sev-opt-label--all) {
+  color: var(--color-text);
+}
+
+/* critical */
+:deep(.severity-select .p-togglebutton.p-highlight:has(.sev-opt-label--critical)) {
+  background: var(--color-error-highlight);
+  border-color: color-mix(in oklch, var(--color-error) 32%, transparent);
+  color: var(--color-error);
+}
+
+/* warning */
+:deep(.severity-select .p-togglebutton.p-highlight:has(.sev-opt-label--warn)) {
+  background: var(--color-warning-highlight);
+  border-color: color-mix(in oklch, var(--color-warning) 32%, transparent);
+  color: var(--color-warning);
+}
+
+/* info */
+:deep(.severity-select .p-togglebutton.p-highlight:has(.sev-opt-label--info)) {
+  background: var(--color-blue-highlight);
+  border-color: color-mix(in oklch, var(--color-blue) 32%, transparent);
+  color: var(--color-blue);
+}
+
+/* all */
+:deep(.severity-select .p-togglebutton.p-highlight:has(.sev-opt-label--all)) {
+  background: var(--color-surface-dynamic);
+  border-color: var(--color-border);
+  color: var(--color-text);
 }
 
 /* ── Card header inner layout ── */
