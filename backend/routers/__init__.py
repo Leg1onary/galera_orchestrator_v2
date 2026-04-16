@@ -1,5 +1,6 @@
 from .advisor     import router as advisor_router
 from .auth        import router as auth_router
+from .backup      import router as backup_router
 from .clusters    import router as clusters_router
 from .contours    import router as contours_router
 from .diagnostics import router as diagnostics_router
@@ -13,6 +14,7 @@ from .ws          import router as ws_router
 __all__ = [
     "advisor_router",
     "auth_router",
+    "backup_router",
     "clusters_router",
     "contours_router",
     "diagnostics_router",

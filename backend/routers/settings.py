@@ -735,3 +735,184 @@ async def update_system_settings(body: SystemSettingsUpdate) -> dict:
         "event_log_limit":             body.event_log_limit,
         "rolling_restart_timeout_sec": body.rolling_restart_timeout_sec,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# BACKUP SERVERS
+# ════════════════════════════════════════════════════════════════════════════════
+
+class BackupServerCreate(BaseModel):
+    cluster_id: int
+    name: str
+    host: str
+    ssh_port: int = 22
+    ssh_user: str = "root"
+    backup_dir: str
+    enabled: bool = True
+
+    @field_validator("name", "host")
+    @classmethod
+    def not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("field cannot be empty")
+        return v
+
+    @field_validator("backup_dir")
+    @classmethod
+    def dir_absolute(cls, v: str) -> str:
+        v = v.strip()
+        if not v.startswith("/"):
+            raise ValueError("backup_dir must be an absolute path starting with /")
+        return v
+
+    @field_validator("ssh_port")
+    @classmethod
+    def valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError("ssh_port must be 1–65535")
+        return v
+
+
+class BackupServerUpdate(BaseModel):
+    name: str
+    host: str
+    ssh_port: int = 22
+    ssh_user: str = "root"
+    backup_dir: str
+    enabled: bool = True
+
+    @field_validator("name", "host")
+    @classmethod
+    def not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("field cannot be empty")
+        return v
+
+    @field_validator("backup_dir")
+    @classmethod
+    def dir_absolute(cls, v: str) -> str:
+        v = v.strip()
+        if not v.startswith("/"):
+            raise ValueError("backup_dir must be an absolute path starting with /")
+        return v
+
+    @field_validator("ssh_port")
+    @classmethod
+    def valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError("ssh_port must be 1–65535")
+        return v
+
+
+@router.get("/backup-servers")
+async def list_backup_servers(cluster_id: int = Query(...)) -> list[dict]:
+    """GET /api/settings/backup-servers?cluster_id=N"""
+    _get_cluster_or_404(cluster_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, cluster_id, name, host, ssh_port, ssh_user, backup_dir, enabled "
+                "FROM backup_servers WHERE cluster_id = :cid ORDER BY name"
+            ),
+            {"cid": cluster_id},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.post("/backup-servers", status_code=status.HTTP_201_CREATED)
+async def create_backup_server(body: BackupServerCreate) -> dict:
+    _get_cluster_or_404(body.cluster_id)
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                INSERT INTO backup_servers (cluster_id, name, host, ssh_port, ssh_user, backup_dir, enabled)
+                VALUES (:cluster_id, :name, :host, :ssh_port, :ssh_user, :backup_dir, :enabled)
+                """
+            ),
+            {
+                "cluster_id": body.cluster_id,
+                "name":       body.name,
+                "host":       body.host,
+                "ssh_port":   body.ssh_port,
+                "ssh_user":   body.ssh_user,
+                "backup_dir": body.backup_dir,
+                "enabled":    1 if body.enabled else 0,
+            },
+        )
+        new_id = result.lastrowid
+    write_event(
+        level="INFO",
+        cluster_id=body.cluster_id,
+        source="ui",
+        message=f"Backup server '{body.name}' ({body.host}) created in cluster {body.cluster_id}",
+    )
+    return {
+        "id":         new_id,
+        "cluster_id": body.cluster_id,
+        "name":       body.name,
+        "host":       body.host,
+        "ssh_port":   body.ssh_port,
+        "ssh_user":   body.ssh_user,
+        "backup_dir": body.backup_dir,
+        "enabled":    body.enabled,
+    }
+
+
+@router.patch("/backup-servers/{server_id}")
+async def update_backup_server(server_id: int, body: BackupServerUpdate) -> dict:
+    srv = _get_backup_server_or_404(server_id)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE backup_servers
+                SET name = :name, host = :host, ssh_port = :ssh_port,
+                    ssh_user = :ssh_user, backup_dir = :backup_dir, enabled = :enabled
+                WHERE id = :id
+                """
+            ),
+            {
+                "name":       body.name,
+                "host":       body.host,
+                "ssh_port":   body.ssh_port,
+                "ssh_user":   body.ssh_user,
+                "backup_dir": body.backup_dir,
+                "enabled":    1 if body.enabled else 0,
+                "id":         server_id,
+            },
+        )
+    write_event(
+        level="INFO",
+        cluster_id=srv["cluster_id"],
+        source="ui",
+        message=f"Backup server id={server_id} '{body.name}' updated",
+    )
+    return {"id": server_id, "name": body.name, "host": body.host, "backup_dir": body.backup_dir}
+
+
+@router.delete("/backup-servers/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_backup_server(server_id: int) -> Response:
+    srv = _get_backup_server_or_404(server_id)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM backup_servers WHERE id = :id"), {"id": server_id})
+    write_event(
+        level="INFO",
+        cluster_id=srv["cluster_id"],
+        source="ui",
+        message=f"Backup server id={server_id} '{srv['name']}' deleted from cluster {srv['cluster_id']}",
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _get_backup_server_or_404(server_id: int) -> dict:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM backup_servers WHERE id = :id"),
+            {"id": server_id},
+        ).mappings().fetchone()
+    if row is None:
+        raise HTTPException(404, detail=f"Backup server {server_id} not found")
+    return dict(row)
