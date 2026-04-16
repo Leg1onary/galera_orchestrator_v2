@@ -18,10 +18,10 @@
  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
 ```
 
-### v2 — Self-hosted control panel for MariaDB Galera clusters
+**Self-hosted control panel for MariaDB Galera clusters**
 
-*Real-time monitoring · Recovery wizard · Rolling restart · SSH diagnostics · Smart Advisor*  
-*— all from a **single Docker container.***
+Real-time monitoring · Full cluster recovery · Split-brain resolution · SSH diagnostics · Smart Advisor  
+All from a **single Docker container**. No agents on nodes. No plugins. No magic.
 
 <br/>
 
@@ -42,138 +42,146 @@
 
 </div>
 
-<br/>
+---
+
+## What is this?
+
+Galera Orchestrator v2 connects to your nodes directly via **SSH and MariaDB** — no agents, no plugins, no sidecar containers. You get a full ops panel that covers daily monitoring, incident diagnostics, and worst-case cluster recovery, all from a browser.
+
+```
+  Your Browser  ──────►  Docker Container (:8000)
+                               │
+                    ┌──────────┴──────────┐
+                    │  Vue 3 SPA          │  dark UI, PrimeVue 4
+                    │  FastAPI REST API   │  /api/clusters/{id}/...
+                    │  WebSocket          │  /ws/clusters/{id}
+                    │  Background Poller  │  asyncio · per cluster · every 5s
+                    └──────────┬──────────┘
+                               │  SSH + MariaDB  (no agents)
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+           node-1           node-2           node-3
+        SSH+MariaDB      SSH+MariaDB      SSH+MariaDB
+```
 
 ---
 
-## ⚡ What is this?
+## What's New
 
-**Galera Orchestrator v2** is a production-grade ops panel for teams running **MariaDB Galera** clusters.
-No agents on nodes. No complex setup. Just a Docker container, your SSH key, and full control.
+> **Recovery & Diagnostics v2** — commit `f80c074`
 
-```
-  Your Browser  ──────────────►  Docker Container (port 8000)
-                                  │
-                                  ├─ Vue 3 SPA          (served as static)
-                                  ├─ FastAPI REST API    /api/clusters/{id}/...
-                                  ├─ WebSocket           /ws/clusters/{id}
-                                  └─ Background Poller   (asyncio, every 5s)
-                                           │
-                          ┌────────────────┼────────────────┐
-                          ▼                ▼                ▼
-                       node-1           node-2           node-3
-                    SSH + MariaDB    SSH + MariaDB    SSH + MariaDB
-```
+This release adds 9 new features across monitoring and incident recovery. All backends are real — no mock data.
 
-> **No agents. No plugins. No magic.**
-> The orchestrator connects to your nodes via **SSH** and **MariaDB** directly.
+### New on Overview
 
----
-
-## 🗒️ Contents
-
-| | Section |
+| Feature | Description |
 |---|---|
-| 🚀 | [Quick Start](#-quick-start) |
-| ⚙️ | [Configuration Reference](#%EF%B8%8F-configuration-reference) |
-| 🔑 | [SSH Key Setup](#-ssh-key-setup) |
-| 🖥️ | [Pages & Features](#%EF%B8%8F-pages--features) |
-| 🔬 | [Diagnostics Suite](#-diagnostics-suite) |
-| 🤖 | [Smart Advisor](#-smart-advisor) |
-| 🔄 | [Real-time & WebSocket](#-real-time--websocket) |
-| 🔃 | [Version & Updates](#-version--updates) |
-| 🏗️ | [Architecture](#%EF%B8%8F-architecture) |
-| 📁 | [Project Structure](#-project-structure) |
-| 💾 | [Data Persistence & Backup](#-data-persistence--backup) |
-| 👨‍💻 | [Development](#-development) |
-| 🔒 | [Security Notes](#-security-notes) |
-| 🔧 | [Troubleshooting](#-troubleshooting) |
+| **Quorum Health Score** | Live widget showing primary / non-primary / offline node counts. Colour-coded severity: `healthy` → `degraded` → `critical`. Direct link to Recovery Tools. |
+
+### New in Diagnostics — Galera Health group
+
+A dedicated tab group with three live Galera-specific panels:
+
+| Panel | Metric | Alert condition |
+|---|---|---|
+| **Flow Control Monitor** | `wsrep_flow_control_paused` — fraction of time cluster was flow-controlled | > 10% warn, > 30% critical |
+| **Cert Conflict Rate** | `wsrep_local_cert_failures` delta per minute | rising trend — write-set conflicts between nodes |
+| **Disk Sentinel** | gcache actual size vs `galera.cache` configured limit + `ibdata1` growth | > 90% of gcache limit → SST risk |
+
+### New on Recovery page — standalone Recovery Tools
+
+Five independent tools available at any cluster state (no need to be in a failure scenario):
+
+| Tool | What it does |
+|---|---|
+| **grastate.dat Inspector** | SSH-reads `grastate.dat` from every node. Compares `seqno`, `safe_to_bootstrap`, cluster `uuid`. Identifies the correct bootstrap candidate. |
+| **Node State Snapshot** | One-shot pre-flight dump — collects `wsrep_*` status, disk, process list, active transactions, InnoDB status from all nodes in parallel. Useful for incident documentation before taking action. |
+| **IST vs SST Helper** | Compares donor gcache size against the joiner's `seqno` gap. Tells you whether IST (fast, incremental) or SST (full copy) will happen before you rejoin — avoiding surprise full transfers. |
+| **Split-Brain Recovery Wizard** | Resolves a split-brain cluster: select the trusted node, set `pc.bootstrap=YES` via `wsrep_provider_options`, verify primary component forms. Progress streamed live via WebSocket. |
+| **Full Cluster Recovery** | Fully automatic: reads `grastate.dat`, picks the bootstrap candidate, bootstraps it, rejoins all remaining nodes in seqno order. Live terminal log. Requires explicit checkbox confirmation — it's destructive. |
+
+### New API endpoints
+
+```
+GET  /{cluster_id}/diagnostics/flow-control      # wsrep_flow_control_paused live
+GET  /{cluster_id}/diagnostics/cert-conflicts    # wsrep_local_cert_failures rate
+GET  /{cluster_id}/diagnostics/disk-sentinel     # gcache vs ibdata1 sentinel
+GET  /{cluster_id}/diagnostics/quorum-status     # quorum health score
+
+GET  /{cluster_id}/recovery/grastate             # grastate.dat inspector
+POST /{cluster_id}/recovery/snapshot             # pre-flight node snapshot
+GET  /{cluster_id}/recovery/ist-sst-info         # IST vs SST recommendation
+POST /{cluster_id}/recovery/split-brain          # split-brain recovery (202 async)
+POST /{cluster_id}/recovery/full-cluster         # full cluster recovery (202 async)
+```
 
 ---
 
-## 🚀 Quick Start
+## Contents
+
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [SSH Key Setup](#ssh-key-setup)
+- [Pages & Features](#pages--features)
+  - [Overview](#overview)
+  - [Nodes](#nodes)
+  - [Topology](#topology)
+  - [Recovery](#recovery)
+  - [Maintenance](#maintenance)
+  - [Settings](#settings)
+- [Diagnostics Suite](#diagnostics-suite)
+- [Smart Advisor](#smart-advisor)
+- [API Reference](#api-reference)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [Data & Backup](#data--backup)
+- [Development](#development)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-| Dependency | Version |
+| Requirement | Notes |
 |---|---|
-| 🐳 Docker | 24+ |
-| 🐳 Docker Compose | v2 plugin |
-| 🐍 Python 3 | 3.8+ (for installer — bcrypt hash + Fernet key generation) |
-| 🔑 SSH private key | RSA / Ed25519, passwordless, access to all Galera nodes |
+| Docker 24+ | With Compose v2 plugin |
+| SSH key | RSA or Ed25519, **no passphrase**, access to all Galera nodes |
+| Python 3.8+ | Installer only — bcrypt hash + Fernet key generation |
 
----
-
-### 🧩 Option A — One-line installer *(recommended)*
-
-One command on your server — the script downloads everything, asks for credentials and SSH key,
-generates secrets, and starts the container:
+### Option A — One-line installer (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/install.sh | bash
 ```
 
-What happens inside:
-1. Checks for Docker, Docker Compose, and Python 3
-2. Installs `bcrypt` via pip if needed
-3. Creates `~/galera-orchestrator/` directory
-4. Downloads `docker-compose.ghcr.yml`
-5. Interactively asks for: login, password, SSH key, port, COOKIE_SECURE
-6. **Hashes password via bcrypt** — `ADMIN_PASSWORD_HASH` written to `.env`, plaintext never stored
-7. **Auto-generates** `JWT_SECRET_KEY` (hex 32 bytes) and `FERNET_SECRET_KEY` (Fernet)
-8. Writes `.env` with `chmod 600` and `DOCS_ENABLED=false`
-9. Pulls image from GHCR and starts
+The installer:
+1. Checks Docker, Docker Compose, Python 3
+2. Creates `~/galera-orchestrator/`, downloads compose file
+3. Asks: login, password, SSH key path, port, HTTPS mode
+4. Hashes password via bcrypt — plaintext never written
+5. Auto-generates `JWT_SECRET_KEY` and `FERNET_SECRET_KEY`
+6. Writes `.env` (`chmod 600`), pulls image, starts container
 
-After startup, the script shows:
 ```
-  🌍 Panel:   http://<server-ip>:8000
-  👤 Login:   admin
-  📁 Dir:     ~/galera-orchestrator
+  Panel:  http://<your-server>:8000
+  Login:  admin  (or whatever you entered)
 ```
 
-> ⚠️ If you chose `COOKIE_SECURE=true` — the panel is accessible **only over HTTPS**.
-> For HTTP access (dev/test), answer `n` to the COOKIE_SECURE prompt.
+> Set `COOKIE_SECURE=false` if not behind TLS.
 
----
-
-### 🔄 Update
+### Option B — Docker Compose manually
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/update.sh | bash
-```
-
-Or if the script is already local:
-
-```bash
-bash ~/galera-orchestrator/update.sh
-```
-
-What it does:
-- Reminds you to backup the DB (and shows the command)
-- Asks for confirmation
-- Pulls the new image from GHCR
-- Restarts the container without data loss
-- Updates `docker-compose.ghcr.yml` to the latest version
-
----
-
-### 🐳 Option B — Docker Compose manually *(no git, Docker only)*
-
-```bash
-# 1. Download two files
 curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/docker-compose.ghcr.yml -o docker-compose.ghcr.yml
 curl -fsSL https://raw.githubusercontent.com/Leg1onary/galera_orchestrator_v2/master/.env.example -o .env
-
-# 2. Fill in .env (see Configuration Reference below)
 nano .env
-
-# 3. Start (image pulled automatically from GHCR)
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
----
-
-### 🛠️ Option C — Build from source *(for development)*
+### Option C — Build from source
 
 ```bash
 git clone https://github.com/Leg1onary/galera_orchestrator_v2.git
@@ -182,440 +190,441 @@ cp .env.example .env && nano .env
 docker compose up -d
 ```
 
+### Update
+
+```bash
+bash ~/galera-orchestrator/update.sh
+```
+
+Backs up the DB, pulls the new image from GHCR, restarts. No data loss.
+
+### First-run setup
+
+1. **Settings → Clusters** — create a cluster
+2. **Settings → Datacenters** — add datacenter(s)
+3. **Settings → Nodes** — add nodes with SSH + DB credentials
+4. Select the cluster in the top bar → Overview lights up
+
 ---
 
-### First-run setup — add your first cluster
+## Configuration
 
-1. Open **Settings → Clusters** → create a cluster
-2. **Settings → Datacenters** → create datacenter(s)
-3. **Settings → Contours** → create contours if needed (prod / staging / etc.)
-4. **Settings → Nodes** → add nodes (host, SSH port, DB credentials)
-5. Select the cluster in the top bar → watch **Overview** come alive 🎉
+All config via `.env`. Required fields marked **✓**.
 
----
-
-## ⚙️ Configuration Reference
-
-All configuration via `.env` file. Sensible defaults for everything except secrets.
-
-| Variable | Default | Required | Description |
+| Variable | Default | Req | Description |
 |---|---|---|---|
-| `ADMIN_USERNAME` | `admin` | — | Admin login username |
-| `ADMIN_PASSWORD_HASH` | — | **✅** | bcrypt hash of admin password. Auto-generated by installer. Manual: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt(12)).decode())"` |
-| `JWT_SECRET_KEY` | — | **✅** | JWT signing secret, minimum 32 chars. Generate: `openssl rand -hex 32` |
-| `FERNET_SECRET_KEY` | — | **✅** | Fernet key — encrypts node passwords in SQLite. Generate: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✅** | Host path to SSH key (bind-mounted `:ro` into container) |
-| `DATABASE_URL` | `sqlite:////data/orchestrator.db` | — | Do not change — `/data` is mounted as a named volume |
-| `HOST_PORT` | `8000` | — | Host port for the panel |
-| `COOKIE_SECURE` | `true` | — | `true` — JWT cookie sent only over HTTPS (recommended). `false` — dev/test without TLS only |
-| `DOCS_ENABLED` | `false` | — | `true` — enables `/docs`, `/redoc`, `/openapi.json`. **Dev only**, keep `false` in production |
-| `SSH_CONNECT_TIMEOUT` | `5` | — | SSH connect timeout in seconds |
-| `SSH_COMMAND_TIMEOUT` | `10` | — | SSH command timeout in seconds |
-| `DB_CONNECT_TIMEOUT` | `3` | — | MariaDB connect timeout in seconds |
+| `ADMIN_USERNAME` | `admin` | | Login username |
+| `ADMIN_PASSWORD_HASH` | | **✓** | bcrypt hash. `python3 -c "import bcrypt; print(bcrypt.hashpw(b'pass', bcrypt.gensalt(12)).decode())"` |
+| `JWT_SECRET_KEY` | | **✓** | Min 32 chars. `openssl rand -hex 32` |
+| `FERNET_SECRET_KEY` | | **✓** | Encrypts node passwords. `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `SSH_KEY_PATH` | `~/.ssh/id_rsa` | **✓** | Host path. Mounted `:ro` into container. |
+| `HOST_PORT` | `8000` | | Exposed port |
+| `COOKIE_SECURE` | `true` | | `false` for plain HTTP dev |
+| `DOCS_ENABLED` | `false` | | `true` enables `/docs`. Dev only. |
+| `DATABASE_URL` | `sqlite:////data/orchestrator.db` | | Don't change — `/data` is a named volume |
+| `SSH_CONNECT_TIMEOUT` | `5` | | Seconds |
+| `SSH_COMMAND_TIMEOUT` | `10` | | Seconds |
+| `DB_CONNECT_TIMEOUT` | `3` | | Seconds |
 
-> ⚠️ **`JWT_SECRET_KEY` and `FERNET_SECRET_KEY` must be different values.**
-> The server refuses to start if they match or contain default `change-me-*` values.
-
----
-
-## 🔒 Production Security Defaults
-
-Before deploying to production, verify:
-
-| # | Action | How to check |
-|---|---|---|
-| 1 | `ADMIN_PASSWORD_HASH` is a bcrypt hash, not plaintext | `grep ADMIN_PASSWORD .env` — no `ADMIN_PASSWORD=` line |
-| 2 | `JWT_SECRET_KEY` ≥ 32 chars, unique | `wc -c <<< "$JWT_SECRET_KEY"` → 65+ (with \n) |
-| 3 | `FERNET_SECRET_KEY` is a valid Fernet key, different from JWT | starts with base64url prefix |
-| 4 | `COOKIE_SECURE=true` | panel is behind TLS / reverse-proxy |
-| 5 | `DOCS_ENABLED=false` | `/docs` → `404` |
-| 6 | `.env` is `chmod 600` | `ls -la .env` → `-rw-------` |
-| 7 | SSH key has no passphrase, accessible only from container | `ls -la $SSH_KEY_PATH` → `600` |
+> `JWT_SECRET_KEY` and `FERNET_SECRET_KEY` **must differ**. Server refuses to start if they match or contain `change-me-*`.
 
 ---
 
-## 🔑 SSH Key Setup
+## SSH Key Setup
 
-The orchestrator uses **one global SSH key** for all node and arbitrator connections.
-The key is **bind-mounted read-only** into the container — never stored in the database.
-
-```yaml
-# docker-compose.ghcr.yml (already configured)
-volumes:
-  - ${SSH_KEY_PATH}:/root/.ssh/id_rsa:ro
-```
-
-Test access before starting:
+One global key, all nodes. Bind-mounted read-only — never stored in the DB.
 
 ```bash
-ssh -i ~/.ssh/id_rsa -p 22 root@<node-host> "hostname && mysql -e 'SELECT 1'"
-```
+# Test before starting
+ssh -i ~/.ssh/id_rsa -p 22 user@<node-host> "hostname && mysql -e 'SELECT 1'"
 
-Generate a new key if needed:
-
-```bash
+# Generate a new key if needed
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/galera_key
-ssh-copy-id -i ~/.ssh/galera_key.pub user@node-host
+ssh-copy-id -i ~/.ssh/galera_key.pub user@<node-host>
 ```
 
-> Key must have **no passphrase**.
+No passphrase. The container cannot modify or exfiltrate the key (`ro` mount).
 
 ---
 
-## 🖥️ Pages & Features
+## Pages & Features
 
-### 🏠 Overview
+### Overview
 
-The command center. Everything important at a glance.
+Command center. Everything important at a glance.
 
-- **Cluster summary bar** — status, node count, primary component health, wsrep overview
-- **NodeCards** — per-node state, wsrep metrics, `read_only` flag, maintenance badge
-- **Sparklines** — 30-point ring buffer for `flow_control_paused` and `recv_queue`
-- **Replication lag alert** — automatic banner when `wsrep_local_recv_queue_avg > 0` on any node, with per-node detail and wsrep_slave_threads recommendation
-- **Advisor widget** — critical/warn issue count from Smart Advisor, click-through to Diagnostics
-- **Event log** — real-time stream of cluster events with severity badges
-- **WebSocket indicator** — live connection status in the footer
+- **Cluster Summary Bar** — global status, node count, wsrep overview, flow control indicator
+- **Quorum Health Widget** *(new)* — live primary / non-primary / offline breakdown with severity badge. Turns red when quorum is at risk. One click → Recovery Tools.
+- **NodeCards** — per-node state with 30-point sparklines for `flow_control_paused` and `recv_queue`, `read_only` flag, maintenance badge
+- **Replication Lag Alert** — auto-shown banner when `wsrep_local_recv_queue_avg > 0`, per-node detail, `wsrep_slave_threads` recommendation
+- **Advisor Widget** — critical/warn count from Smart Advisor, click-through to Diagnostics
+- **Event Log** — real-time stream via WebSocket with severity badges
 
-### 🗊 Nodes
+### Nodes
 
-Full node table for day-to-day ops.
+Day-to-day node operations table.
 
-- Sort/filter by name, state, datacenter, contour
-- **NodeDetailDrawer** — expand any node for full wsrep variable dump, SSH/DB latency, InnoDB status
-- Per-node actions: toggle `read_only`, enter/exit maintenance, restart MariaDB, **Rejoin** (one-click re-join for offline nodes)
-- **Clone node** — duplicate node config with optional credential override
-- **Connection test** — on-demand SSH + DB reachability check with latency
-- State badges: `SYNCED` · `JOINED` · `DONOR` · `DESYNCED` · `OFFLINE` · `DEGRADED`
+- Filter/sort by name, state, datacenter, contour
+- **NodeDetailDrawer** — full wsrep variable dump, SSH/DB latency, InnoDB status
+- Per-node: toggle `read_only`, enter/exit maintenance, restart MariaDB, one-click **Rejoin**
+- **Clone node** — duplicate config with optional credential override
+- **Connection test** — on-demand SSH + DB reachability with latency
 
-### 🗺️ Topology
+State badges: `SYNCED` · `JOINED` · `DONOR` · `DESYNCED` · `OFFLINE` · `DEGRADED`
 
-SVG canvas — visual representation of cluster layout.
+### Topology
 
-- Nodes and arbitrators grouped by **datacenter zones**
-- Connection lines with state color coding (synced / active / offline)
-- Hover tooltip with full node status
-- Click node → opens NodeDetailDrawer
-- Real-time updates via WebSocket
+SVG canvas — visual map of the cluster.
 
-### 🚑 Recovery
+- Nodes and arbitrators grouped by datacenter zones
+- Connection lines with state colour coding
+- Hover tooltip with full status; click → NodeDetailDrawer
+- Live updates via WebSocket
 
-Step-by-step wizard for full cluster recovery when **all nodes are down**.
+### Recovery
 
-```
-Step 1 — Scan nodes
-  └─ SSH into each node, read cluster status & wsrep state
-  └─ Detects non-primary / offline / joining nodes
+Two independent sections on the same page.
 
-Step 2 — Select bootstrap node
-  └─ Shows seqno from grastate.dat for each node
-  └─ Highlights the safe-to-bootstrap candidate
-  └─ Manual override with explicit confirmation
+#### Recovery Wizard
 
-Step 3 — Bootstrap
-  └─ Runs bootstrap sequence on selected node
-  └─ Monitors join progress on remaining nodes
-  └─ Cluster lock held for duration (409 on concurrent ops)
+Step-by-step flow for when the **entire cluster is down**.
 
-Step 4 — Rejoin remaining nodes
-  └─ Sequential rejoin with per-node progress tracking
-  └─ SST/IST detection, stuck SST alert
-```
+| Step | What happens |
+|---|---|
+| **1 — Scan** | SSH into each node, read cluster status + wsrep state, detect non-primary / offline nodes |
+| **2 — Bootstrap** | Shows `seqno` from `grastate.dat`. Highlights the safe-to-bootstrap candidate. Manual override with explicit confirmation. |
+| **3 — Rejoin** | Sequential rejoin with per-node progress tracking |
+| **4 — Done** | Confirms cluster is healthy |
 
-### 🔄 Maintenance
+#### Recovery Tools *(new)*
 
-- **Rolling Restart** — restarts nodes one-by-one, waiting for SYNCED state before proceeding
-- **Desync / Resync** — toggle `wsrep_desync ON/OFF` without restart (for safe DDL/dumps)
-- **Node maintenance state** — toggle `read_only` cluster-wide or per-node
-- **Purge binary logs** — one-click `PURGE BINARY LOGS BEFORE ...` per node
-- **Flush operations** — `FLUSH LOGS`, `FLUSH TABLES WITH READ LOCK / UNLOCK TABLES`
-- **SST status panel** — detect stuck SST donor/joiner, one-click restart-SST
-- All destructive ops require explicit confirmation dialog
-- Cluster-level lock prevents concurrent recovery + maintenance
+Five standalone tools available **at any time**, regardless of cluster health. Accessible via the tab rail below the wizard.
 
-### ⚙️ Settings
+**grastate.dat Inspector**
+SSH-reads `grastate.dat` from every node. Compares `seqno`, `safe_to_bootstrap`, cluster `uuid` across all nodes. Highlights the best bootstrap candidate with a visual diff.
 
-- **Clusters** — CRUD, polling interval per cluster
+**Node State Snapshot**
+One-shot pre-flight dump. Collects `wsrep_*` variables, disk usage, process list, active transactions, InnoDB status from all nodes simultaneously. Returns structured JSON — use it to document the incident state before touching anything.
+
+**IST vs SST Helper**
+Reads donor gcache size and joiner's `seqno` gap. Recommends **IST** (fast, incremental — gcache covers the gap) or **SST** (full state transfer — donor doesn't have enough gcache) before you rejoin. Saves you from surprise full transfers on production clusters.
+
+**Split-Brain Recovery Wizard**
+Select the trusted primary-component node → sets `pc.bootstrap=YES` via `wsrep_provider_options` → restarts MariaDB on non-primary nodes → verifies the cluster reforms as a single primary component. All steps streamed live via WebSocket.
+
+**Full Cluster Recovery**
+Automatic end-to-end sequence when all nodes are down. Reads `grastate.dat`, picks the bootstrap candidate (highest `seqno`, preferring `safe_to_bootstrap=1`), bootstraps it, then rejoins all remaining nodes in seqno-descending order. Live terminal log. **Requires explicit checkbox confirmation** — this operation is destructive.
+
+### Maintenance
+
+- **Rolling Restart** — one-by-one restart, waits for `SYNCED` before next node
+- **Desync / Resync** — toggle `wsrep_desync` without restart (safe for DDL / dumps)
+- **Read-only toggle** — per-node or cluster-wide
+- **Backup Center** — scan backup server, browse files, manage retention
+- Cluster-level operation lock — concurrent recovery + maintenance returns `409 Conflict`
+- All destructive actions require explicit confirmation dialog
+
+### Settings
+
+- **Clusters** — CRUD, polling interval
 - **Datacenters** — logical groupings for Topology view
-- **Contours** — environment tags (prod / staging / etc.)
-- **Nodes** — SSH + DB credentials per node (passwords encrypted at rest via Fernet)
+- **Contours** — environment labels (prod / staging / etc.)
+- **Nodes** — SSH + DB credentials; passwords encrypted at rest via Fernet
 - **Arbitrators** — garbd nodes with SSH connectivity monitoring
-- **System** — SSH/DB timeouts, global settings
+- **System** — global SSH/DB timeouts
 
 ---
 
-## 🔬 Diagnostics Suite
+## Diagnostics Suite
 
-Full diagnostics panel accessible from the **Diagnostics** page, organized in tabs.
+Six tab groups in the Diagnostics page.
 
-### Connection Check
-- SSH reachability + latency for every node and arbitrator
-- MariaDB reachability + latency
-- Galera wsrep status validation
-- Color-coded pass / warn / fail per node
+### Analysis
 
-### Config Diff
-- Side-by-side comparison of key `SHOW GLOBAL VARIABLES` across all nodes
-- Highlights diverging values (e.g. different `wsrep_slave_threads` or `max_connections`)
-- Filter by variable name
+| Tab | Description |
+|---|---|
+| **Advisor** | Smart Advisor findings — prioritised list with severity badges and action links |
+| **Config Health** | Automated checks: buffer pool sizing, `max_connections`, `wsrep_slave_threads`, `innodb_flush_log_at_trx_commit`, `wsrep_sync_wait` |
 
-### Variables
-- Full `SHOW GLOBAL VARIABLES` dump per node
-- Quick search / filter
-- Export to CSV
+### Galera Health *(new)*
 
-### System Resources
-- CPU, RAM, disk usage per node via SSH
-- Progress bars with warn (80%) / critical (90%) thresholds
-- **Disk Details** panel — top-10 tables by size (`information_schema.TABLES`), binary log sizes (`SHOW BINARY LOGS`), `ibdata1` size via SSH
-- Adaptive status dots (ok / warn / critical)
-
-### Process List
-- Live `information_schema.PROCESSLIST` per node
-- **Kill process** — per-PID kill with confirm dialog
-- **Kill ALL** — bulk-kill by state (Sleep, Lock wait, etc.) or by user
-- Auto-refresh with configurable interval
-
-### Active Transactions
-- `information_schema.INNODB_TRX` — transactions older than N seconds
-- Columns: TRX ID, started, age, state, thread ID, query snippet, tables/rows locked
-- Per-node grouping
-
-### InnoDB Status
-- `SHOW ENGINE INNODB STATUS` raw output with syntax highlighting
-- **Deadlock parser** — structured card view of `LATEST DETECTED DEADLOCK`:
-  - Transaction A vs B side-by-side
-  - Victim badge, lock type / mode, tables, query snippets
-  - Falls back to raw `pre` if parsing fails
-- Copy to clipboard
-
-### Config Health Check
-- Automated best-practice rules against `SHOW GLOBAL VARIABLES`:
-
-| Rule | Check | Severity |
+| Tab | Metric | What it tells you |
 |---|---|---|
-| `innodb_buffer_pool_size` | Must be 60–70% of RAM | warn / error |
-| `max_connections` | > 1000 risks OOM | warn / error |
-| `wsrep_slave_threads` | Should match CPU core count | warn / error |
-| `innodb_flush_log_at_trx_commit` | Must be 1 for durability | warn |
-| `wsrep_sync_wait` | Info if disabled (stale reads risk) | info |
+| **Flow Control** | `wsrep_flow_control_paused` | Fraction of time the cluster was flow-controlled. > 10% = congestion, > 30% = degraded. Usually means a slow node or under-provisioned `wsrep_slave_threads`. |
+| **Cert Conflicts** | `wsrep_local_cert_failures` rate/min | Write-set certification failures between nodes. Rising rate = hot-row conflicts or poor transaction isolation. |
+| **Disk Sentinel** | gcache vs `galera.cache` + `ibdata1` | Warns when gcache is near its configured limit. Overflow forces SST instead of IST on the next rejoin — often 10–100× slower. |
 
-### Error Log
-- Tail of MariaDB error log via SSH
-- Color-coded lines: ERROR / WARNING / NOTE
-- Auto-scroll with pause-on-hover
+### Config
 
-### Slow Query Log
-- Live slow query list from `information_schema` / slow query log
-- **Enable / Disable** slow query log per node at runtime (`SET GLOBAL slow_query_log`)
-- Columns: query time, db, user, query text
+| Tab | Description |
+|---|---|
+| **Connections** | SSH + DB reachability and latency per node and arbitrator |
+| **Config Diff** | Side-by-side `SHOW GLOBAL VARIABLES` comparison across nodes — highlights diverging values |
+| **Variables** | Full variable dump per node with search/filter |
 
-### Arbitrator Log
-- Tail of garbd log via SSH
-- Color-coded severity lines
+### Engine
 
-### Flush Panel
-- `FLUSH LOGS` — rotate binary/error logs
-- `FLUSH TABLES WITH READ LOCK` + `UNLOCK TABLES` with safety confirmation
+| Tab | Description |
+|---|---|
+| **System Resources** | CPU, RAM, disk via SSH. Warn 80%, critical 90%. Top-10 tables by size. |
+| **InnoDB Status** | `SHOW ENGINE INNODB STATUS` with structured deadlock parser — victim, lock type, query snippet |
+| **SST Status** | Detects stuck donor/joiner. One-click restart-SST. |
 
-### Purge Binary Logs
-- Select cutoff date or log file name
-- Preview size to be freed
-- Executes `PURGE BINARY LOGS BEFORE ...`
+### Activity
+
+| Tab | Description |
+|---|---|
+| **Process List** | Live `INFORMATION_SCHEMA.PROCESSLIST` with per-PID kill and bulk-kill by state/user |
+| **Transactions** | `INNODB_TRX` — transactions older than N seconds with lock and row info |
+| **Slow Queries** | Live slow query list. Enable/disable slow query log per node at runtime. |
+
+### Logs & Ops
+
+| Tab | Description |
+|---|---|
+| **Error Log** | MariaDB error log tail via SSH with colour-coded severity lines |
+| **Arbitrator Log** | garbd log tail |
+| **Purge Binlogs** | `PURGE BINARY LOGS BEFORE` with size preview |
+| **Flush** | `FLUSH LOGS` · `FLUSH TABLES WITH READ LOCK` · `UNLOCK TABLES` |
 
 ---
 
-## 🤖 Smart Advisor
+## Smart Advisor
 
 `GET /api/clusters/{cluster_id}/advisor`
 
-The Advisor aggregates data from all diagnostics sources and returns a prioritized list of actionable recommendations. Visible as:
-- Full panel in **Diagnostics → Advisor** tab
-- Summary widget on **Overview** dashboard
-
-### Advisor Categories
+Aggregates data from all diagnostic sources into a prioritised, actionable list. Shown as:
+- Full panel in **Diagnostics → Advisor**
+- Compact widget on **Overview** (critical/warn count)
 
 | Category | Source | Example finding |
 |---|---|---|
-| `config` | Config Health Check | InnoDB buffer pool underprovisioned (25% of RAM, recommended 60–70%) |
-| `performance` | Config Health, Replication lag | `wsrep_slave_threads` mismatch vs CPU cores — causing replication lag |
-| `replication` | Live node state | `wsrep_local_recv_queue_avg > 0` — replication lagging on 2 nodes |
-| `availability` | SST status | Node stuck in JOINING state for > 5 min — SST restart recommended |
-| `storage` | Disk usage | Disk usage at 87% on node-2 — top tables: `db.orders` 4.2 GB |
-| `locking` | Active transactions | 3 transactions running > 5 min, oldest 14 min — review and consider KILL |
-| `locking` | InnoDB status | Recent deadlock detected — victim query and tables identified |
-| `security` | Config | `innodb_flush_log_at_trx_commit ≠ 1` — durability risk in production |
+| `config` | Config Health | InnoDB buffer pool at 25% of RAM — recommended 60–70% |
+| `performance` | Config + lag | `wsrep_slave_threads` mismatch vs CPU cores |
+| `replication` | Live state | `wsrep_local_recv_queue_avg > 0` on 2 nodes |
+| `availability` | SST status | Node stuck in JOINING > 5 min — restart SST |
+| `storage` | Disk | Disk at 87% on node-2 — top table `db.orders` 4.2 GB |
+| `locking` | Transactions | 3 transactions running > 5 min, oldest 14 min |
+| `locking` | InnoDB | Deadlock detected — victim query and tables identified |
+| `security` | Config | `innodb_flush_log_at_trx_commit ≠ 1` — durability risk |
 
-### Severity Levels
+Severity: `critical` 🔴 · `warn` 🟡 · `info` 🔵
 
-| Level | Color | When |
-|---|---|---|
-| `critical` | 🔴 | Immediate action required (stuck SST, split-brain risk, disk > 90%) |
-| `warn` | 🟡 | Degraded performance or configuration risk |
-| `info` | 🔵 | Suboptimal configuration, low-priority recommendations |
-
-### Recommended Actions
-
-Each advisor card carries an `action` that maps to a direct UI interaction:
-
-- `open_panel` — jump to the relevant diagnostics tab
-- `node_action` — pre-fills a node action (restart SST, rejoin)
-- `config_change` — links to the variable with documentation
-- `recovery_action` — opens Recovery wizard
+Each finding has an `action` that maps to a UI interaction: open panel, pre-fill node action, or open Recovery wizard.
 
 ---
 
-## 🔄 Real-time & WebSocket
+## API Reference
+
+All endpoints cluster-scoped under `/api/clusters/{cluster_id}/...`.  
+Auth: `httpOnly` JWT cookie. Set via `POST /api/auth/login`, validated via `GET /api/auth/me`.
+
+### Auth
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/login` | Login — sets `access_token` cookie |
+| `GET` | `/api/auth/me` | Validate session |
+| `POST` | `/api/auth/logout` | Clear cookie |
+
+### Clusters
+
+| Method | Path | Description |
+|---|---|---|
+| `GET/POST` | `/api/clusters` | List / create |
+| `GET/PATCH/DELETE` | `/api/clusters/{id}` | Read / update / delete |
+| `GET` | `/api/clusters/{id}/status` | Live status: nodes + arbitrators |
+
+### Nodes
+
+| Method | Path | Description |
+|---|---|---|
+| `GET/POST` | `/{id}/nodes` | List / create |
+| `GET/PATCH/DELETE` | `/{id}/nodes/{nid}` | CRUD |
+| `POST` | `/{id}/nodes/{nid}/test-connection` | SSH + DB reachability |
+| `POST` | `/{id}/nodes/{nid}/set-read-only` | Toggle `read_only` |
+| `POST` | `/{id}/nodes/{nid}/desync` | `wsrep_desync ON` |
+| `POST` | `/{id}/nodes/{nid}/resync` | `wsrep_desync OFF` |
+| `POST` | `/{id}/nodes/{nid}/restart` | `systemctl restart mariadb` |
+| `POST` | `/{id}/nodes/{nid}/rejoin` | Rejoin single offline node |
+| `POST` | `/{id}/nodes/{nid}/kill-process/{pid}` | Kill by PID |
+| `POST` | `/{id}/nodes/{nid}/kill-processes` | Bulk kill `{ state?, user? }` |
+| `GET` | `/{id}/nodes/{nid}/error-log` | Tail error log |
+| `POST` | `/{id}/nodes/{nid}/set-slow-query-log` | `{ enabled: bool }` |
+
+### Diagnostics
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/{id}/diagnostics/check-all` | Full SSH + DB connectivity check |
+| `GET` | `/{id}/diagnostics/config-diff` | Variable diff across nodes |
+| `GET` | `/{id}/diagnostics/variables` | wsrep variables per node |
+| `POST` | `/{id}/diagnostics/resources` | CPU / RAM / disk via SSH |
+| `GET` | `/{id}/diagnostics/process-list` | `INFORMATION_SCHEMA.PROCESSLIST` |
+| `GET` | `/{id}/diagnostics/slow-queries` | Slow query list |
+| `POST` | `/{id}/diagnostics/disk-usage` | Detailed disk usage |
+| `GET` | `/{id}/diagnostics/galera-status` | `wsrep` STATUS per node |
+| `GET` | `/{id}/diagnostics/flow-control` | **new** `wsrep_flow_control_paused` live |
+| `GET` | `/{id}/diagnostics/cert-conflicts` | **new** cert failure rate |
+| `GET` | `/{id}/diagnostics/disk-sentinel` | **new** gcache + ibdata1 sentinel |
+| `GET` | `/{id}/diagnostics/quorum-status` | **new** quorum health score |
+
+### Recovery
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/{id}/recovery/scan` | Scan all nodes — grastate + wsrep |
+| `POST` | `/{id}/recovery/bootstrap` | Bootstrap selected node |
+| `POST` | `/{id}/recovery/rejoin/{nid}` | Rejoin single node |
+| `DELETE` | `/{id}/recovery/cancel` | Cancel active recovery |
+| `GET` | `/{id}/recovery/grastate` | **new** grastate.dat inspector |
+| `POST` | `/{id}/recovery/snapshot` | **new** pre-flight node snapshot |
+| `GET` | `/{id}/recovery/ist-sst-info` | **new** IST vs SST recommendation |
+| `POST` | `/{id}/recovery/split-brain` | **new** split-brain recovery `202` |
+| `POST` | `/{id}/recovery/full-cluster` | **new** full cluster recovery `202` |
+
+Async `202` endpoints return `{ operation_id, status: "started" }`. Progress streamed via WebSocket `operation_progress` / `operation_finished` events.
+
+### Maintenance
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/{id}/maintenance/rolling-restart` | Rolling restart `202` |
+| `DELETE` | `/{id}/maintenance/rolling-restart` | Cancel |
+
+### WebSocket
 
 ```
 WS /ws/clusters/{cluster_id}
 ```
 
-- One WebSocket per cluster per browser tab
-- Auth via `httpOnly` JWT cookie — same cookie as REST API
-- Emits events: `node_state`, `cluster_state`, `event_log`, `operation_progress`
-- Frontend reconnects automatically with exponential backoff
-- Connection status indicator in the SPA footer
+Same `httpOnly` JWT cookie. Events:
 
-**Polling fallback:** If WebSocket is unavailable, the frontend falls back to HTTP polling every 5s.
+| Event | Key payload fields |
+|---|---|
+| `node_state_changed` | `node_id`, `state`, `wsrep_*` |
+| `arbitrator_state_changed` | `arb_id`, `reachable` |
+| `operation_started` | `operation_id`, `type` |
+| `operation_progress` | `operation_id`, `message`, `level` |
+| `operation_finished` | `operation_id`, `success`, `error?` |
+| `log_entry` | `severity`, `message` |
+
+Reconnects automatically with exponential backoff. Falls back to 5s HTTP polling if WebSocket is unavailable.
 
 ---
 
-## 🔃 Version & Updates
-
-### How version is determined
-
-The app version is **not set manually in `.env`** — it is determined automatically at container startup:
-
-| Source | When used |
-|---|---|
-| `git rev-parse --short HEAD` | Build from source (Option C) — shows short commit SHA |
-| `APP_VERSION` env (set by `Dockerfile`) | Image built via CI/CD — SHA passed as `ARG GIT_SHA` at build time |
-| `unknown` | Fallback if git and env are unavailable |
-
-The current version is always visible in the **bottom-left footer** in `abc1234` format.
-
-### Check for updates
-
-Next to the version in the footer is a **🔃** button (Check updates).
-It performs a check **on demand** — no automatic background requests
-(important for air-gapped networks).
-
-| Status | Meaning |
-|---|---|
-| `↑ new version available` | Running image digest differs from `:latest` in registry |
-| `✓ up to date` | Image is current |
-| `⚠ registry unavailable` | Registry unreachable (air-gapped network, no Docker CLI, timeout) |
-
-> Check uses `docker manifest inspect ghcr.io/leg1onary/galera_orchestrator_v2:latest`
-> without pulling the image. Requires access to `ghcr.io` from the host.
-
-### How to update
-
-```bash
-# If you used install.sh
-bash ~/galera-orchestrator/update.sh
-
-# Manual
-docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml pull
-docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml up -d
-```
-
-> ⚠️ Back up the database before updating — see [Data Persistence & Backup](#-data-persistence--backup).
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌────────────────────────────────────────────┐
-│           Docker Container                 │
-│                                            │
-│  ┌─────────────┐    ┌──────────────────┐   │
-│  │  Vue 3 SPA  │    │   FastAPI App    │   │
-│  │  (static)   │◄───│                  │   │
-│  └─────────────┘    │  /api/clusters/  │   │
-│                     │  /ws/clusters/   │   │
-│                     │                  │   │
-│                     │  Background      │   │
-│                     │  Poller (asyncio)│   │
-│                     └──────┬───────────┘   │
-│                            │               │
-│                     ┌──────▼───────────┐   │
-│                     │   SQLite /data   │   │
-│                     └──────────────────┘   │
-│                                            │
-│  /root/.ssh/id_rsa  (bind :ro)             │
-└────────────────────────────────────────────┘
-         │ SSH + MariaDB
-         ▼
-   Galera Nodes
+┌──────────────────────────────────────────────────┐
+│                 Docker Container                 │
+│                                                  │
+│  ┌─────────────┐    ┌──────────────────────────┐ │
+│  │  Vue 3 SPA  │◄───│  FastAPI                 │ │
+│  │  (static)   │    │  REST + WebSocket         │ │
+│  └─────────────┘    │  Background Poller        │ │
+│                     └──────────┬────────────────┘ │
+│                                │                  │
+│                     ┌──────────▼────────────────┐ │
+│                     │  SQLite /data/             │ │
+│                     │  orchestrator.db           │ │
+│                     └───────────────────────────┘ │
+│                                                  │
+│  /root/.ssh/id_rsa  (bind-mount :ro from host)   │
+└──────────────────────────────────────────────────┘
+            │  SSH + MariaDB
+            ▼
+      Galera Cluster Nodes
 ```
-
-**Stack:**
 
 | Layer | Technology |
 |---|---|
-| Backend | FastAPI 0.110+, SQLAlchemy 2.0 (async), Pydantic v2 |
+| Backend | FastAPI 0.110+, SQLAlchemy 2 (async), Pydantic v2, slowapi |
 | SSH | paramiko |
 | DB driver | PyMySQL |
-| Auth | python-jose (JWT RS256), bcrypt, cryptography (Fernet) |
+| Auth | python-jose JWT, bcrypt, cryptography Fernet |
 | Frontend | Vue 3, Vite 5, Pinia, Vue Router, TanStack Vue Query, TypeScript |
-| UI | PrimeVue 4, custom dark-only design system |
-| DB | SQLite (single file, named Docker volume) |
-| Auth flow | JWT in `httpOnly` cookie, validated via `GET /api/auth/me` |
-| Realtime | WebSocket `/ws/clusters/{cluster_id}` + 5s polling fallback |
+| UI | PrimeVue 4, dark-only custom design system |
+| Realtime | WebSocket + 5s polling fallback |
+| Storage | SQLite, single file, named Docker volume |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 galera_orchestrator_v2/
 ├── backend/
-│   ├── main.py                # FastAPI app, middleware, lifespan
-│   ├── auth.py                # JWT + bcrypt login, cookie management
-│   ├── models.py              # SQLAlchemy models (clusters, nodes, etc.)
-│   ├── schemas.py             # Pydantic schemas
-│   ├── poller.py              # Background polling loop (asyncio, per cluster)
+│   ├── main.py                    # app bootstrap, middleware, lifespan
+│   ├── auth.py                    # JWT + bcrypt, httpOnly cookie
+│   ├── config.py                  # pydantic-settings
+│   ├── models.py                  # SQLAlchemy ORM
+│   ├── models_live.py             # in-memory live cluster state
 │   ├── services/
-│   │   ├── ssh_client.py      # paramiko wrapper (SSHClient)
-│   │   └── db_client.py       # PyMySQL wrapper (DBClient)
+│   │   ├── ssh_client.py          # paramiko wrapper (context manager)
+│   │   ├── db_client.py           # PyMySQL wrapper
+│   │   ├── poller.py              # asyncio background poller
+│   │   ├── recovery.py            # scan / bootstrap / rejoin primitives
+│   │   ├── maintenance.py         # rolling restart, desync
+│   │   ├── operations.py          # cluster-level operation lock
+│   │   ├── ws_manager.py          # WebSocket connection manager
+│   │   ├── event_log.py           # ring buffer + broadcast
+│   │   └── crypto.py              # Fernet encrypt/decrypt
 │   └── routers/
-│       ├── auth.py            # /api/auth/login, /api/auth/me, /api/auth/logout
-│       ├── clusters.py        # /api/clusters CRUD
-│       ├── nodes.py           # nodes, node actions, rejoin, desync/resync, flush, purge
-│       ├── recovery.py        # recovery wizard (bootstrap, rejoin, cancel)
-│       ├── maintenance.py     # rolling restart, maintenance state
-│       ├── diagnostics.py     # all diagnostics endpoints (15+ panels)
-│       ├── advisor.py         # Smart Advisor GET /api/clusters/{id}/advisor
-│       ├── ws.py              # WebSocket /ws/clusters/{id}
-│       ├── settings.py        # global settings
-│       ├── contours.py        # contour CRUD
-│       └── version.py         # /api/version, update check
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── OverviewPage.vue
-│   │   │   ├── NodesPage.vue
-│   │   │   ├── TopologyPage.vue
-│   │   │   ├── DiagnosticsPage.vue
-│   │   │   ├── RecoveryPage.vue
-│   │   │   ├── MaintenancePage.vue
-│   │   │   ├── SettingsPage.vue
-│   │   │   ├── DocsPage.vue
-│   │   │   └── LoginPage.vue
-│   │   ├── components/
-│   │   │   ├── overview/      # NodeCard, Sparkline, EventLog, AdvisorWidget, ReplicationLagAlert
-│   │   │   ├── nodes/         # NodeTable, NodeDetailDrawer, NodeStatusBadge, StatRow
-│   │   │   └── diagnostics/   # 15+ panel components (AdvisorPanel, ProcessListPanel, etc.)
-│   │   ├── stores/            # Pinia — cluster, nodes, ws, version, maintenance, recovery
-│   │   ├── api/               # Typed API clients (nodes.ts, diagnostics.ts, advisor.ts, ...)
-│   │   ├── composables/       # useClusterStatus, usePoller, etc.
-│   │   └── assets/main.css    # Global design tokens + dark theme
-│   └── vite.config.ts
+│       ├── auth.py
+│       ├── clusters.py
+│       ├── nodes.py               # CRUD + all node actions
+│       ├── recovery.py            # wizard: scan, bootstrap, rejoin
+│       ├── recovery_advanced.py   # grastate, snapshot, ist-sst,
+│       │                          # split-brain, full-cluster  ← new
+│       ├── maintenance.py
+│       ├── diagnostics.py         # 20+ endpoints incl. flow-control,
+│       │                          # cert-conflicts, disk-sentinel,
+│       │                          # quorum-status               ← new
+│       ├── advisor.py
+│       ├── backup.py
+│       ├── contours.py
+│       ├── settings.py
+│       ├── version.py
+│       └── ws.py
+├── frontend/src/
+│   ├── pages/
+│   │   ├── OverviewPage.vue       # + QuorumHealthWidget         ← new
+│   │   ├── DiagnosticsPage.vue    # + Galera Health group        ← new
+│   │   ├── RecoveryPage.vue       # + Recovery Tools section     ← new
+│   │   ├── NodesPage.vue
+│   │   ├── TopologyPage.vue
+│   │   ├── MaintenancePage.vue
+│   │   ├── BackupsPage.vue
+│   │   └── SettingsPage.vue
+│   ├── components/
+│   │   ├── overview/
+│   │   │   ├── QuorumHealthWidget.vue   ← new
+│   │   │   ├── NodeCard.vue
+│   │   │   ├── AdvisorWidget.vue
+│   │   │   ├── ReplicationLagAlert.vue
+│   │   │   ├── ClusterSummaryBar.vue
+│   │   │   └── EventLog.vue
+│   │   ├── diagnostics/
+│   │   │   ├── FlowControlPanel.vue     ← new
+│   │   │   ├── CertConflictPanel.vue    ← new
+│   │   │   ├── DiskSentinelPanel.vue    ← new
+│   │   │   └── … (15 existing panels)
+│   │   └── recovery/
+│   │       ├── GrastateInspectorPanel.vue  ← new
+│   │       ├── SnapshotPanel.vue            ← new
+│   │       ├── IstSstHelper.vue             ← new
+│   │       ├── SplitBrainWizard.vue         ← new
+│   │       ├── FullClusterRecovery.vue      ← new
+│   │       └── Step1–4 (wizard steps)
+│   ├── api/
+│   │   ├── recovery-advanced.ts     ← new
+│   │   └── … (10 existing modules)
+│   └── stores/                      # Pinia stores
+├── tests/e2e/
 ├── Dockerfile
-├── docker-compose.yml          # Dev (build from source)
-├── docker-compose.ghcr.yml     # Prod (pull from GHCR)
+├── docker-compose.yml               # dev (build from source)
+├── docker-compose.ghcr.yml          # prod (pull from GHCR)
 ├── .env.example
 ├── install.sh
 └── update.sh
@@ -623,117 +632,114 @@ galera_orchestrator_v2/
 
 ---
 
-## 💾 Data Persistence & Backup
+## Data & Backup
 
-All persistent data lives in a single SQLite file inside a named Docker volume:
+All data: single SQLite file on a named Docker volume.
 
 ```bash
 # Backup
 docker exec galera-orchestrator sqlite3 /data/orchestrator.db ".backup /data/backup.db"
-docker cp galera-orchestrator:/data/backup.db ./orchestrator-backup-$(date +%Y%m%d).db
+docker cp galera-orchestrator:/data/backup.db ./orchestrator-$(date +%Y%m%d).db
 
 # Restore
-docker cp ./orchestrator-backup-YYYYMMDD.db galera-orchestrator:/data/orchestrator.db
+docker cp ./orchestrator-YYYYMMDD.db galera-orchestrator:/data/orchestrator.db
 docker compose restart orchestrator
 ```
 
-> ⚠️ After changing `FERNET_SECRET_KEY`, all encrypted node passwords become unreadable.
-> Always back up before rotating keys.
+> Changing `FERNET_SECRET_KEY` makes all encrypted node passwords unreadable. Always back up before key rotation. Re-enter passwords in **Settings → Nodes** after rotation.
 
 ---
 
-## 👨‍💻 Development
+## Development
 
 ```bash
 git clone https://github.com/Leg1onary/galera_orchestrator_v2.git
 cd galera_orchestrator_v2
 cp .env.example .env
-
-# In .env for dev:
-#   COOKIE_SECURE=false
-#   DOCS_ENABLED=true
-#   ADMIN_PASSWORD_HASH=<bcrypt-hash>
+# Set: COOKIE_SECURE=false, DOCS_ENABLED=true, fill in secrets
 
 docker compose up -d
-# Frontend: http://localhost:5173  (Vite dev server, HMR)
-# Backend:  http://localhost:8000
-# API docs: http://localhost:8000/docs  (only if DOCS_ENABLED=true)
+# Frontend HMR:  http://localhost:5173
+# Backend API:   http://localhost:8000
+# Swagger UI:    http://localhost:8000/docs  (DOCS_ENABLED=true required)
 ```
 
-Generate a bcrypt hash for dev `.env`:
+Generate a bcrypt hash:
 ```bash
 python3 -c "import bcrypt; print(bcrypt.hashpw(b'admin', bcrypt.gensalt(12)).decode())"
 ```
 
 ---
 
-## 🔒 Security Notes
+## Security
 
-| Concern | Mitigation |
+| Concern | How it's handled |
 |---|---|
-| 🔑 **Admin password** | Stored as `bcrypt` hash (`ADMIN_PASSWORD_HASH`). Plaintext never written to `.env`. |
-| 🎫 **JWT secret** | Minimum 32 chars. Generate: `openssl rand -hex 32`. Server refuses to start with default value. |
-| 🔐 **Node DB passwords** | Encrypted in SQLite via Fernet. Changing `FERNET_SECRET_KEY` invalidates all passwords. |
-| 💻 **SSH key** | Mounted `:ro` — container cannot modify or exfiltrate the key. |
-| 🍪 **JWT in browser** | `httpOnly` cookie only — inaccessible to JavaScript, XSS-safe. |
-| 🔇 **Dual secrets** | `JWT_SECRET_KEY` and `FERNET_SECRET_KEY` **must** be different values. |
-| 🌐 **Security headers** | Every response includes: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`. |
-| 📄 **OpenAPI schema** | `/docs`, `/redoc`, `/openapi.json` disabled by default (`DOCS_ENABLED=false`). |
-| 🔒 **Secure cookie** | `COOKIE_SECURE=true` by default — cookie not sent over HTTP. |
-| ⚠️ **No mock mode** | All SSH / SQL operations are **real** — use a test cluster for experiments. |
-| 🌐 **CORS** | In production, SPA and API are on the same origin — CORS middleware active in dev only. |
+| Admin password | bcrypt 12-round hash in `.env`. Plaintext never stored. |
+| JWT | Min 32 chars. Server refuses to start with default. |
+| Node DB passwords | Fernet-encrypted in SQLite. Changing the key invalidates all. |
+| SSH key | Mounted `:ro` — container cannot modify or exfiltrate it. |
+| JWT in browser | `httpOnly` cookie — invisible to JavaScript, XSS-safe. |
+| Dual secrets | `JWT_SECRET_KEY ≠ FERNET_SECRET_KEY` enforced at startup. |
+| HTTP headers | `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy` on every response. |
+| API docs | Disabled by default. `/docs` → 404 in production. |
+| No mock mode | All SSH/SQL operations are real. Use a test cluster for experiments. |
+
+**Pre-production checklist:**
+
+```
+[ ] ADMIN_PASSWORD_HASH is a bcrypt hash, not plaintext
+[ ] JWT_SECRET_KEY ≥ 32 unique random chars
+[ ] FERNET_SECRET_KEY is a valid Fernet key, differs from JWT
+[ ] COOKIE_SECURE=true  (behind TLS / reverse-proxy)
+[ ] DOCS_ENABLED=false
+[ ] .env is chmod 600
+[ ] SSH key is chmod 600, no passphrase
+```
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 <details>
-<summary>🚫 Panel unreachable after <code>docker compose up</code></summary>
+<summary>Panel unreachable after docker compose up</summary>
 
 ```bash
-docker compose logs orchestrator    # check startup errors
-docker compose ps                   # verify container is running
+docker compose logs orchestrator
+docker compose ps
 ```
 </details>
 
 <details>
-<summary>🔐 <code>401 Unauthorized</code> after login</summary>
+<summary>401 Unauthorized after login</summary>
 
-Make sure you access the panel on the **same host and port** as `HOST_PORT`.
-`httpOnly` cookies are not sent cross-origin.
+Access the panel on the same host:port as `HOST_PORT`. `httpOnly` cookies are not sent cross-origin.
 
-Also ensure `COOKIE_SECURE=false` if accessing over plain HTTP (no TLS).
+Set `COOKIE_SECURE=false` for plain HTTP.
 </details>
 
 <details>
-<summary>🔴 Node immediately shows <code>OFFLINE</code></summary>
+<summary>Node immediately shows OFFLINE</summary>
 
 ```bash
-# Test SSH from the host
-ssh -i ~/.ssh/id_rsa -p <ssh_port> <ssh_user>@<node_host> "hostname"
-
-# Test DB
-mysql -h <node_host> -P <db_port> -u <db_user> -p -e "SELECT 1"
+ssh -i ~/.ssh/id_rsa -p <ssh_port> <user>@<node-host> "hostname"
+mysql -h <node-host> -P <db_port> -u <db_user> -p -e "SELECT 1"
 ```
 </details>
 
 <details>
-<summary>🔐 Node DB passwords broken after config change</summary>
+<summary>Node DB passwords broken after .env change</summary>
 
-If you changed `FERNET_SECRET_KEY`, all encrypted passwords are unreadable.
-Go to **Settings → Nodes** and re-enter `db_password` for every affected node.
+`FERNET_SECRET_KEY` was changed — all ciphertexts are unreadable. Go to **Settings → Nodes** and re-enter each `db_password`.
 </details>
 
 <details>
-<summary>📴 WebSocket shows <code>Disconnected</code> in footer</summary>
+<summary>WebSocket shows Disconnected in footer</summary>
 
 ```bash
-docker compose ps    # confirm container is up
-
-# Manual WS upgrade test
+docker compose ps
 curl -i -N \
-  -H "Upgrade: websocket" \
-  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" -H "Connection: Upgrade" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   -H "Sec-WebSocket-Version: 13" \
   http://localhost:8000/ws/clusters/1
@@ -741,46 +747,43 @@ curl -i -N \
 </details>
 
 <details>
-<summary>🔄 Rolling Restart stuck mid-way</summary>
+<summary>Rolling Restart stuck mid-way</summary>
 
-If interrupted, the affected node stays in maintenance (`read_only = ON`).
-Go to **Maintenance → Node Maintenance State** → find the node → click **Exit**.
-This releases `read_only` without requiring a full restart.
+Affected node stays in maintenance (`read_only=ON`). Go to **Maintenance → Node Maintenance State** → **Exit** on that node.
 </details>
 
 <details>
-<summary>⚙️ Settings changes not reflected immediately</summary>
+<summary>IST vs SST Helper recommends SST unexpectedly</summary>
 
-Polling interval and SSH/DB timeouts are read from the database on every poll cycle.
-No restart needed — changes take effect on the next tick (within `polling_interval_sec` seconds).
+Donor's gcache doesn't cover the joiner's seqno gap. Increase `gcache.size` in `wsrep_provider_options` (e.g. `gcache.size=2G`) to make IST available for future rejoins. The current rejoin will proceed via SST — it's safe, just slower.
 </details>
 
 <details>
-<summary>🔑 How to change the admin password</summary>
+<summary>Split-Brain Wizard: cluster doesn't reform after pc.bootstrap</summary>
+
+The non-primary nodes must be restarted after `pc.bootstrap=YES` is set on the trusted node. The wizard does this automatically, but if it fails mid-step: manually run `systemctl restart mariadb` on each non-primary node one by one and watch `wsrep_cluster_status` on each.
+</details>
+
+<details>
+<summary>Full Cluster Recovery: "no safe_to_bootstrap node found"</summary>
+
+All nodes have `safe_to_bootstrap: 0` — this happens after a crash where Galera couldn't mark a node safe. The tool will still proceed using the highest `seqno` node, but shows a warning. Verify the `seqno` values in the **grastate.dat Inspector** before confirming.
+</details>
+
+<details>
+<summary>How to change the admin password</summary>
 
 ```bash
-# Generate new bcrypt hash
 python3 -c "import bcrypt; print(bcrypt.hashpw(b'newpassword', bcrypt.gensalt(12)).decode())"
-
-# Update .env
-sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=<new_hash>|" ~/galera-orchestrator/.env
-
-# Restart container
+# Paste the hash into ADMIN_PASSWORD_HASH in .env, then:
 docker compose -f ~/galera-orchestrator/docker-compose.ghcr.yml restart
 ```
 </details>
 
 <details>
-<summary>🔃 "Check updates" shows "registry unavailable"</summary>
+<summary>"Check updates" shows "registry unavailable"</summary>
 
-Possible reasons:
-- Server has no internet access (air-gapped network) — expected behavior
-- `ghcr.io` is blocked by firewall
-
-To update in an air-gapped network, use `update.sh` from the host:
-```bash
-bash ~/galera-orchestrator/update.sh
-```
+Server can't reach `ghcr.io` — expected on air-gapped networks. Use `update.sh` manually.
 </details>
 
 ---
@@ -795,9 +798,9 @@ Built for ops teams who need real control, not pretty dashboards.
 
 <br/>
 
-[![Made with ❤️](https://img.shields.io/badge/Made%20with-%E2%9D%A4%EF%B8%8F-red?style=flat-square)](https://github.com/Leg1onary/galera_orchestrator_v2)
 [![FastAPI](https://img.shields.io/badge/Powered%20by-FastAPI-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Vue 3](https://img.shields.io/badge/UI-Vue%203-42b883?style=flat-square&logo=vue.js)](https://vuejs.org)
+[![PrimeVue](https://img.shields.io/badge/Components-PrimeVue%204-4B86C7?style=flat-square)](https://primevue.org)
 [![Docker](https://img.shields.io/badge/Ships%20as-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 
 <br/>
