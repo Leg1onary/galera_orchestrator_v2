@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useClusterStore } from '@/stores/cluster'
-import { useWsStore }      from '@/stores/ws'
+import { useClusterStore }   from '@/stores/cluster'
+import { useWsStore, type WsEvent } from '@/stores/ws'
 import AppHeader  from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppFooter  from '@/components/AppFooter.vue'
@@ -22,7 +22,36 @@ watch(
   { immediate: true }
 )
 
-onUnmounted(() => wsStore.disconnect())
+// ── Global WS handler: sync active_operation in clusterStore ─────────────────
+// Without this, isClusterLocked stays true forever after page reload
+// because clusterStore.clusters[].active_operation is never updated via WS.
+let unsubWsGlobal: (() => void) | null = null
+
+onMounted(() => {
+  unsubWsGlobal = wsStore.on((event: WsEvent) => {
+    const { cluster_id, payload } = event
+
+    if (event.event === 'operation_started') {
+      // Mark cluster as having an active operation
+      clusterStore.setActiveOperation(cluster_id, {
+        id:         Number(payload['operation_id'] ?? payload['id'] ?? 0),
+        type:       String(payload['type'] ?? 'node-action') as any,
+        status:     'running',
+        started_at: String(payload['started_at'] ?? new Date().toISOString()),
+      })
+    }
+
+    if (event.event === 'operation_finished') {
+      // Clear lock immediately on finish — no need to reload clusters list
+      clusterStore.clearActiveOperation(cluster_id)
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unsubWsGlobal) unsubWsGlobal()
+  wsStore.disconnect()
+})
 
 const sidebarCollapsed = ref<boolean>(
   JSON.parse(localStorage.getItem('sidebar-collapsed') ?? 'false')

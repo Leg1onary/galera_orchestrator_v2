@@ -135,5 +135,26 @@ export const useClusterStore = defineStore('cluster', {
             queryClient?.invalidateQueries({ queryKey: ['cluster'] })
             // WS переподключение делает AppLayout через watch(selectedClusterId)
         },
+
+        /**
+         * Сбросить active_operation у конкретного кластера (вызывается из WS-хандлера operation_finished).
+         */
+        clearActiveOperation(clusterId: number) {
+            const idx = this.clusters.findIndex((c) => c.id === clusterId)
+            if (idx !== -1) {
+                this.clusters = this.clusters.map((c) =>
+                    c.id === clusterId ? { ...c, active_operation: null } : c
+                )
+            }
+        },
+
+        /**
+         * Установить / обновить active_operation у конкретного кластера.
+         */
+        setActiveOperation(clusterId: number, op: ActiveOperation | null) {
+            this.clusters = this.clusters.map((c) =>
+                c.id === clusterId ? { ...c, active_operation: op } : c
+            )
+        },
     },
 })

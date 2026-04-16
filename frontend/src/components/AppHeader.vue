@@ -5,6 +5,8 @@ import { useClusterStore } from '@/stores/cluster'
 import { useAuthStore }    from '@/stores/auth'
 import { useWsStore }      from '@/stores/ws'
 import { useQueryClient }  from '@tanstack/vue-query'
+import { useToast }        from 'primevue/usetoast'
+import { api }             from '@/api/client'
 
 const route        = useRoute()
 const router       = useRouter()
@@ -72,7 +74,28 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
 })
 
-// ─── Cluster health ──────────────────────────────────────────────────────────
+// ─── Force unlock (cancel stuck operation) ───────────────────────────────────
+const toast          = useToast()
+const unlocking      = ref(false)
+
+async function forceUnlock() {
+  const clusterId = clusterStore.selectedClusterId
+  if (!clusterId) return
+  unlocking.value = true
+  try {
+    await api.post(`/api/clusters/${clusterId}/operations/cancel`)
+    // Optimistically clear the lock — WS operation_finished will confirm
+    clusterStore.clearActiveOperation(clusterId)
+    toast.add({ severity: 'info', summary: 'Operation cancelled', detail: 'Cluster lock released', life: 3000 })
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail ?? e?.message ?? 'Cancel failed'
+    toast.add({ severity: 'error', summary: 'Cancel failed', detail: msg, life: 5000 })
+  } finally {
+    unlocking.value = false
+  }
+}
+
+// ─── Cluster health ───────────────────────────────────────────────────────────
 const clusterStatus = computed(() => selectedCluster.value?.status ?? null)
 const healthLabel = computed(() => {
   const m: Record<string, string> = { healthy: 'Healthy', degraded: 'Degraded', critical: 'Critical' }
@@ -169,6 +192,17 @@ async function logout() {
             <i v-else class="pi pi-database trigger-db-icon" />
             <span class="trigger-name">{{ selectedCluster?.name ?? 'No cluster' }}</span>
             <i v-if="clusters.length > 1" :class="['pi', clusterOpen ? 'pi-chevron-up' : 'pi-chevron-down', 'trigger-chevron']" />
+          </button>
+
+          <!-- Force Unlock button — shown when cluster is locked -->
+          <button
+            v-if="clusterStore.isClusterLocked"
+            class="force-unlock-btn"
+            :disabled="unlocking"
+            v-tooltip.bottom="'Force cancel stuck operation'"
+            @click.stop="forceUnlock"
+          >
+            <i :class="['pi', unlocking ? 'pi-spin pi-spinner' : 'pi-times']" />
           </button>
 
           <Transition name="dropdown">
@@ -474,6 +508,30 @@ async function logout() {
 }
 .trigger-lock-icon { color: var(--color-warning); font-size: 0.75rem; }
 .trigger-db-icon   { color: var(--color-synced); font-size: 0.8rem; opacity: 0.7; }
+
+/* Force Unlock button */
+.force-unlock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in oklch, var(--color-error) 30%, transparent);
+  background: color-mix(in oklch, var(--color-error) 8%, transparent);
+  color: var(--color-error);
+  font-size: 0.65rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 150ms, border-color 150ms;
+  padding: 0;
+  margin-left: 4px;
+}
+.force-unlock-btn:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-error) 18%, transparent);
+  border-color: color-mix(in oklch, var(--color-error) 50%, transparent);
+}
+.force-unlock-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .trigger-name      { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .trigger-chevron   { font-size: 0.65rem; color: var(--color-text-faint); flex-shrink: 0; }
 

@@ -5,7 +5,7 @@
  * Бэкенд сам определяет порядок (bootstrap-нода → остальные) и транслирует
  * прогресс через WS operation_progress / operation_finished events.
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Button  from 'primevue/button'
 import Message from 'primevue/message'
 import Tag     from 'primevue/tag'
@@ -64,8 +64,45 @@ function subscribeWs() {
   })
 }
 
-onMounted(() => subscribeWs())
+onMounted(() => {
+  subscribeWs()
+  restorePhase()
+})
 onUnmounted(() => { if (unsubWs) unsubWs() })
+
+/**
+ * Restore running phase after page reload.
+ * Queries active_operation on the selected cluster: if it's a full-cluster
+ * recovery still running, show the progress log instead of idle form.
+ */
+async function restorePhase() {
+  const clusterId = clusterStore.selectedClusterId
+  if (!clusterId) return
+  try {
+    const { data } = await import('@/api/client').then(m => m.api.get(`/api/clusters/${clusterId}/operations/active`))
+    const op = data?.operation
+    if (
+      op &&
+      op.type === 'recovery_full_cluster' &&
+      ['pending', 'running', 'cancel_requested'].includes(op.status)
+    ) {
+      phase.value       = 'running'
+      operationId.value = String(op.id)
+      progress.value    = [{
+        ts:    new Date().toISOString(),
+        msg:   `↺ Session restored — operation #${op.id} is still running. Waiting for completion…`,
+        level: 'warn',
+      }]
+    }
+  } catch {
+    // Ignore — if we can't check, just show idle
+  }
+}
+
+// Also restore phase when cluster changes
+watch(() => clusterStore.selectedClusterId, () => {
+  if (phase.value === 'idle') restorePhase()
+})
 
 /* ─────── actions ─────── */
 async function startRecovery() {
