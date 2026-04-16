@@ -7,7 +7,7 @@
 <template>
   <!-- Backdrop -->
   <Teleport to="body">
-    <div class="modal-backdrop" @click.self="emit('cancel')">
+    <div class="modal-backdrop">
       <div class="modal" role="dialog" :aria-label="title">
         <!-- Header -->
         <div class="modal__header">
