@@ -88,22 +88,7 @@ const showOp = computed(() => !props.isLoading && !!activeOp.value && !!opLabel.
 <template>
   <div class="csb anim-fade-in">
 
-    <!-- 1. Cluster health -->
-    <div class="csb-item csb-item--main">
-      <span class="csb-label">Cluster</span>
-      <div v-if="props.isLoading"><Skeleton height="1.5rem" width="90px" /></div>
-      <Tag
-        v-else
-        :value="healthCfg.label"
-        :severity="healthCfg.severity"
-        :icon="healthCfg.icon"
-        class="csb-tag"
-      />
-    </div>
-
-    <div class="csb-divider" />
-
-    <!-- 2. Synced nodes -->
+    <!-- 1. Synced nodes (был #2, CLUSTER убран — статус виден в AppHeader) -->
     <div class="csb-item csb-item--wide">
       <span class="csb-label">Synced</span>
       <div v-if="props.isLoading"><Skeleton height="1rem" width="120px" /></div>

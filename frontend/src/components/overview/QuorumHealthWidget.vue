@@ -60,20 +60,12 @@ function formatPct(part: number, total: number): string {
 <template>
   <div class="qhw anim-fade-in" :class="`qhw--${data?.status ?? 'critical'}`">
 
-    <!-- Header row -->
+    <!-- Header row: только заголовок, без tag (статус уже есть в AppHeader) -->
     <div class="qhw-header">
       <div class="qhw-title-row">
         <i class="pi pi-circle-fill qhw-dot" />
         <span class="qhw-title">Quorum</span>
       </div>
-      <div v-if="loading"><Skeleton height="1.4rem" width="80px" /></div>
-      <Tag
-        v-else-if="data"
-        :value="cfg.label"
-        :severity="cfg.severity"
-        :icon="cfg.icon"
-        class="qhw-tag"
-      />
     </div>
 
     <!-- Stats grid -->
@@ -101,7 +93,7 @@ function formatPct(part: number, total: number): string {
       </div>
     </div>
 
-    <!-- Progress bar: primary fraction -->
+    <!-- Progress bar -->
     <div v-if="data && !loading" class="qhw-bar-wrap">
       <div
         class="qhw-bar-fill"
@@ -110,35 +102,6 @@ function formatPct(part: number, total: number): string {
           background: data.quorum_ok ? 'var(--color-synced)' : 'var(--color-error)',
         }"
       />
-    </div>
-    <div v-if="data && !loading" class="qhw-bar-caption">
-      {{ data.primary_count }}/{{ data.total_configured }} nodes in Primary component
-      <span v-if="data.cluster_size != null" class="qhw-wsrep-size">
-        (wsrep_cluster_size: {{ data.cluster_size }})
-      </span>
-    </div>
-
-    <!-- Node list -->
-    <div v-if="data && !loading" class="qhw-nodes">
-      <div
-        v-for="node in data.nodes"
-        :key="node.node_id"
-        class="qhw-node"
-        :class="{
-          'qhw-node--primary':     (node.wsrep_cluster_status ?? '').toUpperCase() === 'PRIMARY',
-          'qhw-node--nonprimary':  (node.wsrep_cluster_status ?? '').toUpperCase() === 'NON-PRIMARY',
-          'qhw-node--offline':     !!node.error || (node.wsrep_cluster_status ?? '') === 'OFFLINE',
-        }"
-      >
-        <span class="qhw-node-dot" />
-        <span class="qhw-node-name">{{ node.node_name }}</span>
-        <span class="qhw-node-state">
-          {{ node.error ? 'OFFLINE' : (node.wsrep_cluster_status ?? '—') }}
-        </span>
-        <span v-if="node.wsrep_local_state_comment" class="qhw-node-comment">
-          {{ node.wsrep_local_state_comment }}
-        </span>
-      </div>
     </div>
 
     <!-- Action buttons -->
