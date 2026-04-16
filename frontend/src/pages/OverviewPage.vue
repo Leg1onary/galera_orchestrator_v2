@@ -70,9 +70,10 @@ const maxRecvQueue = computed(() => {
         :is-loading="isLoading"
       />
 
-      <AdvisorWidget />
-
-      <QuorumHealthWidget :cluster-id="clusterId" />
+      <div class="widgets-row">
+        <AdvisorWidget class="widgets-row__item" />
+        <QuorumHealthWidget :cluster-id="clusterId" class="widgets-row__item" />
+      </div>
 
       <ReplicationLagAlert :nodes="nodes" />
 
@@ -170,5 +171,25 @@ const maxRecvQueue = computed(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-4);
+}
+
+/* ── Widgets row: Advisor + Quorum side by side ── */
+.widgets-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* На узких экранах — каждый виджет на свою строку */
+@media (max-width: 860px) {
+  .widgets-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Чтобы дочерние компоненты не разъезжались по высоте */
+.widgets-row__item {
+  min-width: 0;
 }
 </style>
