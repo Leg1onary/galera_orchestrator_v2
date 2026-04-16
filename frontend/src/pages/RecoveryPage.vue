@@ -198,11 +198,11 @@ const activeTool = ref<ToolTab>('grastate')
       <!-- Tool panels -->
       <div class="rt-panel">
         <Transition name="rt-fade" mode="out-in">
-          <GrastateInspectorPanel  v-if="activeTool === 'grastate'"     key="grastate" />
-          <SnapshotPanel           v-else-if="activeTool === 'snapshot'"    key="snapshot" />
-          <IstSstHelper            v-else-if="activeTool === 'ist-sst'"     key="ist-sst" />
-          <SplitBrainWizard        v-else-if="activeTool === 'split-brain'" key="split-brain" />
-          <FullClusterRecovery     v-else-if="activeTool === 'full-cluster'" key="full-cluster" />
+          <GrastateInspectorPanel  v-if="activeTool === 'grastate'"      key="grastate"     :cluster-id="clusterStore.selectedClusterId" />
+          <SnapshotPanel           v-else-if="activeTool === 'snapshot'"   key="snapshot"     :cluster-id="clusterStore.selectedClusterId" />
+          <IstSstHelper            v-else-if="activeTool === 'ist-sst'"    key="ist-sst"      :cluster-id="clusterStore.selectedClusterId" />
+          <SplitBrainWizard        v-else-if="activeTool === 'split-brain'" key="split-brain" :cluster-id="clusterStore.selectedClusterId" />
+          <FullClusterRecovery     v-else-if="activeTool === 'full-cluster'" key="full-cluster" :cluster-id="clusterStore.selectedClusterId" />
         </Transition>
       </div>
 

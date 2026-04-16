@@ -87,7 +87,7 @@ const GROUPS = [
   {
     value: 'galera-health',
     label: 'Galera Health',
-    icon:  'pi-heartbeat',
+    icon:  'pi-heart-fill',
     desc:  'Flow control, cert conflicts, disk sentinel',
     tabs: [
       { value: 'flow-control',    label: 'Flow Control',    icon: 'pi-chart-line'   },
@@ -269,9 +269,9 @@ watch(
             </template>
 
             <template v-else-if="activeGroup === 'galera-health'">
-              <FlowControlPanel   v-if="currentTab === 'flow-control'"   :active="isActive('flow-control')" />
-              <CertConflictPanel  v-if="currentTab === 'cert-conflicts'" :active="isActive('cert-conflicts')" />
-              <DiskSentinelPanel  v-if="currentTab === 'disk-sentinel'"  :active="isActive('disk-sentinel')" />
+              <FlowControlPanel  v-if="currentTab === 'flow-control'"   :cluster-id="clusterStore.selectedClusterId" :active="isActive('flow-control')" />
+              <CertConflictPanel v-if="currentTab === 'cert-conflicts'" :cluster-id="clusterStore.selectedClusterId" :active="isActive('cert-conflicts')" />
+              <DiskSentinelPanel v-if="currentTab === 'disk-sentinel'"  :cluster-id="clusterStore.selectedClusterId" :active="isActive('disk-sentinel')" />
             </template>
 
           </div>
