@@ -71,7 +71,7 @@
     <EntityFormModal
       v-if="modal.open"
       :title="modal.mode === 'create' ? 'Add arbitrator' : 'Edit arbitrator'"
-      :fields="arbitratorFields"
+      :fields="arbFields"
       :initial-values="modal.initial"
       :loading="saving"
       :api-error="apiError"

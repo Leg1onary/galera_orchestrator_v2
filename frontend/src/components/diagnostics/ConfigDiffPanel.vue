@@ -1,18 +1,26 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, toRef } from 'vue'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Button       from 'primevue/button'
 import DataTable    from 'primevue/datatable'
 import Column       from 'primevue/column'
 import { useClusterStore } from '@/stores/cluster'
+import { useSettingsStore } from '@/stores/settings'
 import { diagnosticsApi, type ConfigDiffResponse, type ConfigDiffRow } from '@/api/diagnostics'
+import PanelToolbar from './PanelToolbar.vue'
+import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
 
 const props = defineProps<{ active: boolean }>()
-const clusterStore = useClusterStore()
+const clusterStore  = useClusterStore()
+const settingsStore = useSettingsStore()
+
+const intervalMs = computed(() => settingsStore.pollingIntervalSec * 1000)
+const { autoRefresh } = useDiagAutoRefresh(toRef(props, 'active'), intervalMs)
 
 const data      = ref<ConfigDiffResponse | null>(null)
 const loading   = ref(false)
 const error     = ref<string | null>(null)
+const fetchedAt = ref<string | null>(null)
 const showAll   = ref(false)
 
 async function load() {
@@ -21,7 +29,8 @@ async function load() {
   loading.value = true
   error.value   = null
   try {
-    data.value = await diagnosticsApi.configDiff(id)
+    data.value  = await diagnosticsApi.configDiff(id)
+    fetchedAt.value = new Date().toLocaleTimeString()
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
@@ -36,11 +45,10 @@ const nodeNames = computed(() => data.value?.nodes.map((n) => n.node_name) ?? []
 const rows      = computed(() => data.value?.variables ?? [])
 const diffCount = computed(() => rows.value.filter((r) => r.has_diff).length)
 const displayed = computed(() =>
-  showAll.value ? rows.value : rows.value.filter((r) => r.has_diff)
+    showAll.value ? rows.value : rows.value.filter((r) => r.has_diff)
 )
 
-// Returns cell descriptor once per (row, node) — used with v-memo to avoid double-call
-function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null; error: boolean } {
+function cellValue(row: ConfigDiffRow, nodeName: string) {
   const entry = row.values.find((v) => v.node_name === nodeName)
   if (!entry) return { value: null, error: false }
   if (entry.fetch_error) return { value: null, error: true }
@@ -50,145 +58,157 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
 
 <template>
   <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <i class="pi pi-code" />
-        <span>Config Diff</span>
-        <span v-if="!loading && data" class="badge-diff" :class="{ 'badge-ok': diffCount === 0 }">
+
+    <!-- ── Toolbar (как в ConnectionCheckPanel) ── -->
+    <PanelToolbar
+        title="config_diff"
+        :loading="loading"
+        :fetched-at="fetchedAt"
+        :auto-refresh="autoRefresh"
+        @refresh="load"
+        @toggle-auto="autoRefresh = $event"
+    />
+
+    <!-- ── Badge + Toggle ── -->
+    <div class="panel-subheader">
+      <div class="diff-badge-wrap">
+        <span
+            v-if="!loading && data"
+            class="badge-diff"
+            :class="diffCount === 0 ? 'badge-ok' : 'badge-warn'"
+        >
+          <i :class="['pi', diffCount === 0 ? 'pi-check-circle' : 'pi-exclamation-circle']" />
           {{ diffCount === 0 ? 'consistent' : `${diffCount} diff${diffCount !== 1 ? 's' : ''}` }}
         </span>
       </div>
-      <div class="header-actions">
-        <div class="toggle-row" @click.stop="showAll = !showAll">
-          <ToggleSwitch
+      <div class="toggle-row" @click.stop="showAll = !showAll">
+        <ToggleSwitch
             :model-value="showAll"
             @update:model-value="showAll = $event"
             @click.stop
-          />
-          <span class="toggle-label">Show all variables</span>
-        </div>
-        <Button
-          icon="pi pi-refresh"
-          severity="secondary"
-          :loading="loading"
-          :disabled="loading"
-          @click="load"
-          v-tooltip.top="'Refresh'"
-          aria-label="Refresh config diff"
         />
+        <span class="toggle-label">Show all variables</span>
       </div>
     </div>
 
+    <!-- ── Error ── -->
     <div v-if="error" class="alert-err">
       <i class="pi pi-exclamation-triangle" /> {{ error }}
     </div>
 
+    <!-- ── Skeleton ── -->
     <div v-if="loading" class="skeleton-wrap">
       <div v-for="i in 8" :key="i" class="skeleton-row" />
     </div>
 
     <template v-else-if="data">
+
+      <!-- All consistent, no diffs -->
       <div v-if="diffCount === 0 && !showAll" class="all-ok">
         <i class="pi pi-check-circle" />
         All wsrep variables are consistent across nodes.
       </div>
 
+      <!-- No rows at all -->
       <div v-else-if="rows.length === 0" class="empty-hint">
         <i class="pi pi-info-circle" /> No variables fetched.
       </div>
 
-      <DataTable
-        v-else
-        :value="displayed"
-        class="diff-table"
-        :row-class="(row: ConfigDiffRow) => row.has_diff ? 'row-diff' : ''"
-        :row-hover="true"
-        scroll-height="600px"
-        scrollable
-        size="small"
-      >
-        <Column field="variable" header="Variable" style="min-width:200px">
-          <template #body="{ data: row }">
-            <span class="var-name">{{ row.variable }}</span>
-          </template>
-        </Column>
-        <Column
-          v-for="n in nodeNames"
-          :key="n"
-          :field="n"
-          :header="n"
-          style="min-width:120px"
+      <!-- Table -->
+      <div v-else class="table-wrap">
+        <DataTable
+            :value="displayed"
+            class="diff-table"
+            :row-class="(row: ConfigDiffRow) => row.has_diff ? 'row-diff' : ''"
+            :row-hover="true"
+            scroll-height="600px"
+            scrollable
+            size="small"
         >
-          <template #body="{ data: row }">
-            <template v-if="cellValue(row, n).error">
-              <span class="err-mark val-err" title="Fetch error">err</span>
+          <Column field="variable" header="Variable" style="min-width:200px">
+            <template #body="{ data: row }">
+              <span class="var-name">{{ row.variable }}</span>
             </template>
-            <template v-else>
+          </Column>
+          <Column
+              v-for="n in nodeNames"
+              :key="n"
+              :field="n"
+              :header="n"
+              style="min-width:120px"
+          >
+            <template #body="{ data: row }">
+              <span v-if="cellValue(row, n).error" class="err-mark val-err" title="Fetch error">err</span>
               <span
-                class="val-cell mono"
-                :class="{ 'val-diff': row.has_diff }"
+                  v-else
+                  class="val-cell mono"
+                  :class="{ 'val-diff': row.has_diff }"
               >{{ cellValue(row, n).value ?? '—' }}</span>
             </template>
-          </template>
-        </Column>
-      </DataTable>
+          </Column>
+        </DataTable>
+      </div>
 
-      <div
-        v-if="data.nodes.some((n) => !n.fetch_ok)"
-        class="fetch-warn"
-      >
+      <!-- Fetch warnings -->
+      <div v-if="data.nodes.some((n) => !n.fetch_ok)" class="fetch-warn">
         <i class="pi pi-exclamation-triangle" />
         Could not fetch variables from:
         {{ data.nodes.filter((n) => !n.fetch_ok).map((n) => n.node_name).join(', ') }}
       </div>
+
     </template>
   </div>
 </template>
 
 <style scoped>
-.panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
-.panel-header {
+/* ── Subheader row: badge + toggle ── */
+.panel-subheader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
   flex-wrap: wrap;
+  gap: var(--space-3);
 }
 
-.panel-title {
+.diff-badge-wrap {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
+  min-height: 1.5rem;
 }
 
 .badge-diff {
-  padding: 3px var(--space-2);
-  background: var(--color-warning-highlight);
-  color: var(--color-warning);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
 }
-.badge-diff.badge-ok {
+
+.badge-warn {
+  background: var(--color-warning-highlight);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 25%, transparent);
+}
+
+.badge-ok {
   background: var(--color-success-highlight);
   color: var(--color-success);
+  border: 1px solid color-mix(in oklch, var(--color-success) 25%, transparent);
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
+/* ── Toggle ── */
 .toggle-row {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  flex-shrink: 0;
   cursor: pointer;
   user-select: none;
 }
@@ -200,13 +220,10 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
 }
 
 :deep(.p-toggleswitch) {
-  position: static !important;
-  display: inline-flex !important;
-  align-items: center;
-  flex-shrink: 0;
   pointer-events: none;
 }
 
+/* ── Alerts ── */
 .alert-err {
   display: flex;
   align-items: center;
@@ -236,6 +253,9 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-2);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
@@ -246,17 +266,23 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-highlight);
-  border: 1px solid rgba(96,165,250,0.25);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 28%, transparent);
   border-radius: var(--radius-md);
   color: var(--color-warning);
   font-size: var(--text-xs);
 }
 
+/* ── Skeleton ── */
 .skeleton-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .skeleton-row {
   height: 36px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
+  background: linear-gradient(
+      90deg,
+      var(--color-surface-offset) 25%,
+      var(--color-surface-dynamic) 50%,
+      var(--color-surface-offset) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -265,14 +291,21 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   100% { background-position:  200% 0; }
 }
 
-/* ── DataTable overrides ── */
-:deep(.diff-table .p-datatable-table-container) {
+/* ── Table wrapper — даёт боковые отступы ── */
+.table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* ── DataTable overrides ── */
+:deep(.diff-table .p-datatable-table-container) {
+  border: none;
+  border-radius: 0;
   overflow-x: auto;
 }
 :deep(.diff-table .p-datatable-thead > tr > th) {
-  padding: var(--space-2) var(--space-3) !important;
+  padding: var(--space-2) var(--space-4) !important;
   font-size: var(--text-xs) !important;
   font-weight: 600 !important;
   text-transform: uppercase;
@@ -283,14 +316,13 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   white-space: nowrap;
 }
 :deep(.diff-table .p-datatable-tbody > tr > td) {
-  padding: var(--space-2) var(--space-3) !important;
+  padding: var(--space-2) var(--space-4) !important;
   border-bottom: 1px solid var(--color-border) !important;
   vertical-align: top;
 }
 :deep(.diff-table .p-datatable-tbody > tr:last-child > td) {
   border-bottom: none !important;
 }
-/* diff row highlight */
 :deep(.diff-table .p-datatable-tbody > tr.row-diff > td) {
   background: rgba(96,165,250,0.04) !important;
 }
@@ -301,10 +333,10 @@ function cellValue(row: ConfigDiffRow, nodeName: string): { value: string | null
   background: var(--color-surface-2) !important;
 }
 
-.var-name  { font-weight: 500; white-space: nowrap; color: var(--color-text); }
-.mono      { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
-.val-cell  { color: var(--color-text-muted); }
-.val-diff  { color: var(--color-warning) !important; font-weight: 500; }
-.val-err   { color: var(--color-error) !important; }
-.err-mark  { font-size: var(--text-xs); font-family: var(--font-mono, monospace); opacity: 0.7; }
+.var-name { font-weight: 500; white-space: nowrap; color: var(--color-text); }
+.mono     { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+.val-cell { color: var(--color-text-muted); }
+.val-diff { color: var(--color-warning) !important; font-weight: 500; }
+.val-err  { color: var(--color-error) !important; }
+.err-mark { font-size: var(--text-xs); font-family: var(--font-mono, monospace); opacity: 0.7; }
 </style>

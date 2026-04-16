@@ -28,6 +28,7 @@ const nodeState = computed(() => {
   if (!live.ssh_ok || raw === 'OFFLINE') return 'OFFLINE'
   if (live.wsrep_ready === 'OFF')        return 'NOT_READY'
   if (raw === 'SYNCED' && live.readonly)  return 'SYNCED_RO'
+  if (raw === 'DONOR/DESYNCED') return 'DESYNCED'
   return raw || 'UNKNOWN'
 })
 
@@ -36,7 +37,7 @@ const STATE_MAP: Record<string, { label: string; cls: string; severity: string }
   SYNCED_RO: { label: 'Synced RO', cls: 'readonly', severity: 'warn'      },
   DONOR:     { label: 'Donor',     cls: 'donor',    severity: 'info'      },
   JOINER:    { label: 'Joiner',    cls: 'donor',    severity: 'info'      },
-  DESYNCED:  { label: 'Desynced',  cls: 'donor',    severity: 'info'      },
+  DESYNCED:  { label: 'Desynced',  cls: 'degraded', severity: 'warn'      },
   NOT_READY: { label: 'Not Ready', cls: 'degraded', severity: 'warn'      },
   OFFLINE:   { label: 'Offline',   cls: 'offline',  severity: 'danger'    },
   UNKNOWN:   { label: 'Unknown',   cls: 'unknown',  severity: 'secondary' },

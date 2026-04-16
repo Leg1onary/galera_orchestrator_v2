@@ -1,20 +1,28 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, toRef } from 'vue'
 import InputText from 'primevue/inputtext'
 import Button    from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column    from 'primevue/column'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore }  from '@/stores/cluster'
+import { useSettingsStore } from '@/stores/settings'
 import { diagnosticsApi, type KVRow } from '@/api/diagnostics'
+import PanelToolbar from './PanelToolbar.vue'
+import { useDiagAutoRefresh } from '@/composables/useDiagAutoRefresh'
 
 const props = defineProps<{ active: boolean }>()
-const clusterStore = useClusterStore()
+const clusterStore  = useClusterStore()
+const settingsStore = useSettingsStore()
+
+const intervalMs = computed(() => settingsStore.pollingIntervalSec * 1000)
+const { autoRefresh } = useDiagAutoRefresh(toRef(props, 'active'), intervalMs)
 
 type NodeData = { node_name: string; variables: KVRow[]; error: string | null }
 
 const nodes      = ref<NodeData[]>([])
 const loading    = ref(false)
 const error      = ref<string | null>(null)
+const fetchedAt  = ref<string | null>(null)
 const search     = ref('')
 const activeNode = ref<string | null>(null)
 
@@ -27,8 +35,8 @@ const currentRows = computed<KVRow[]>(() => {
   const rows = node.variables
   const q = search.value.toLowerCase().trim()
   return q
-    ? rows.filter((r) => r.variable_name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q))
-    : rows
+      ? rows.filter((r) => r.variable_name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q))
+      : rows
 })
 
 const activeNodeError = computed(() => {
@@ -50,10 +58,8 @@ async function load() {
       variables: (n.variables ?? []).map((v) => ({ variable_name: v.name, value: v.value })),
       error:     n.error ?? null,
     }))
-    // Fix: set activeNode directly after data is available — avoids watch() dedup race
-    if (nodes.value.length > 0) {
-      activeNode.value = nodes.value[0].node_name
-    }
+    if (nodes.value.length > 0) activeNode.value = nodes.value[0].node_name
+    fetchedAt.value = new Date().toLocaleTimeString()
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
   } finally {
@@ -67,113 +73,123 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 
 <template>
   <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <i class="pi pi-sliders-h" />
-        <span>Global Variables</span>
-        <span v-if="!loading && activeNode" class="count-badge">
-          {{ currentRows.length }}
-        </span>
-      </div>
+
+    <!-- ── Toolbar ── -->
+    <PanelToolbar
+        title="global_variables"
+        :loading="loading"
+        :fetched-at="fetchedAt"
+        :auto-refresh="autoRefresh"
+        @refresh="load"
+        @toggle-auto="autoRefresh = $event"
+    />
+
+    <!-- ── Subheader: count badge + search + refresh ── -->
+    <div class="panel-subheader">
+      <span v-if="!loading && activeNode" class="count-badge">
+        {{ currentRows.length }} variables
+      </span>
       <div class="header-actions">
         <div class="search-wrap">
           <i class="pi pi-search search-icon" />
           <InputText
-            v-model="search"
-            class="search-input"
-            placeholder="Filter variables…"
+              v-model="search"
+              class="search-input"
+              placeholder="Filter variables…"
           />
         </div>
         <Button
-          icon="pi pi-refresh"
-          severity="secondary"
-          :loading="loading"
-          :disabled="loading"
-          @click="load"
-          v-tooltip.top="'Refresh'"
-          aria-label="Refresh variables"
+            icon="pi pi-refresh"
+            severity="secondary"
+            :loading="loading"
+            :disabled="loading"
+            v-tooltip.top="'Refresh'"
+            aria-label="Refresh variables"
+            @click="load"
         />
       </div>
     </div>
 
+    <!-- ── Error ── -->
     <div v-if="error" class="alert-err">
       <i class="pi pi-exclamation-triangle" /> {{ error }}
     </div>
 
-    <!-- Node tabs -->
+    <!-- ── Node tabs ── -->
     <div v-if="nodeNames.length > 0" class="node-tabs">
       <button
-        v-for="n in nodeNames"
-        :key="n"
-        class="node-tab"
-        :class="{ active: activeNode === n }"
-        @click="activeNode = n"
+          v-for="n in nodeNames"
+          :key="n"
+          class="node-tab"
+          :class="{ active: activeNode === n }"
+          @click="activeNode = n"
       >
         {{ n }}
       </button>
     </div>
 
-    <!-- Per-node fetch error -->
+    <!-- ── Per-node fetch error ── -->
     <div v-if="activeNodeError" class="alert-warn">
       <i class="pi pi-exclamation-triangle" /> {{ activeNodeError }}
     </div>
 
+    <!-- ── Skeleton ── -->
     <div v-if="loading" class="skeleton-wrap">
       <div v-for="i in 12" :key="i" class="skeleton-row" />
     </div>
 
+    <!-- ── Empty ── -->
     <div v-else-if="currentRows.length === 0 && !error && !activeNodeError" class="empty-hint">
       <i class="pi pi-info-circle" />
       {{ search ? 'No variables match the filter.' : 'No data available.' }}
     </div>
 
-    <DataTable
-      v-else
-      :value="currentRows"
-      class="vars-table"
-      :row-hover="true"
-      scroll-height="600px"
-      scrollable
-      size="small"
-    >
-      <Column field="variable_name" header="Variable" style="width:50%">
-        <template #body="{ data: row }">
-          <span class="var-name">{{ row.variable_name }}</span>
-        </template>
-      </Column>
-      <Column field="value" header="Value">
-        <template #body="{ data: row }">
-          <span class="mono val">{{ row.value }}</span>
-        </template>
-      </Column>
-    </DataTable>
+    <!-- ── Table ── -->
+    <div v-else class="table-wrap">
+      <DataTable
+          :value="currentRows"
+          class="vars-table"
+          :row-hover="true"
+          scroll-height="600px"
+          scrollable
+          size="small"
+      >
+        <Column field="variable_name" header="Variable" style="width:50%">
+          <template #body="{ data: row }">
+            <span class="var-name">{{ row.variable_name }}</span>
+          </template>
+        </Column>
+        <Column field="value" header="Value">
+          <template #body="{ data: row }">
+            <span class="mono val">{{ row.value }}</span>
+          </template>
+        </Column>
+      </DataTable>
+    </div>
+
   </div>
 </template>
 
 <style scoped>
 .panel { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.panel-header {
+/* ── Subheader ── */
+.panel-subheader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
   flex-wrap: wrap;
-}
-
-.panel-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
+  gap: var(--space-3);
+  min-height: 2rem;
 }
 
 .count-badge {
-  padding: 3px var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
   background: var(--color-primary-highlight);
   color: var(--color-primary);
+  border: 1px solid color-mix(in oklch, var(--color-primary) 25%, transparent);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -181,6 +197,7 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 
 .header-actions { display: flex; align-items: center; gap: var(--space-3); }
 
+/* ── Search ── */
 .search-wrap {
   position: relative;
   display: flex;
@@ -194,12 +211,12 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   pointer-events: none;
   z-index: 1;
 }
-/* Override PrimeVue InputText padding so icon fits */
 :deep(.search-input.p-inputtext) {
   padding-left: calc(var(--space-3) + 16px) !important;
   width: 220px;
 }
 
+/* ── Alerts ── */
 .alert-err {
   display: flex;
   align-items: center;
@@ -218,12 +235,13 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-warning-highlight);
-  border: 1px solid rgba(96,165,250,0.25);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 28%, transparent);
   border-radius: var(--radius-md);
   color: var(--color-warning);
   font-size: var(--text-sm);
 }
 
+/* ── Node tabs ── */
 .node-tabs {
   display: flex;
   gap: var(--space-1);
@@ -243,16 +261,22 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 .node-tab:hover { background: var(--color-surface-offset); color: var(--color-text); }
 .node-tab.active {
   background: var(--color-primary-highlight);
-  border-color: rgba(45,212,191,0.35);
+  border-color: color-mix(in oklch, var(--color-primary) 35%, transparent);
   color: var(--color-primary);
   font-weight: 600;
 }
 
+/* ── Skeleton ── */
 .skeleton-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .skeleton-row {
   height: 32px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-surface-dynamic) 50%, var(--color-surface-offset) 75%);
+  background: linear-gradient(
+      90deg,
+      var(--color-surface-offset) 25%,
+      var(--color-surface-dynamic) 50%,
+      var(--color-surface-offset) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -261,19 +285,29 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
   100% { background-position:  200% 0; }
 }
 
+/* ── Empty ── */
 .empty-hint {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-2);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
 
-/* ── DataTable overrides ── */
-:deep(.vars-table .p-datatable-table-container) {
+/* ── Table wrapper ── */
+.table-wrap {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+:deep(.vars-table .p-datatable-table-container) {
+  border: none;
+  border-radius: 0;
   overflow: hidden;
 }
 :deep(.vars-table .p-datatable-thead > tr > th) {
@@ -299,6 +333,6 @@ watch(() => clusterStore.selectedClusterId, () => { if (props.active) load() })
 }
 
 .var-name { color: var(--color-text); }
-.mono { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
-.val { color: var(--color-text-muted); word-break: break-all; }
+.mono     { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+.val      { color: var(--color-text-muted); word-break: break-all; }
 </style>

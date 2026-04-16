@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import Tag from 'primevue/tag'
+import ConfirmPopup from 'primevue/confirmpopup'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast }   from 'primevue/usetoast'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -64,15 +66,16 @@ function normLevel(level: string): string {
   return (level ?? 'info').toLowerCase()
 }
 
-const LEVEL_CFG: Record<string, { icon: string; severity: string }> = {
-  info:     { icon: 'pi pi-info-circle',          severity: 'info'    },
-  warning:  { icon: 'pi pi-exclamation-triangle', severity: 'warn'    },
-  error:    { icon: 'pi pi-times-circle',         severity: 'danger'  },
-  critical: { icon: 'pi pi-exclamation-circle',   severity: 'danger'  },
-}
+const LEVEL_META = {
+  info:     { severity: 'info'    as const, icon: 'pi pi-info-circle'          },
+  warn:     { severity: 'warn'    as const, icon: 'pi pi-exclamation-triangle' },
+  warning:  { severity: 'warn'    as const, icon: 'pi pi-exclamation-triangle' },
+  error:    { severity: 'danger'  as const, icon: 'pi pi-times-circle'         },
+  critical: { severity: 'danger'  as const, icon: 'pi pi-exclamation-circle'   },
+} as const
 
 function cfg(level: string) {
-  return LEVEL_CFG[normLevel(level)] ?? LEVEL_CFG.info
+  return LEVEL_META[normLevel(level) as keyof typeof LEVEL_META] ?? LEVEL_META.info
 }
 
 function parseTs(ts: string): Date {
@@ -125,7 +128,7 @@ const sortedEvents = computed(() =>
       />
     </div>
 
-    <ConfirmPopup />
+    <ConfirmPopup/>
 
     <div v-if="props.isLoading" class="el-skeleton">
       <div v-for="i in 4" :key="i" class="el-sk-row">
@@ -176,10 +179,15 @@ const sortedEvents = computed(() =>
               class="el-node-tag"
             />
             <Tag
-              :value="normLevel(item.level)"
-              :severity="cfg(item.level).severity"
-              class="el-level-tag"
-            />
+                :severity="cfg(item.level).severity"
+                rounded
+                class="el-level-tag"
+            >
+              <template #default>
+                <i :class="['pi', cfg(item.level).icon]" />
+                {{ normLevel(item.level) }}
+              </template>
+            </Tag>
           </div>
           <p class="el-msg">{{ item.message }}</p>
         </div>
@@ -325,12 +333,26 @@ const sortedEvents = computed(() =>
 .el-sep  { color: var(--color-text-faint); opacity: 0.5; }
 
 .el-source-tag,
-.el-node-tag,
-.el-level-tag {
+.el-node-tag {
   font-size: 0.6rem !important;
-  padding: 1px 5px !important;
+  padding: 2px 6px !important;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.el-level-tag {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem !important;
+  padding: 2px 6px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.el-level-tag .pi {
+  font-size: 0.6rem;
 }
 
 .el-msg {

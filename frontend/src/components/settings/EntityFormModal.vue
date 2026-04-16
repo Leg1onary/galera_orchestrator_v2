@@ -121,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, watchEffect } from 'vue'
 import InputText   from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select      from 'primevue/select'
@@ -161,22 +161,44 @@ const form             = reactive<Record<string, unknown>>({})
 const validationErrors = ref<Record<string, string>>({})
 
 function initForm() {
-  // fix #3: re-init on fields change too
+  if (!props.fields || !Array.isArray(props.fields)) return
   for (const field of props.fields) {
     const initial = props.initialValues?.[field.key]
     form[field.key] = initial !== undefined && initial !== null
-      ? initial
-      : field.type === 'number'  ? null
-      : field.type === 'toggle'  ? false
-      : ''
+        ? initial
+        : field.type === 'number' ? null
+            : field.type === 'toggle' ? false
+                : ''
   }
   validationErrors.value = {}
 }
 
-initForm()
+// Один watchEffect вместо initForm() + двух watch()
+watchEffect(() => {
+  if (props.fields?.length) initForm()
+})
+
+//const form             = reactive<Record<string, unknown>>({})
+//const validationErrors = ref<Record<string, string>>({})
+
+//function initForm() {
+  // fix #3: re-init on fields change too
+//  for (const field of props.fields) {
+//    const initial = props.initialValues?.[field.key]
+//    form[field.key] = initial !== undefined && initial !== null
+//      ? initial
+//      field.type === 'number'  ? null
+//      : field.type === 'toggle'  ? false
+//      : ''
+//  }
+//  validationErrors.value = {}
+//}
+
+// fix into function
+//initForm()
 // fix #3: watch both initialValues and fields
-watch(() => props.initialValues, initForm, { deep: true })
-watch(() => props.fields,        initForm, { deep: true })
+//watch(() => props.initialValues, initForm, { deep: true })
+//watch(() => props.fields,        initForm, { deep: true })
 
 function validate(): boolean {
   const errors: Record<string, string> = {}
