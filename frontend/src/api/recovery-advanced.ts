@@ -89,6 +89,14 @@ export type FullClusterRequest = {
   node_order: number[]
 }
 
+export type FullClusterRecoveryResponse = {
+  accepted: boolean
+  operation_id: number
+  bootstrap_node: string | null
+  node_order: number[]
+  message: string
+}
+
 // ── #11 Flow Control ──────────────────────────────────────────────────────────
 export type FlowControlNodeResult = {
   node_id: number
@@ -177,10 +185,10 @@ export const recoveryAdvancedApi = {
       `/api/clusters/${clusterId}/recovery/split-brain`, body
     ).then(r => r.data),
 
-  // #9
-  startFullClusterRecovery: (clusterId: number, body: FullClusterRequest) =>
-    api.post<{ accepted: boolean; operation_id: number }>(
-      `/api/clusters/${clusterId}/recovery/full-cluster`, body
+  // #9 — body is optional; if omitted, backend auto-detects bootstrap node via grastate.dat
+  startFullClusterRecovery: (clusterId: number, body?: FullClusterRequest) =>
+    api.post<{ accepted: boolean; operation_id: number; bootstrap_node?: string; node_order?: number[] }>(
+      `/api/clusters/${clusterId}/recovery/full-cluster`, body ?? {}
     ).then(r => r.data),
 
   // #11

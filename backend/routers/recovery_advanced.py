@@ -34,7 +34,12 @@ from services.operations import (
     is_cancel_requested,
 )
 from services.ws_manager import ws_manager
-from services.recovery import _scan_grastate, _load_cluster_nodes, _broadcast_progress, _broadcast_finished, RecoveryError
+from services.recovery import (
+    _scan_grastate, _select_bootstrap_candidate,
+    _load_cluster_nodes, _broadcast_progress, _broadcast_finished, RecoveryError,
+    _start_bootstrap_node, _start_node_normal, _wait_node_synced,
+    _SYNCED_WAIT_TIMEOUT_SEC,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +220,7 @@ def _collect_node_snapshot(node: dict) -> dict:
         "grastate": None,
         "error": None,
     }
+    # ── SSH part: grastate.dat + disk free ───────────────────────────────────
     try:
         with SSHClient(
             host=node["host"],
@@ -234,50 +240,69 @@ def _collect_node_snapshot(node: dict) -> dict:
             except ValueError:
                 snap["disk_free_gb"] = None
 
-            db_user = node.get("db_user") or "root"
-            user_flag = f"-u{db_user}" if db_user else ""
-
-            # SHOW STATUS wsrep
-            ws_out, _ = ssh.execute(
-                f"mysql -Nse \"SHOW GLOBAL STATUS WHERE Variable_name LIKE 'wsrep_%'\" {user_flag} 2>/dev/null"
-            )
-            if ws_out.strip():
-                snap["db_ok"] = True
-                wsrep: dict[str, str] = {}
-                for line in ws_out.strip().splitlines():
-                    parts = line.split("\t", 1)
-                    if len(parts) == 2:
-                        wsrep[parts[0].strip()] = parts[1].strip()
-                snap["wsrep_status"] = wsrep
-
-            # Active transactions count
-            trx_out, _ = ssh.execute(
-                f"mysql -Nse \"SELECT COUNT(*) FROM information_schema.INNODB_TRX\" {user_flag} 2>/dev/null"
-            )
-            try:
-                snap["active_transactions"] = int(trx_out.strip())
-            except ValueError:
-                snap["active_transactions"] = None
-
-            # Top 5 processes by time
-            ps_out, _ = ssh.execute(
-                f"mysql -Nse \"SELECT ID, USER, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST "
-                f"WHERE COMMAND != 'Sleep' ORDER BY TIME DESC LIMIT 5\" {user_flag} 2>/dev/null"
-            )
-            if ps_out.strip():
-                procs = []
-                for line in ps_out.strip().splitlines():
-                    cols = line.split("\t")
-                    if len(cols) >= 5:
-                        procs.append({
-                            "id": cols[0], "user": cols[1], "command": cols[2],
-                            "time": cols[3], "state": cols[4],
-                            "info": cols[5][:100] if len(cols) > 5 else None,
-                        })
-                snap["top_processes"] = procs
-
     except SSHError as exc:
         snap["error"] = str(exc)
+        return snap
+
+    # ── DB part: wsrep status + transactions + processes via DBClient ─────────
+    try:
+        db = DBClient(
+            host=node["host"],
+            port=int(node.get("port") or 3306),
+            user=node.get("db_user") or "root",
+            encrypted_password=node.get("db_password") or "",
+        )
+        db.connect()
+        try:
+            snap["db_ok"] = True
+
+            # wsrep status
+            wsrep_rows = db.query("SHOW GLOBAL STATUS WHERE Variable_name LIKE 'wsrep_%'")
+            if wsrep_rows:
+                snap["wsrep_status"] = {
+                    r.get("Variable_name") or r.get("variable_name"): r.get("Value") or r.get("value")
+                    for r in wsrep_rows
+                    if r.get("Variable_name") or r.get("variable_name")
+                }
+
+            # Active transactions
+            try:
+                trx_rows = db.query("SELECT COUNT(*) AS cnt FROM information_schema.INNODB_TRX")
+                if trx_rows:
+                    snap["active_transactions"] = int(trx_rows[0].get("cnt") or 0)
+            except Exception:
+                snap["active_transactions"] = None
+
+            # Top 5 processes (non-Sleep) ordered by time desc
+            try:
+                proc_rows = db.query(
+                    "SELECT ID, USER, COMMAND, TIME, STATE, INFO "
+                    "FROM information_schema.PROCESSLIST "
+                    "WHERE COMMAND != 'Sleep' ORDER BY TIME DESC LIMIT 5"
+                )
+                if proc_rows:
+                    snap["top_processes"] = [
+                        {
+                            "id":      str(r.get("ID") or r.get("id") or ""),
+                            "user":    str(r.get("USER") or r.get("user") or ""),
+                            "command": str(r.get("COMMAND") or r.get("command") or ""),
+                            "time":    str(r.get("TIME") or r.get("time") or "0"),
+                            "state":   str(r.get("STATE") or r.get("state") or ""),
+                            "info":    (str(r.get("INFO") or r.get("info") or "") or None),
+                        }
+                        for r in proc_rows
+                    ]
+            except Exception:
+                snap["top_processes"] = None
+
+        finally:
+            db.close()
+    except DBError as exc:
+        # DB unreachable — ssh_ok already set, just mark db_ok=False
+        snap["db_ok"] = False
+        if not snap["error"]:
+            snap["error"] = f"DB connect failed: {exc}"
+
     return snap
 
 
@@ -634,7 +659,7 @@ async def start_split_brain_recovery(
 # ── #9 Full Cluster Recovery ─────────────────────────────────────────────────
 
 class FullClusterRecoveryRequest(BaseModel):
-    node_order: list[int]  # ordered list of node IDs: first = bootstrap donor, rest = rejoin sequence
+    node_order: list[int] | None = None  # optional: explicit order; if omitted — auto-detected via grastate.dat seqno
 
 
 async def _run_full_cluster_recovery(
@@ -645,11 +670,6 @@ async def _run_full_cluster_recovery(
     """
     Full Cluster Recovery: bootstrap first node, then sequentially rejoin remaining.
     """
-    from services.recovery import (
-        _start_bootstrap_node, _start_node_normal, _wait_node_synced,
-        _SYNCED_WAIT_TIMEOUT_SEC,
-    )
-
     await asyncio.to_thread(set_operation_status, op_id, "running")
     total = len(node_order)
 
@@ -745,17 +765,34 @@ async def _run_full_cluster_recovery(
 @router.post("/{cluster_id}/recovery/full-cluster", status_code=202)
 async def start_full_cluster_recovery(
     cluster_id: int,
-    body: FullClusterRecoveryRequest,
+    body: FullClusterRecoveryRequest | None = None,
     username: str = Depends(require_auth),
 ) -> dict:
     """
     #9 Full Cluster Recovery.
-    Bootstraps the first node in node_order, then sequentially rejoins the rest,
-    waiting for SYNCED at each step before proceeding to the next.
+    If node_order is provided — uses it directly.
+    Otherwise auto-detects bootstrap candidate via grastate.dat seqno scan,
+    then rejoins remaining nodes in ID order.
     """
     _get_cluster_or_404(cluster_id)
-    if not body.node_order:
-        raise HTTPException(status_code=422, detail="node_order must not be empty")
+    nodes = await asyncio.to_thread(_get_enabled_nodes, cluster_id)
+    if not nodes:
+        raise HTTPException(status_code=422, detail="No enabled nodes in cluster")
+
+    explicit_order = body.node_order if body and body.node_order else None
+
+    if explicit_order:
+        node_order = explicit_order
+    else:
+        # Auto-detect: scan grastate.dat on all nodes, pick best bootstrap candidate
+        scan_results = await asyncio.to_thread(_scan_grastate, nodes)
+        candidate = _select_bootstrap_candidate(scan_results)
+        if candidate is None:
+            # Fallback: use first node
+            candidate = {"id": nodes[0]["id"]}
+
+        remaining_ids = [n["id"] for n in nodes if n["id"] != candidate["id"]]
+        node_order = [candidate["id"]] + remaining_ids
 
     await asyncio.to_thread(assert_no_active_operation, cluster_id)
 
@@ -763,21 +800,23 @@ async def start_full_cluster_recovery(
         create_operation,
         cluster_id=cluster_id,
         op_type="recovery_full_cluster",
-        target_node_id=body.node_order[0],
+        target_node_id=node_order[0],
         created_by=username,
     )
 
     asyncio.create_task(
-        _run_full_cluster_recovery(cluster_id, op_id, body.node_order),
+        _run_full_cluster_recovery(cluster_id, op_id, node_order),
         name=f"full-cluster-recovery-{cluster_id}",
     )
 
     write_event(level="INFO", source="recovery", cluster_id=cluster_id,
         operation_id=op_id,
-        message=f"Full Cluster Recovery started by '{username}', order={body.node_order}")
+        message=f"Full Cluster Recovery started by '{username}', order={node_order} (auto={explicit_order is None})")
 
     return {
         "accepted": True,
         "operation_id": op_id,
+        "bootstrap_node": next((n["name"] for n in nodes if n["id"] == node_order[0]), None),
+        "node_order": node_order,
         "message": "Full Cluster Recovery started. Subscribe to WS for progress.",
     }

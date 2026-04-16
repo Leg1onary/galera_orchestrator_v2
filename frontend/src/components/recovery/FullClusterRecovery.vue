@@ -81,11 +81,12 @@ async function startRecovery() {
   })
   try {
     const res = await recoveryAdvancedApi.startFullClusterRecovery(clusterStore.selectedClusterId)
-    operationId.value = res.operation_id
-    resultData.value  = res
+    operationId.value = String(res.operation_id)
+    resultData.value  = res as FullClusterRecoveryResponse
+    const orderStr = res.node_order ? `order: [${res.node_order.join(' → ')}]` : ''
     progress.value.push({
       ts:    new Date().toISOString(),
-      msg:   `Operation started: ${res.operation_id}. Bootstrap node: ${res.bootstrap_node ?? 'TBD'}`,
+      msg:   `Operation #${res.operation_id} started. Bootstrap: ${res.bootstrap_node ?? 'auto'} ${orderStr}`,
       level: 'info',
     })
   } catch (e: unknown) {
