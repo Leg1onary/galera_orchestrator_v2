@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import ClustersTab    from '@/components/settings/ClustersTab.vue'
-import NodesTab       from '@/components/settings/NodesTab.vue'
-import ArbitratorsTab from '@/components/settings/ArbitratorsTab.vue'
-import DatacentersTab from '@/components/settings/DatacentersTab.vue'
-import SystemTab      from '@/components/settings/SystemTab.vue'
+import ClustersTab      from '@/components/settings/ClustersTab.vue'
+import NodesTab         from '@/components/settings/NodesTab.vue'
+import ArbitratorsTab   from '@/components/settings/ArbitratorsTab.vue'
+import DatacentersTab   from '@/components/settings/DatacentersTab.vue'
+import SystemTab        from '@/components/settings/SystemTab.vue'
+import BackupServersTab from '@/components/settings/BackupServersTab.vue'
 
 const activeTab = ref('clusters')
 
 const TABS = [
-  { value: 'clusters',    label: 'Clusters',    icon: 'pi-server' },
-  { value: 'nodes',       label: 'Nodes',       icon: 'pi-desktop' },
-  { value: 'arbitrators', label: 'Arbitrators', icon: 'pi-circle' },
-  { value: 'datacenters', label: 'Datacenters', icon: 'pi-map-marker' },
-  { value: 'system',      label: 'System',      icon: 'pi-cog' },
+  { value: 'clusters',       label: 'Clusters',        icon: 'pi-server' },
+  { value: 'nodes',          label: 'Nodes',           icon: 'pi-desktop' },
+  { value: 'arbitrators',    label: 'Arbitrators',     icon: 'pi-circle' },
+  { value: 'datacenters',    label: 'Datacenters',     icon: 'pi-map-marker' },
+  { value: 'backup-servers', label: 'Backup Servers',  icon: 'pi-database' },
+  { value: 'system',         label: 'System',          icon: 'pi-cog' },
 ]
 </script>
 
@@ -48,11 +50,12 @@ const TABS = [
 
     <!-- ── Tab content ── -->
     <div class="settings-page__body">
-      <ClustersTab    v-if="activeTab === 'clusters'" />
-      <NodesTab       v-else-if="activeTab === 'nodes'" />
-      <ArbitratorsTab v-else-if="activeTab === 'arbitrators'" />
-      <DatacentersTab v-else-if="activeTab === 'datacenters'" />
-      <SystemTab      v-else-if="activeTab === 'system'" />
+      <ClustersTab      v-if="activeTab === 'clusters'" />
+      <NodesTab         v-else-if="activeTab === 'nodes'" />
+      <ArbitratorsTab   v-else-if="activeTab === 'arbitrators'" />
+      <DatacentersTab   v-else-if="activeTab === 'datacenters'" />
+      <BackupServersTab v-else-if="activeTab === 'backup-servers'" />
+      <SystemTab        v-else-if="activeTab === 'system'" />
     </div>
   </div>
 </template>

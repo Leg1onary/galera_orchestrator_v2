@@ -33,6 +33,7 @@ def init_db() -> None:
     with engine.begin() as conn:
         _migrate_system_settings(conn)
         _migrate_arbitrators(conn)
+        _migrate_backup_servers(conn)
         _seed_contours(conn)
         _seed_system_settings(conn)
 
@@ -116,6 +117,22 @@ def _migrate_arbitrators(conn) -> None:
         if col_name not in existing:
             conn.execute(text(sql))
             logger.info("Migration: added column arbitrators.%s", col_name)
+
+
+def _migrate_backup_servers(conn) -> None:
+    """
+    Creates backup_servers table if it doesn't exist yet.
+    metadata.create_all handles it, but we also run a column check
+    for additive migrations on pre-existing deployments.
+    """
+    # Table is created by metadata.create_all — nothing additive needed yet.
+    # Placeholder for future column additions:
+    # existing = {row[1] for row in conn.execute(text("PRAGMA table_info(backup_servers)")).fetchall()}
+    # pending = [("new_col", "ALTER TABLE backup_servers ADD COLUMN new_col TEXT")]
+    # for col_name, sql in pending:
+    #     if col_name not in existing:
+    #         conn.execute(text(sql))
+    logger.info("Migration: backup_servers OK")
 
 
 # ── Seed helpers ──────────────────────────────────────────────────────────────

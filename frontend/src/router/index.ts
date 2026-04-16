@@ -69,6 +69,11 @@ const router = createRouter({
                     component: () => import('@/pages/DiagnosticsPage.vue'),
                 },
                 {
+                    path: 'backups',
+                    name: 'backups',
+                    component: () => import('@/pages/BackupsPage.vue'),
+                },
+                {
                     path: 'settings',
                     name: 'settings',
                     component: () => import('@/pages/SettingsPage.vue'),

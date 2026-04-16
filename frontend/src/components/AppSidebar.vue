@@ -50,6 +50,7 @@ const navItems = computed((): NavItem[] => [
   { key: 'recovery',   label: 'Recovery',    icon: 'pi-replay',     group: 'ops',     to: () => ({ name: 'recovery'    }) },
   { key: 'maintenance',label: 'Maintenance', icon: 'pi-wrench',     group: 'ops',     to: () => ({ name: 'maintenance' }) },
   { key: 'diagnostics',label: 'Diagnostics', icon: 'pi-search',     group: 'ops',     to: () => ({ name: 'diagnostics' }) },
+  { key: 'backups',    label: 'Backups',     icon: 'pi-database',   group: 'ops',     to: () => ({ name: 'backups'     }) },
   { key: 'settings',   label: 'Settings',    icon: 'pi-sliders-h',  group: 'system',  to: () => ({ name: 'settings'   }) },
   { key: 'docs',       label: 'Docs',        icon: 'pi-book',       group: 'system',  to: () => ({ name: 'docs'       }) },
 ])

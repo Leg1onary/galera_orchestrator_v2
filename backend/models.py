@@ -180,6 +180,27 @@ event_logs = Table(
 )
 
 # ---------------------------------------------------------------------------
+# backup_servers
+# ---------------------------------------------------------------------------
+backup_servers = Table(
+    "backup_servers",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "cluster_id",
+        Integer,
+        ForeignKey("clusters.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("name",       Text,    nullable=False),
+    Column("host",       Text,    nullable=False),
+    Column("ssh_port",   Integer, nullable=False, server_default="22"),
+    Column("ssh_user",   Text,    nullable=False, server_default="'root'"),
+    Column("backup_dir", Text,    nullable=False),
+    Column("enabled",    Boolean, nullable=False, server_default="1"),
+)
+
+# ---------------------------------------------------------------------------
 # system_settings
 # Single-row table. Always query WHERE id=1.
 # ---------------------------------------------------------------------------
