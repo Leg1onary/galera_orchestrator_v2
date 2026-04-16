@@ -820,3 +820,140 @@ async def start_full_cluster_recovery(
         "node_order": node_order,
         "message": "Full Cluster Recovery started. Subscribe to WS for progress.",
     }
+
+
+# ── wsrep-recover Runner ──────────────────────────────────────────────────────
+
+def _get_node_by_id(cluster_id: int, node_id: int) -> dict:
+    """Fetch a single node row; raise 404 if not found."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT id, name, host, port, ssh_port, ssh_user, db_user, db_password
+                FROM nodes
+                WHERE cluster_id = :cid AND id = :nid AND enabled = 1
+            """),
+            {"cid": cluster_id, "nid": node_id},
+        ).mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Node {node_id} not found in cluster {cluster_id}")
+    return dict(row)
+
+
+def _run_wsrep_recover(node: dict) -> dict:
+    """
+    Run 'mysqld --wsrep-recover' on the node via SSH.
+    Parses the 'Recovered position: uuid:seqno' line from stderr/stdout.
+    Optionally patches grastate.dat with the recovered seqno.
+
+    Returns:
+        {
+          "node_id": int,
+          "node_name": str,
+          "recovered_uuid": str | None,
+          "recovered_seqno": int | None,
+          "raw_output": str,
+          "patched_grastate": bool,
+          "error": str | None,
+        }
+    """
+    result: dict = {
+        "node_id":          node["id"],
+        "node_name":        node["name"],
+        "recovered_uuid":   None,
+        "recovered_seqno":  None,
+        "raw_output":       "",
+        "patched_grastate": False,
+        "error":            None,
+    }
+    try:
+        with SSHClient(
+            host=node["host"],
+            port=int(node.get("ssh_port") or 22),
+            username=node.get("ssh_user") or "root",
+        ) as ssh:
+            # mysqld --wsrep-recover writes to stderr; redirect both to capture
+            out, err = ssh.execute(
+                "mysqld --wsrep-recover 2>&1 | tail -40"
+            )
+            combined = (out or "") + (err or "")
+            result["raw_output"] = combined[:4000]
+
+            # Parse "WSREP: Recovered position: <uuid>:<seqno>"
+            # MariaDB format: "WSREP: Recovered position fbcd4181-...:12345"
+            import re
+            m = re.search(
+                r"(?:Recovered position[:\s]+)"
+                r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+                r"[:\s]+"
+                r"(-?\d+)",
+                combined,
+                re.IGNORECASE,
+            )
+            if m:
+                result["recovered_uuid"]  = m.group(1)
+                result["recovered_seqno"] = int(m.group(2))
+
+                recovered_seqno = result["recovered_seqno"]
+                if recovered_seqno is not None and recovered_seqno >= 0:
+                    # Patch grastate.dat: set seqno to recovered value
+                    patch_cmd = (
+                        f"sed -i 's/^seqno:.*/seqno:   {recovered_seqno}/' "
+                        "/var/lib/mysql/grastate.dat"
+                    )
+                    _, patch_err = ssh.execute(patch_cmd)
+                    if not patch_err or patch_err.strip() == "":
+                        result["patched_grastate"] = True
+                    else:
+                        result["error"] = f"Patch failed: {patch_err[:200]}"
+            else:
+                # Check for common error patterns
+                if "ERROR" in combined or "error" in combined.lower():
+                    for line in combined.splitlines():
+                        if "error" in line.lower() and "wsrep" not in line.lower():
+                            result["error"] = line.strip()[:300]
+                            break
+                if not result["error"]:
+                    result["error"] = (
+                        "Could not parse recovered position from output. "
+                        "MySQL/MariaDB may not be installed or data dir differs. "
+                        "Check raw_output for details."
+                    )
+
+    except SSHError as exc:
+        result["error"] = str(exc)
+
+    return result
+
+
+@router.post("/{cluster_id}/recovery/wsrep-recover/{node_id}")
+async def run_wsrep_recover(
+    cluster_id: int,
+    node_id: int,
+    username: str = Depends(require_auth),
+) -> dict:
+    """
+    Run 'mysqld --wsrep-recover' on a specific node via SSH.
+    Parses the recovered seqno and patches grastate.dat automatically.
+
+    Use this when grastate.dat shows seqno=-1 (dirty crash) to determine
+    the real last committed transaction sequence number before bootstrapping.
+
+    WARNING: MySQL/MariaDB must NOT be running on the node when this is called.
+    """
+    _get_cluster_or_404(cluster_id)
+    node = await asyncio.to_thread(_get_node_by_id, cluster_id, node_id)
+
+    result = await asyncio.to_thread(_run_wsrep_recover, node)
+
+    write_event(
+        level="INFO" if not result["error"] else "WARN",
+        source="recovery",
+        cluster_id=cluster_id,
+        message=(
+            f"wsrep-recover on {node['name']} by '{username}': "
+            f"seqno={result['recovered_seqno']}, patched={result['patched_grastate']}"
+        ),
+    )
+
+    return result

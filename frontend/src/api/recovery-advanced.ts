@@ -165,6 +165,17 @@ export type QuorumStatusResponse = {
   nodes: QuorumNodeStatus[]
 }
 
+// ── wsrep-recover result ──────────────────────────────────────────────────────
+export type WsrepRecoverResult = {
+  node_id: number
+  node_name: string
+  recovered_uuid: string | null
+  recovered_seqno: number | null
+  raw_output: string
+  patched_grastate: boolean
+  error: string | null
+}
+
 // ── API object ────────────────────────────────────────────────────────────────
 export const recoveryAdvancedApi = {
   // #3
@@ -206,4 +217,8 @@ export const recoveryAdvancedApi = {
   // #15
   getQuorumStatus: (clusterId: number): Promise<QuorumStatusResponse> =>
     api.get<QuorumStatusResponse>(`/api/clusters/${clusterId}/diagnostics/quorum-status`).then(r => r.data),
+
+  // wsrep-recover: run on a node with seqno=-1, patches grastate.dat automatically
+  runWsrepRecover: (clusterId: number, nodeId: number): Promise<WsrepRecoverResult> =>
+    api.post<WsrepRecoverResult>(`/api/clusters/${clusterId}/recovery/wsrep-recover/${nodeId}`).then(r => r.data),
 }
