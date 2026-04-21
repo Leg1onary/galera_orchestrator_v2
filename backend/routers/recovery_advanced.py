@@ -76,6 +76,33 @@ def _get_enabled_nodes(cluster_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _get_datadir(ssh) -> str:
+    """
+    Detect MySQL datadir via fallback chain:
+    1. Ask running MariaDB via mysqladmin
+    2. Parse my.cnf / my.cnf.d
+    3. Default /var/lib/mysql
+    """
+    # 1. Живая БД — самый надёжный источник
+    out, _ = ssh.execute(
+        "mysqladmin variables 2>/dev/null | grep ' datadir ' | awk '{print $4}'"
+    )
+    datadir = out.strip().rstrip("/")
+    if datadir and datadir.startswith("/"):
+        return datadir
+
+    # 2. Парсинг конфига (работает когда БД выключена)
+    out, _ = ssh.execute(
+        r"grep -rh '^\s*datadir\s*=' /etc/mysql/ /etc/my.cnf /etc/my.cnf.d/ 2>/dev/null"
+        r" | head -1 | sed 's/.*=\s*//' | tr -d ' \r'"
+    )
+    datadir = out.strip().rstrip("/")
+    if datadir and datadir.startswith("/"):
+        return datadir
+
+    # 3. Дефолт
+    return "/var/lib/mysql"
+
 # ── #3 grastate.dat Inspector ────────────────────────────────────────────────
 
 def _read_grastate_full(node: dict) -> dict:
@@ -84,6 +111,7 @@ def _read_grastate_full(node: dict) -> dict:
         "node_id": node["id"],
         "node_name": node["name"],
         "host": node["host"],
+        "datadir": None,
         "raw": None,
         "uuid": None,
         "seqno": None,
@@ -100,7 +128,8 @@ def _read_grastate_full(node: dict) -> dict:
             username=node.get("ssh_user") or "root",
         ) as ssh:
             # Read grastate.dat
-            content, err = ssh.execute("cat /var/lib/mysql/grastate.dat 2>/dev/null || echo '__NOT_FOUND__'")
+            datadir = _get_datadir(ssh)
+            content, err = ssh.execute(f"cat {datadir}/grastate.dat 2>/dev/null || echo '__NOT_FOUND__'")
             if "__NOT_FOUND__" in content or (err and not content.strip()):
                 result["error"] = "grastate.dat not found — MySQL data directory may differ or MySQL is running"
                 return result
@@ -126,8 +155,9 @@ def _read_grastate_full(node: dict) -> dict:
             result["wsrep_recover_needed"] = result["seqno"] == -1
 
             # Check for gvwstate.dat (indicates node was part of a primary component)
-            gvw_out, _ = ssh.execute("test -f /var/lib/mysql/gvwstate.dat && echo 'EXISTS' || echo 'ABSENT'")
+            gvw_out, _ = ssh.execute(f"test -f {datadir}/gvwstate.dat && echo 'EXISTS' || echo 'ABSENT'")
             result["gvwstate_exists"] = "EXISTS" in gvw_out
+            result["datadir"] = datadir
 
     except SSHError as exc:
         result["error"] = str(exc)
