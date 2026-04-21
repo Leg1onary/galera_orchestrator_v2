@@ -98,6 +98,26 @@ def _get_enabled_nodes(cluster_id: int) -> list[dict]:
         ).mappings().fetchall()
     return [dict(r) for r in rows]
 
+async def _collect_node_availability(cluster_id: int) -> list[dict]:
+
+    from services.poller import live_node_states
+
+    nodes = await asyncio.to_thread(_get_enabled_nodes, cluster_id)
+    if not nodes:
+        return []
+
+    cluster_states = live_node_states.get(cluster_id, {})
+    result = []
+    for node in nodes:
+        state = cluster_states.get(node["id"])
+        ssh_ok = state.ssh_ok if state else False
+        result.append({
+            "node_id":   node["id"],
+            "node_name": node["name"],
+            "host":      node["host"],
+            "ssh_ok":    ssh_ok,
+        })
+    return result
 
 # ── Data collectors ───────────────────────────────────────────────────────────
 
@@ -337,6 +357,50 @@ def _get_enabled_nodes_with_id(cluster_id: int) -> list[dict]:
 
 
 # ── Rules engine ──────────────────────────────────────────────────────────────
+
+def _rules_availability(availability_results: list[dict]) -> list[AdvisorCard]:
+    cards: list[AdvisorCard] = []
+    if not availability_results:
+        return cards
+
+    total      = len(availability_results)
+    unreachable = [n for n in availability_results if not n["ssh_ok"]]
+    if not unreachable:
+        return cards
+
+    all_down  = len(unreachable) == total
+    severity  = AdvisorSeverity.critical
+    node_names = [n["node_name"] for n in unreachable]
+    node_ids   = [n["node_id"]   for n in unreachable]
+
+    if all_down:
+        title   = "All cluster nodes are unreachable"
+        summary = "Orchestrator cannot connect to any node via SSH. MariaDB may be down or SSH credentials are invalid."
+    else:
+        title   = f"{len(unreachable)} of {total} node(s) unreachable"
+        summary = f"Nodes {', '.join(node_names)} are not reachable via SSH. Cluster may be degraded."
+
+    cards.append(AdvisorCard(
+        id="node-availability",
+        severity=severity,
+        category=AdvisorCategory.availability,
+        source="node-availability",
+        title=title,
+        summary=summary,
+        details="SSH connectivity is required for monitoring and management. Check node status and SSH credentials.",
+        evidence=AdvisorEvidence(
+            node_ids=node_ids,
+            node_names=node_names,
+        ),
+        recommended_action=AdvisorAction(
+            action_type=AdvisorActionType.open_panel,
+            action_id="open-connections",
+            description="Run Connection Check to diagnose SSH and DB connectivity.",
+            ui_hint="open-diagnostics-tab:connections",
+            danger_level=AdvisorSeverity.critical,
+        ),
+    ))
+    return cards
 
 def _rules_config_health(config_results: list[dict]) -> list[AdvisorCard]:
     cards: list[AdvisorCard] = []
@@ -589,12 +653,14 @@ async def get_advisor(cluster_id: int) -> AdvisorResponse:
     await asyncio.to_thread(get_cluster_or_404, cluster_id)
 
     (
+        availability_results,
         config_results,
         trx_results,
         sst_results,
         lag_results,
         disk_results,
     ) = await asyncio.gather(
+        _collect_node_availability(cluster_id),
         _collect_config_health(cluster_id),
         _collect_active_transactions(cluster_id),
         _collect_sst_status(cluster_id),
@@ -604,6 +670,7 @@ async def get_advisor(cluster_id: int) -> AdvisorResponse:
     )
 
     cards: list[AdvisorCard] = []
+    cards.extend(_rules_availability(availability_results))
     cards.extend(_rules_config_health(config_results))
     cards.extend(_rules_active_transactions(trx_results))
     cards.extend(_rules_sst(sst_results))
