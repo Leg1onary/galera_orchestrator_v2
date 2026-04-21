@@ -198,11 +198,10 @@ function formatTs(iso: string) {
     <div v-if="phase === 'idle'" class="fcr-warning">
       <div class="fcr-warn-icon"><i class="pi pi-exclamation-triangle" /></div>
       <div class="fcr-warn-body">
-        <strong>Деструктивная операция</strong>
+        <strong>Destructive operation</strong>
         <p>
-          Full Cluster Recovery перезапускает весь кластер. Убедись, что
-          <em>все</em> ноды остановлены и MariaDB/MySQL не запущены ни на одном из хостов.
-          Неверный выбор bootstrap-ноды грозит <strong>потерей данных</strong>.
+          Full Cluster Recovery restarts the entire cluster.
+          Make sure <em>all nodes</em> are stopped.
         </p>
       </div>
     </div>
@@ -212,10 +211,10 @@ function formatTs(iso: string) {
 
       <!-- Checklist -->
       <div class="fcr-checklist">
-        <div class="fcr-cl-title">Предварительная проверка</div>
+        <div class="fcr-cl-title">Pre-flight check</div>
         <label class="fcr-check-item">
           <input type="checkbox" v-model="confirmed" />
-          <span>Я понимаю, что эта операция перезапустит весь кластер и может привести к потере данных при неправильных настройках</span>
+          <span>I understand that this operation will restart the entire cluster and may lead to data loss if misconfigured</span>
         </label>
       </div>
 

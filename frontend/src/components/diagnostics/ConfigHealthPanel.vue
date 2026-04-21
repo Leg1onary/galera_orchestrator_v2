@@ -59,7 +59,7 @@ function nodeStatus(node: ConfigHealthNodeResult) {
         </span>
         <div>
           <div class="cfg-toolbar-title">Config Health Check</div>
-          <div class="cfg-toolbar-sub">Проверка ключевых параметров MariaDB по best-practice правилам</div>
+          <div class="cfg-toolbar-sub">Checking key MariaDB parameters against best-practice rules</div>
         </div>
       </div>
       <Button
@@ -80,8 +80,8 @@ function nodeStatus(node: ConfigHealthNodeResult) {
     <!-- Idle -->
     <div v-else-if="!fetched && !loading" class="cfg-idle">
       <div class="cfg-idle-icon"><i class="pi pi-shield" /></div>
-      <p class="cfg-idle-title">Config Health не запущен</p>
-      <p class="cfg-idle-hint">Нажми «Run Check», чтобы проверить конфигурацию всех нод кластера.</p>
+      <p class="cfg-idle-title">Config Health not started</p>
+      <p class="cfg-idle-hint">Click "Run Check" to verify configuration on all cluster nodes.</p>
       <Button label="Run Check" icon="pi pi-play" outlined size="small" @click="load" />
     </div>
 

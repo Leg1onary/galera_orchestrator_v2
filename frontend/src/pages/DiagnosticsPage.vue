@@ -33,7 +33,7 @@ const GROUPS = [
     value: 'analysis',
     label: 'Analysis',
     icon:  'pi-lightbulb',
-    desc:  'AI рекомендации и проверка конфигурации',
+    desc:  'AI recommendations and configuration health check',
     tabs: [
       { value: 'advisor',       label: 'Advisor',       icon: 'pi-sparkles' },
       { value: 'config-health', label: 'Config Health', icon: 'pi-shield'   },
@@ -43,7 +43,7 @@ const GROUPS = [
     value: 'config',
     label: 'Config',
     icon:  'pi-sliders-h',
-    desc:  'Соединения, переменные и diff конфигурации',
+    desc:  'Connections, variables and config diff',
     tabs: [
       { value: 'connections', label: 'Connections', icon: 'pi-wifi'     },
       { value: 'config-diff', label: 'Config Diff', icon: 'pi-code'     },
@@ -54,7 +54,7 @@ const GROUPS = [
     value: 'engine',
     label: 'Engine',
     icon:  'pi-server',
-    desc:  'Ресурсы, InnoDB и статус SST',
+    desc:  'System resources, InnoDB and SST status',
     tabs: [
       { value: 'resources',  label: 'System Resources', icon: 'pi-desktop'  },
       { value: 'innodb',     label: 'InnoDB Status',    icon: 'pi-database' },
@@ -65,7 +65,7 @@ const GROUPS = [
     value: 'activity',
     label: 'Activity',
     icon:  'pi-bolt',
-    desc:  'Активные процессы, транзакции и медленные запросы',
+    desc:  'Active processes, transactions and slow queries',
     tabs: [
       { value: 'process-list', label: 'Process List',   icon: 'pi-list'     },
       { value: 'active-trx',   label: 'Transactions',   icon: 'pi-arrows-h' },
@@ -76,7 +76,7 @@ const GROUPS = [
     value: 'logs',
     label: 'Logs & Ops',
     icon:  'pi-file-edit',
-    desc:  'Логи ошибок, арбитратора и операции обслуживания',
+    desc:  'Error logs, arbitrator log and maintenance operations',
     tabs: [
       { value: 'error-log',    label: 'Error Log',      icon: 'pi-exclamation-triangle' },
       { value: 'arb-log',      label: 'Arbitrator Log', icon: 'pi-file-edit'            },
@@ -92,7 +92,7 @@ const GROUPS = [
     tabs: [
       { value: 'flow-control',    label: 'Flow Control',    icon: 'pi-chart-line'   },
       { value: 'cert-conflicts',  label: 'Cert Conflicts',  icon: 'pi-shield'       },
-      { value: 'disk-sentinel',   label: 'Disk Sentinel',   icon: 'pi-hdd'          },
+      { value: 'disk-sentinel',   label: 'Disk Sentinel',   icon: 'pi-database'     },
     ],
   },
 ] as const

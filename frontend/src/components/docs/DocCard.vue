@@ -19,7 +19,7 @@
             size="small"
             class="doc-card__copy-btn"
             :class="{ 'doc-card__copy-btn--done': copied }"
-            v-tooltip="copied ? 'Скопировано!' : 'Скопировать'"
+            v-tooltip="copied ? 'Copied!' : 'Copy'"
             @click="handleCopy"
         />
       </div>

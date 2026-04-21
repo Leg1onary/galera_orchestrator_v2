@@ -84,7 +84,7 @@ function openAdvisor() {
   <div v-else-if="isError || !clusterId" class="advisor-widget advisor-widget--muted">
     <div class="state-row">
       <i class="pi pi-exclamation-circle state-icon state-icon--warn" />
-      <span class="state-text">Не удалось загрузить данные Advisor</span>
+      <span class="state-text">Failed to load Advisor data</span>
       <Button
         icon="pi pi-refresh"
         size="small"
@@ -104,7 +104,7 @@ function openAdvisor() {
       </div>
       <div class="clean-body">
         <span class="clean-title">Cluster is healthy</span>
-        <span class="clean-sub">Нет рекомендаций Advisor</span>
+        <span class="clean-sub">No Advisor recommendations</span>
       </div>
     </div>
   </div>
@@ -185,7 +185,7 @@ function openAdvisor() {
 
     <!-- More hint -->
     <div v-if="totalCount > 3" class="more-row" @click="openAdvisor">
-      <span>+{{ totalCount - 3 }} больше</span>
+      <span>+{{ totalCount - 3 }} more</span>
       <i class="pi pi-arrow-right" />
     </div>
 

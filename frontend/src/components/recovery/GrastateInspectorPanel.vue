@@ -323,10 +323,10 @@ const nodesNeedingRecover = computed(() =>
       <div v-if="scenario === 'ready'" class="gs-guide-scenario gs-guide-scenario--ok">
         <div class="gs-guide-icon"><i class="pi pi-check-circle" /></div>
         <div class="gs-guide-body">
-          <div class="gs-guide-title">Кластер готов к Bootstrap</div>
+          <div class="gs-guide-title">Cluster Ready for Bootstrap</div>
           <p class="gs-guide-text">
-            Есть нода с <code>safe_to_bootstrap=1</code> — Galera сама пометила её как безопасного донора.
-            Запускай Full Cluster Recovery: бэкенд автоматически выберет правильную ноду.
+            A node with <code>safe_to_bootstrap=1</code> exists — Galera has already marked it as a safe donor.
+            Run Full Cluster Recovery: the backend will automatically select the correct node.
           </p>
         </div>
       </div>
@@ -335,26 +335,26 @@ const nodesNeedingRecover = computed(() =>
       <div v-if="scenario === 'dirty'" class="gs-guide-scenario gs-guide-scenario--warn">
         <div class="gs-guide-icon"><i class="pi pi-exclamation-triangle" /></div>
         <div class="gs-guide-body">
-          <div class="gs-guide-title">Грязное завершение (seqno = −1)</div>
+          <div class="gs-guide-title">Dirty Shutdown (seqno = −1)</div>
           <p class="gs-guide-text">
-            Ноды упали без чистого shutdown — MariaDB не успела записать финальный seqno.
-            Перед Bootstrap нужно определить настоящий seqno каждой ноды.
+            Nodes crashed without a clean shutdown — MariaDB did not write the final seqno.
+            The real seqno must be determined for each node before Bootstrap.
           </p>
 
           <!-- Orchestrator way -->
           <div class="gs-guide-block gs-guide-block--primary">
             <div class="gs-guide-block-title">
               <i class="pi pi-bolt" />
-              Через оркестратор (рекомендуется)
+              Via Orchestrator (recommended)
             </div>
             <p>
-              Нажми кнопку <strong>wsrep-recover</strong> напротив каждой ноды выше.
-              Оркестратор подключится по SSH, запустит <code>mysqld --wsrep-recover</code>,
-              распарсит seqno и автоматически запишет его в <code>grastate.dat</code>.
-              После — нажми <strong>Scan</strong> и запускай Full Cluster Recovery.
+              Click the <strong>wsrep-recover</strong> button next to each node above.
+              The orchestrator will connect via SSH, run <code>mysqld --wsrep-recover</code>,
+              parse the seqno, and automatically write it to <code>grastate.dat</code>.
+              Then click <strong>Scan</strong> and run Full Cluster Recovery.
             </p>
             <div v-if="nodesNeedingRecover.length" class="gs-guide-nodes-need">
-              <span class="gs-guide-nodes-label">Нужно запустить на:</span>
+              <span class="gs-guide-nodes-label">Needs to run on:</span>
               <Tag
                 v-for="n in nodesNeedingRecover"
                 :key="n.node_id"
@@ -363,7 +363,7 @@ const nodesNeedingRecover = computed(() =>
               />
             </div>
             <div v-else class="gs-guide-done">
-              <i class="pi pi-check" /> wsrep-recover выполнен на всех нодах — можно делать Scan
+              <i class="pi pi-check" /> wsrep-recover completed on all nodes — ready to Scan
             </div>
           </div>
 
@@ -371,17 +371,17 @@ const nodesNeedingRecover = computed(() =>
           <div class="gs-guide-block">
             <div class="gs-guide-block-title">
               <i class="pi pi-terminal" />
-              Вручную по SSH (если оркестратор недоступен)
+              Manually via SSH (if orchestrator is unavailable)
             </div>
-            <p>На каждой ноде с <code>seqno=-1</code> (MySQL должна быть остановлена):</p>
-            <pre class="gs-code"># 1. Запустить wsrep-recover (выведет Recovered position)
+            <p>On each node with <code>seqno=-1</code> (MySQL must be stopped):</p>
+            <pre class="gs-code"># 1. Run wsrep-recover (prints Recovered position)
 mysqld --wsrep-recover 2>&1 | grep "Recovered position"
-# Пример вывода: Recovered position: fbcd4181-...:12345
+# Example output: Recovered position: fbcd4181-...:12345
 
-# 2. Вписать seqno в grastate.dat вручную
+# 2. Write seqno into grastate.dat manually
 sed -i 's/^seqno:.*/seqno:   12345/' /var/lib/mysql/grastate.dat
 
-# 3. На ноде с MAX seqno — разрешить bootstrap
+# 3. On the node with MAX seqno — allow bootstrap
 sed -i 's/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.dat</pre>
           </div>
         </div>
@@ -391,33 +391,32 @@ sed -i 's/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.d
       <div v-if="scenario === 'no_safe'" class="gs-guide-scenario gs-guide-scenario--warn">
         <div class="gs-guide-icon"><i class="pi pi-question-circle" /></div>
         <div class="gs-guide-body">
-          <div class="gs-guide-title">Нет safe_to_bootstrap=1</div>
+          <div class="gs-guide-title">No safe_to_bootstrap=1</div>
           <p class="gs-guide-text">
-            У всех нод корректный seqno, но ни одна не помечена как безопасная для Bootstrap.
-            Обычно это значит, что кластер остановили не через <code>systemctl stop</code>,
-            а всех убили одновременно.
+            All nodes have a valid seqno, but none is marked safe for Bootstrap.
+            This usually means the cluster was killed simultaneously rather than stopped via <code>systemctl stop</code>.
           </p>
 
           <div class="gs-guide-block gs-guide-block--primary">
             <div class="gs-guide-block-title">
               <i class="pi pi-bolt" />
-              Через оркестратор
+              Via Orchestrator
             </div>
             <p>
-              Full Cluster Recovery автоматически выберет ноду с максимальным seqno
-              как Bootstrap-донора, даже без <code>safe_to_bootstrap=1</code>.
+              Full Cluster Recovery will automatically select the node with the highest seqno
+              as the Bootstrap donor, even without <code>safe_to_bootstrap=1</code>.
             </p>
           </div>
 
           <div class="gs-guide-block">
             <div class="gs-guide-block-title">
               <i class="pi pi-terminal" />
-              Вручную по SSH
+              Manually via SSH
             </div>
-            <p>Определи ноду с MAX seqno из таблицы выше, затем:</p>
-            <pre class="gs-code"># На ноде с максимальным seqno:
+            <p>Identify the node with MAX seqno from the table above, then:</p>
+            <pre class="gs-code"># On the node with the highest seqno:
 sed -i 's/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.dat
-# После — возвращайся в оркестратор и запускай Full Cluster Recovery</pre>
+# Then return to the orchestrator and run Full Cluster Recovery</pre>
           </div>
         </div>
       </div>
@@ -426,45 +425,44 @@ sed -i 's/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.d
       <div v-if="scenario === 'clean'" class="gs-guide-scenario gs-guide-scenario--info">
         <div class="gs-guide-icon"><i class="pi pi-info-circle" /></div>
         <div class="gs-guide-body">
-          <div class="gs-guide-title">Частично чистое состояние</div>
+          <div class="gs-guide-title">Partially Clean State</div>
           <p class="gs-guide-text">
-            Есть <code>safe_to_bootstrap=1</code>, но остальные ноды в нечистом состоянии.
-            Full Cluster Recovery справится — выберет безопасного донора автоматически.
+            A node with <code>safe_to_bootstrap=1</code> exists, but other nodes are in an unclean state.
+            Full Cluster Recovery will handle this — it will select the safe donor automatically.
           </p>
         </div>
       </div>
 
       <!-- Shared footer: concepts glossary -->
       <details class="gs-glossary">
-        <summary class="gs-glossary-title"><i class="pi pi-book" /> Что означают эти поля?</summary>
+        <summary class="gs-glossary-title"><i class="pi pi-book" /> What do these fields mean?</summary>
         <div class="gs-glossary-body">
           <div class="gs-glossary-item">
             <span class="gs-glossary-term">seqno</span>
             <span class="gs-glossary-def">
-              Порядковый номер последней транзакции, зафиксированной на ноде.
-              <strong>-1</strong> = нода упала без чистого shutdown, настоящий seqno неизвестен и требует <code>wsrep-recover</code>.
+              Sequence number of the last transaction committed on the node.
+              <strong>-1</strong> = node crashed without a clean shutdown; the real seqno is unknown and requires
+              <code>wsrep-recover</code>.
             </span>
           </div>
           <div class="gs-glossary-item">
             <span class="gs-glossary-term">safe_to_bootstrap</span>
             <span class="gs-glossary-def">
-              Флаг Galera: <strong>1</strong> = нода видела все транзакции и её можно поднять первой.
-              Ставится автоматически при корректном <code>systemctl stop</code> на последней живой ноде.
+              Galera flag: <strong>1</strong> = node has seen all transactions and can be started first.
+              Set automatically by <code>systemctl stop</code> on the last live node.
             </span>
           </div>
           <div class="gs-glossary-item">
             <span class="gs-glossary-term">gvwstate.dat</span>
             <span class="gs-glossary-def">
-              Файл состояния Primary Component. Наличие (<code>EXISTS</code>) означает, что нода
-              была частью primary-компонента в момент остановки — дополнительный индикатор кандидата.
+              Primary Component state file. <code>EXISTS</code> means the node was part of the primary component at shutdown — an additional candidate indicator.
             </span>
           </div>
           <div class="gs-glossary-item">
             <span class="gs-glossary-term">wsrep-recover</span>
             <span class="gs-glossary-def">
-              Режим запуска MariaDB, при котором движок читает binlog и вычисляет реальный seqno
-              без присоединения к кластеру. Занимает 2–30 сек, не меняет данные.
-              <strong>MySQL должна быть остановлена.</strong>
+              MariaDB startup mode that reads the binlog and calculates the real seqno without joining the cluster.
+              Takes 2–30 sec, does not modify data. <strong>MySQL must be stopped.</strong>
             </span>
           </div>
         </div>

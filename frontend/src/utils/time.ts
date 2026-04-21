@@ -3,11 +3,11 @@ export function formatRelative(isoStr: string | null | undefined): string {
     const ts = new Date(isoStr).getTime()
     if (isNaN(ts)) return '—'
     const diff = Math.floor((Date.now() - ts) / 1000)
-    if (diff < 5)     return 'только что'
-    if (diff < 60)    return `${diff} с назад`
-    if (diff < 3600)  return `${Math.floor(diff / 60)} мин назад`
-    if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`
-    return `${Math.floor(diff / 86400)} д назад`
+    if (diff < 5)     return 'just now'
+    if (diff < 60)    return `${diff} sec before`
+    if (diff < 3600)  return `${Math.floor(diff / 60)} min before`
+    if (diff < 86400) return `${Math.floor(diff / 3600)} h before`
+    return `${Math.floor(diff / 86400)} day(s) before`
 }
 
 export function formatUptime(seconds: number | null | undefined): string {

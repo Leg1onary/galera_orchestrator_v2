@@ -4,9 +4,9 @@
     <div class="docs-page__header">
       <div class="pg-head-icon"><i class="pi pi-book" /></div>
       <div>
-        <h1 class="docs-page__title">Документация</h1>
+        <h1 class="docs-page__title">Documentation</h1>
         <p class="docs-page__subtitle">
-          Справочник по командам, wsrep-переменным, архитектуре и типовым сценариям.
+          Reference for commands, wsrep variables, architecture and common scenarios.
         </p>
       </div>
     </div>
@@ -18,14 +18,14 @@
         <input
           v-model="search"
           type="text"
-          placeholder="Поиск по заголовку, описанию, коду…"
+          placeholder="Search by title, description, code…"
           class="docs-page__search-input"
         />
         <button
           v-if="search"
           class="docs-page__search-clear"
           @click="clearSearch"
-          aria-label="Очистить поиск"
+          aria-label="Clean search"
         >
           <i class="pi pi-times" />
         </button>
@@ -36,12 +36,12 @@
     <template v-if="search.trim()">
       <div v-if="searchResults.length === 0" class="docs-page__empty">
         <i class="pi pi-search docs-page__empty-icon" />
-        <p>Ничего не найдено по запросу <strong>"{{ search }}"</strong></p>
+        <p>Nothing found for <strong>"{{ search }}"</strong></p>
       </div>
 
       <div v-else class="docs-page__search-results">
         <div class="docs-page__search-count">
-          Найдено: {{ searchResults.length }} {{ plural(searchResults.length, 'карточка', 'карточки', 'карточек') }}
+          Found: {{ searchResults.length }} {{ plural(searchResults.length, 'result', 'results', 'results') }}
         </div>
         <template v-for="tabGroup in searchGrouped" :key="tabGroup.tabId">
           <div class="docs-page__search-group">

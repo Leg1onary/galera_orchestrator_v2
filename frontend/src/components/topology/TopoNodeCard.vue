@@ -26,7 +26,7 @@
       />
     </circle>
 
-    <!-- Node name (MAJOR fix: font-size 12px — floor) -->
+    <!-- Node name -->
     <text
         x="26"
         :y="H / 2 - 5"
@@ -34,7 +34,7 @@
         :fill="textColor"
     >{{ truncate(node.name, 16) }}</text>
 
-    <!-- Host:port (MAJOR fix: font-size 11px) -->
+    <!-- Host -->
     <text
         x="26"
         :y="H / 2 + 8"
@@ -43,7 +43,7 @@
         :fill="mutedColor"
     >{{ node.host }}:{{ node.port }}</text>
 
-    <!-- RO badge (MAJOR fix: font-size 10px) -->
+    <!-- RO badge -->
     <g v-if="node.readonly">
       <rect
           :x="W - 28" :y="5"
@@ -61,7 +61,7 @@
       >RO</text>
     </g>
 
-    <!-- MAINT badge (MAJOR fix: font-size 10px, позиция пересчитана) -->
+    <!-- MAINT badge  -->
     <g v-if="node.maintenance">
       <rect
           :x="W - 46" :y="H - 18"
@@ -83,7 +83,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-// MINOR fix: убраны неиспользуемые ARB_W, ARB_H
 import { CARD_W, CARD_H } from './topology.constants'
 import type { TopoNode } from '@/api/topology'
 
@@ -97,7 +96,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ click: [] }>()
 
-// BLOCKER fix: ключи приведены к реальным значениям из ТЗ п.7.3
 const STATE_COLORS: Record<string, string> = {
   SYNCED:        '#437a22',   // --color-success
   DonorDesynced: '#006494',   // --color-blue
@@ -107,7 +105,6 @@ const STATE_COLORS: Record<string, string> = {
   Offline:       '#7a7974',   // --color-text-muted
 }
 
-// MAJOR fix: offline = state_comment null ИЛИ нет lastCheckTs
 const isOffline = computed(() =>
     !props.node.wsrep_local_state_comment || !props.node.lastCheckTs
 )
@@ -121,7 +118,6 @@ const isPulsing = computed(() =>
     ['Joining', 'Joined'].includes(props.node.wsrep_local_state_comment ?? '')
 )
 
-// MINOR fix: maintenance_drift через camelCase + влияет и на fill
 const maintenanceDrift = computed(() => props.node.maintenanceDrift ?? false)
 
 const cardFill = computed(() => {

@@ -167,9 +167,9 @@ function generatedAt(iso: string) {
       <div class="placeholder-icon">
         <i class="pi pi-lightbulb" />
       </div>
-      <p class="placeholder-title">Advisor не запущен</p>
-      <p class="placeholder-sub">Нажми Refresh для запуска автоматического анализа кластера</p>
-      <Button label="Запустить анализ" icon="pi pi-play" @click="load" size="small" />
+      <p class="placeholder-title">Advisor not started</p>
+      <p class="placeholder-sub">Click Refresh to run automatic cluster analysis</p>
+      <Button label="Run Analysis" icon="pi pi-play" @click="load" size="small" />
     </div>
 
     <!-- Loading -->
@@ -177,8 +177,8 @@ function generatedAt(iso: string) {
       <div class="placeholder-icon loading-icon">
         <i class="pi pi-spin pi-spinner" />
       </div>
-      <p class="placeholder-title">Анализируем кластер…</p>
-      <p class="placeholder-sub">Проверяем конфигурацию, репликацию, транзакции</p>
+      <p class="placeholder-title">Analyzing cluster…</p>
+      <p class="placeholder-sub">Checking configuration, replication, transactions</p>
     </div>
 
     <template v-else>
@@ -221,8 +221,8 @@ function generatedAt(iso: string) {
         <div class="placeholder-icon placeholder-icon--success">
           <i class="pi pi-check-circle" />
         </div>
-        <p class="placeholder-title">Всё в порядке 🎉</p>
-        <p class="placeholder-sub">Advisor не обнаружил проблем в текущем состоянии кластера.</p>
+        <p class="placeholder-title">All good 🎉</p>
+        <p class="placeholder-sub">Advisor found no issues in the current cluster state.</p>
       </div>
 
       <!-- Filtered empty -->
@@ -230,8 +230,8 @@ function generatedAt(iso: string) {
         <div class="placeholder-icon">
           <i class="pi pi-filter-slash" />
         </div>
-        <p class="placeholder-title">Нет совпадений</p>
-        <p class="placeholder-sub">Попробуй изменить фильтр по severity.</p>
+        <p class="placeholder-title">No matches</p>
+        <p class="placeholder-sub">Try changing the severity filter.</p>
       </div>
 
       <!-- ── Grouped cards ── -->
@@ -292,7 +292,7 @@ function generatedAt(iso: string) {
                     <Button
                       v-if="hasAction(card)"
                       icon="pi pi-arrow-right"
-                      label="Открыть"
+                      label="Open"
                       size="small"
                       text
                       @click.stop="handleAction(card)"
@@ -307,7 +307,7 @@ function generatedAt(iso: string) {
                 <div v-if="card.details" class="detail-block">
                   <div class="detail-label">
                     <i class="pi pi-align-left" />
-                    Подробности
+                    Details
                   </div>
                   <pre class="detail-pre">{{ card.details }}</pre>
                 </div>
@@ -317,7 +317,7 @@ function generatedAt(iso: string) {
                 <div v-if="card.recommended_action?.description" class="rec-block">
                   <div class="detail-label">
                     <i class="pi pi-lightbulb" />
-                    Рекомендация
+                    Recommendation
                   </div>
                   <p class="rec-text">{{ card.recommended_action.description }}</p>
                 </div>
