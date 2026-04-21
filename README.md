@@ -66,6 +66,38 @@ Galera Orchestrator v2 connects to your nodes directly via **SSH and MariaDB** �
 
 ---
 
+## Screenshots
+
+<div align="center">
+
+**Overview — healthy cluster with Smart Advisor**
+![Overview healthy](.github/screenshots/Overview-healthy.png)
+
+**Overview — degraded cluster, availability alert**
+![Overview degraded](.github/screenshots/Overview-degraded.png)
+
+**Topology — visual cluster map with node detail panel**
+![Topology](.github/screenshots/Topology_details.png)
+
+**Diagnostics — Smart Advisor with critical findings**
+![Diagnostics Advisor](.github/screenshots/Diagnostics-main.png)
+
+**Diagnostics — Connection Check (SSH + DB latency)**
+![Diagnostics Connections](.github/screenshots/Diagnostics-connections.png)
+
+**Diagnostics — Flow Control Monitor**
+![Flow Control](.github/screenshots/Diagnostics-galera-flow_control.png)
+
+**Recovery — grastate.dat Inspector (dirty crash scenario)**
+![Recovery grastate](.github/screenshots/Recovery-grastate.png)
+
+**Maintenance — Rolling Restart Wizard**
+![Maintenance wizard](.github/screenshots/Maintenance-wizard.png)
+
+</div>
+
+---
+
 ## What's New
 
 > **Recovery & Diagnostics v2** — commit `f80c074`
