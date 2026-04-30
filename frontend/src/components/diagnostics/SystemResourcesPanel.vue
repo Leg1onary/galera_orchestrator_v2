@@ -73,17 +73,25 @@ function pct(used: number | null, total: number | null): number | null {
   return Math.round((used / total) * 100)
 }
 
-function fmtBytes(b: number | null): string {
-  if (b === null) return '—'
-  if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + ' GB'
-  if (b >= 1_048_576)     return (b / 1_048_576).toFixed(0) + ' MB'
-  return (b / 1024).toFixed(0) + ' KB'
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
-function fmtMb(mb: number | null): string {
-  if (mb === null) return '—'
-  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB'
-  return mb.toFixed(0) + ' MB'
+function fmtBytes(b: unknown): string {
+  const n = toNum(b)
+  if (n === null) return '—'
+  if (n >= 1_073_741_824) return (n / 1_073_741_824).toFixed(1) + ' GB'
+  if (n >= 1_048_576)     return (n / 1_048_576).toFixed(0) + ' MB'
+  return (n / 1024).toFixed(0) + ' KB'
+}
+
+function fmtMb(mb: unknown): string {
+  const n = toNum(mb)
+  if (n === null) return '—'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' GB'
+  return n.toFixed(0) + ' MB'
 }
 
 type Level = 'ok' | 'warn' | 'crit' | 'unknown'
